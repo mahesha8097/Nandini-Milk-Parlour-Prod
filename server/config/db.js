@@ -43,6 +43,13 @@ if (isProduction && process.env.DATABASE_URL) {
     console.warn('PostgreSQL compatibility functions setup note:', err.message);
   });
 
+  // Ensure serial_no column exists on customers in PostgreSQL
+  pool.query(`
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS serial_no INTEGER DEFAULT 0;
+  `).catch((err) => {
+    console.warn('PostgreSQL customers.serial_no column setup note:', err.message);
+  });
+
   function translateSql(sql) {
     let paramIndex = 0;
     // Replace SQLite date/datetime function calls with PostgreSQL equivalents
@@ -186,6 +193,7 @@ if (isProduction && process.env.DATABASE_URL) {
       -- Customers table
       CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        serial_no INTEGER DEFAULT 0,
         name TEXT NOT NULL,
         phone TEXT NOT NULL,
         address TEXT NOT NULL,
@@ -371,6 +379,17 @@ if (isProduction && process.env.DATABASE_URL) {
       }
     } catch (mErr) {
       console.warn('Migration note for business_profile.upi_phone:', mErr.message);
+    }
+
+    // Ensure serial_no column exists on customers in SQLite
+    try {
+      const custTableInfo = db.prepare("PRAGMA table_info(customers)").all();
+      const hasSerialNo = custTableInfo.some(col => col.name === 'serial_no');
+      if (!hasSerialNo) {
+        db.prepare("ALTER TABLE customers ADD COLUMN serial_no INTEGER DEFAULT 0").run();
+      }
+    } catch (mErr) {
+      console.warn('Migration note for customers.serial_no:', mErr.message);
     }
 
     // Ensure default profile row exists (empty / initial defaults, no fake business data)

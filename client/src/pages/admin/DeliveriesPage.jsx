@@ -234,7 +234,24 @@ export default function DeliveriesPage() {
               {deliveries.map((del) => (
                 <tr key={del.id}>
                   <td>
-                    <div style={{ fontWeight: '700' }}>{del.customer_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {del.customer_serial_no > 0 && (
+                        <span
+                          style={{
+                            background: '#0054a6',
+                            color: '#fff',
+                            fontWeight: '800',
+                            fontSize: '0.7rem',
+                            padding: '1px 6px',
+                            borderRadius: '4px'
+                          }}
+                          title={`Drop Order #${del.customer_serial_no}`}
+                        >
+                          #{del.customer_serial_no}
+                        </span>
+                      )}
+                      <span style={{ fontWeight: '700' }}>{del.customer_name}</span>
+                    </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       Route: {del.customer_route || 'N/A'} • {del.customer_phone}
                     </div>

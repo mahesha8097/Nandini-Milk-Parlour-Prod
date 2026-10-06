@@ -418,6 +418,7 @@ export default function DeliveryBoyDeliveries() {
       if (!bulkCustomerMap.has(del.customer_id)) {
         bulkCustomerMap.set(del.customer_id, {
           customer_id: del.customer_id,
+          customer_serial_no: del.customer_serial_no,
           customer_name: del.customer_name,
           customer_phone: del.customer_phone,
           customer_address: del.customer_address,
@@ -666,6 +667,21 @@ export default function DeliveryBoyDeliveries() {
                   >
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        {bGroup.customer_serial_no > 0 && (
+                          <span
+                            style={{
+                              background: '#0054a6',
+                              color: '#fff',
+                              fontWeight: '800',
+                              fontSize: '0.75rem',
+                              padding: '2px 8px',
+                              borderRadius: '12px'
+                            }}
+                            title={`Drop Order #${bGroup.customer_serial_no}`}
+                          >
+                            #{bGroup.customer_serial_no}
+                          </span>
+                        )}
                         <h2
                           style={{
                             fontSize: '1.15rem',
@@ -962,6 +978,21 @@ export default function DeliveryBoyDeliveries() {
                     >
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          {del.customer_serial_no > 0 && (
+                            <span
+                              style={{
+                                background: '#0054a6',
+                                color: '#fff',
+                                fontWeight: '800',
+                                fontSize: '0.75rem',
+                                padding: '2px 8px',
+                                borderRadius: '12px'
+                              }}
+                              title={`Drop Order #${del.customer_serial_no}`}
+                            >
+                              #{del.customer_serial_no}
+                            </span>
+                          )}
                           <h3
                             style={{
                               fontSize: '1.05rem',

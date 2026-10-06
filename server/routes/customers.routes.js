@@ -50,7 +50,7 @@ router.get('/', verifyToken, async (req, res) => {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    query += ` ORDER BY c.name ASC`;
+    query += ` ORDER BY CASE WHEN c.serial_no IS NULL OR c.serial_no = 0 THEN 1 ELSE 0 END, c.serial_no ASC, c.name ASC`;
 
     const customers = await db.prepare(query).all(...params);
 
@@ -171,7 +171,8 @@ router.post('/', requireAdmin, async (req, res) => {
       route,
       status,
       notes,
-      initial_advance
+      initial_advance,
+      serial_no
     } = req.body;
 
     if (!name || !phone || !address || !customer_category || !billing_type) {
@@ -180,16 +181,27 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const initAdvance = parseFloat(initial_advance || 0);
 
+    let assignedSerial = serial_no !== undefined && serial_no !== '' && serial_no !== null ? parseInt(serial_no) || 0 : 0;
+    if (!assignedSerial && delivery_boy_id) {
+      try {
+        const maxRow = await db.prepare('SELECT COALESCE(MAX(serial_no), 0) + 1 as next_seq FROM customers WHERE delivery_boy_id = ?').get(delivery_boy_id);
+        assignedSerial = maxRow ? maxRow.next_seq : 1;
+      } catch (seqErr) {
+        assignedSerial = 0;
+      }
+    }
+
     let newCustomerId = null;
     try {
       const stmt = db.prepare(`
         INSERT INTO customers (
-          name, phone, address, customer_category, billing_type, delivery_boy_id,
+          serial_no, name, phone, address, customer_category, billing_type, delivery_boy_id,
           route, status, notes, advance_balance, pending_balance, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, datetime('now', 'localtime'), datetime('now', 'localtime'))
       `);
 
       const result = await stmt.run(
+        assignedSerial,
         name.trim(),
         phone.trim(),
         address.trim(),
@@ -245,6 +257,28 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
+// Bulk update serial numbers / delivery sequence order (Admin only)
+router.put('/reorder', requireAdmin, async (req, res) => {
+  try {
+    const { orders } = req.body; // Array of { id, serial_no }
+    if (!Array.isArray(orders)) {
+      return res.status(400).json({ error: 'orders array is required' });
+    }
+
+    for (const item of orders) {
+      if (item.id) {
+        const sNo = item.serial_no !== undefined && item.serial_no !== '' ? parseInt(item.serial_no) || 0 : 0;
+        await db.prepare('UPDATE customers SET serial_no = ?, updated_at = datetime(\'now\', \'localtime\') WHERE id = ?').run(sNo, item.id);
+      }
+    }
+
+    res.json({ message: 'Delivery sequence order updated successfully' });
+  } catch (err) {
+    console.error('Customer reorder error:', err);
+    res.status(500).json({ error: err.message || 'Failed to update order' });
+  }
+});
+
 // Update Customer Details (Admin only)
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
@@ -265,7 +299,8 @@ router.put('/:id', requireAdmin, async (req, res) => {
       status,
       notes,
       advance_balance,
-      initial_advance
+      initial_advance,
+      serial_no
     } = req.body;
 
     const targetAdvance = advance_balance !== undefined
@@ -275,10 +310,14 @@ router.put('/:id', requireAdmin, async (req, res) => {
     const oldAdvance = parseFloat(existing.advance_balance || 0);
     const newAdvance = isNaN(targetAdvance) ? oldAdvance : targetAdvance;
 
+    const newSerial = serial_no !== undefined
+      ? (serial_no === '' || serial_no === null ? 0 : parseInt(serial_no) || 0)
+      : (existing.serial_no || 0);
+
     await db.prepare(`
       UPDATE customers
       SET name = ?, phone = ?, address = ?, customer_category = ?, billing_type = ?,
-          delivery_boy_id = ?, route = ?, status = ?, notes = ?, advance_balance = ?, updated_at = datetime('now', 'localtime')
+          delivery_boy_id = ?, route = ?, status = ?, notes = ?, advance_balance = ?, serial_no = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
       (name || existing.name).trim(),
@@ -291,6 +330,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       status || existing.status,
       notes !== undefined ? notes : existing.notes,
       newAdvance,
+      newSerial,
       customerId
     );
 

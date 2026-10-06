@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS products (
 -- 6. Customers table (House and Bulk / Commercial)
 CREATE TABLE IF NOT EXISTS customers (
   id SERIAL PRIMARY KEY,
+  serial_no INTEGER DEFAULT 0,
   name TEXT NOT NULL,
   phone TEXT NOT NULL,
   address TEXT NOT NULL,

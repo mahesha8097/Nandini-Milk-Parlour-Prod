@@ -29,6 +29,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState(''); // '' | 'HOUSE' | 'BULK_HOTEL'
   const [billingFilter, setBillingFilter] = useState(''); // '' | 'PREPAID' | 'POSTPAID'
+  const [deliveryBoyFilter, setDeliveryBoyFilter] = useState(''); // '' | dboyId
 
   // Selected for profile modal
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
@@ -45,7 +46,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
     delivery_boy_id: '',
     route: '',
     notes: '',
-    initial_advance: 0
+    initial_advance: 0,
+    serial_no: ''
   });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -58,6 +60,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       if (search) params.append('search', search);
       if (categoryFilter) params.append('category', categoryFilter);
       if (billingFilter) params.append('billing_type', billingFilter);
+      if (deliveryBoyFilter) params.append('delivery_boy_id', deliveryBoyFilter);
 
       const res = await api.get(`/customers?${params.toString()}`);
       setCustomers(res);
@@ -80,11 +83,40 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   useEffect(() => {
     fetchCustomers();
     fetchDeliveryBoys();
-  }, [categoryFilter, billingFilter]);
+  }, [categoryFilter, billingFilter, deliveryBoyFilter]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     fetchCustomers();
+  };
+
+  const handleQuickSerialUpdate = async (customerId, newSerial) => {
+    try {
+      const val = newSerial === '' ? 0 : parseInt(newSerial) || 0;
+      await api.put(`/customers/${customerId}`, { serial_no: val });
+      setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, serial_no: val } : c));
+    } catch (err) {
+      console.error('Failed to update serial number:', err);
+    }
+  };
+
+  const handleAutoAssignSequence = async () => {
+    if (customers.length === 0) return;
+    const confirmMsg = deliveryBoyFilter
+      ? `Auto-assign sequential drop order (1 to ${customers.length}) for the selected delivery boy's customers?`
+      : `Auto-assign sequential drop order (1 to ${customers.length}) for all currently visible customers?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setLoading(true);
+      const orders = customers.map((c, idx) => ({ id: c.id, serial_no: idx + 1 }));
+      await api.put('/customers/reorder', { orders });
+      await fetchCustomers();
+    } catch (err) {
+      alert(err.message || 'Failed to auto-assign serial numbers');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleOpenAdd = () => {
@@ -95,11 +127,12 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       address: '',
       customer_category: 'HOUSE',
       billing_type: 'PREPAID',
-      delivery_boy_id: '',
+      delivery_boy_id: deliveryBoyFilter || '',
       route: '',
       notes: '',
       advance_balance: 0,
-      initial_advance: 0
+      initial_advance: 0,
+      serial_no: customers.length > 0 ? (Math.max(...customers.map(c => c.serial_no || 0), 0) + 1) : 1
     });
     setFormError('');
     setIsAddModalOpen(true);
@@ -118,7 +151,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       route: customer.route || '',
       notes: customer.notes || '',
       advance_balance: adv,
-      initial_advance: adv
+      initial_advance: adv,
+      serial_no: customer.serial_no || ''
     });
     setFormError('');
     setIsAddModalOpen(true);
@@ -203,7 +237,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             <button type="submit" className="btn btn-secondary btn-sm">Search</button>
           </form>
 
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
             <select
               className="form-select"
               style={{ width: 'auto', fontSize: '0.813rem' }}
@@ -225,6 +259,38 @@ export default function CustomersPage({ initialOpenAdd = false }) {
               <option value="PREPAID">Prepaid (Advance)</option>
               <option value="POSTPAID">Postpaid</option>
             </select>
+
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={deliveryBoyFilter}
+              onChange={(e) => setDeliveryBoyFilter(e.target.value)}
+            >
+              <option value="">All Delivery Boys</option>
+              {deliveryBoys.map(dboy => (
+                <option key={dboy.id} value={dboy.id}>
+                  {dboy.name} ({dboy.assigned_route || 'All Routes'})
+                </option>
+              ))}
+            </select>
+
+            {customers.length > 0 && (
+              <button
+                type="button"
+                onClick={handleAutoAssignSequence}
+                className="btn btn-outline btn-sm"
+                style={{
+                  fontSize: '0.78rem',
+                  fontWeight: '700',
+                  color: '#0054a6',
+                  borderColor: '#93c5fd',
+                  background: '#eff6ff'
+                }}
+                title="Automatically assign sequential drop numbers (1, 2, 3...) to visible customers in order"
+              >
+                ⚡ Auto-Sequence (1..{customers.length})
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -250,6 +316,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           <table className="custom-table">
             <thead>
               <tr>
+                <th style={{ width: '80px', textAlign: 'center' }}>S.No / Drop #</th>
                 <th>Customer Name</th>
                 <th>Category</th>
                 <th>Billing</th>
@@ -264,8 +331,58 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             <tbody>
               {customers.map((c) => (
                 <tr key={c.id}>
+                  <td style={{ textAlign: 'center' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input"
+                        style={{
+                          width: '56px',
+                          padding: '3px 4px',
+                          textAlign: 'center',
+                          fontWeight: '800',
+                          fontSize: '0.85rem',
+                          color: c.serial_no > 0 ? '#0054a6' : 'var(--text-muted)',
+                          borderColor: c.serial_no > 0 ? '#93c5fd' : 'var(--border-color)',
+                          background: c.serial_no > 0 ? '#f0f9ff' : '#ffffff',
+                          borderRadius: '6px'
+                        }}
+                        defaultValue={c.serial_no || ''}
+                        key={`${c.id}-${c.serial_no}`}
+                        onBlur={(e) => {
+                          const val = e.target.value.trim();
+                          if (val !== String(c.serial_no || '')) {
+                            handleQuickSerialUpdate(c.id, val);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        title="Delivery drop order number. Click to edit."
+                      />
+                    </div>
+                  </td>
                   <td>
-                    <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{c.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {c.serial_no > 0 && (
+                        <span
+                          style={{
+                            background: '#0054a6',
+                            color: '#ffffff',
+                            fontWeight: '800',
+                            fontSize: '0.7rem',
+                            padding: '1px 6px',
+                            borderRadius: '4px'
+                          }}
+                        >
+                          #{c.serial_no}
+                        </span>
+                      )}
+                      <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{c.name}</div>
+                    </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.address}</div>
                   </td>
                   <td>
@@ -478,15 +595,34 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Notes (Optional)</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. Ring bell twice / 1st floor"
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            />
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">
+                Serial No / Delivery Drop Order
+              </label>
+              <input
+                type="number"
+                min="1"
+                className="form-input"
+                placeholder="e.g. 1, 2, 3..."
+                value={formData.serial_no || ''}
+                onChange={(e) => setFormData({ ...formData, serial_no: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+              />
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Delivery boy sequence order (1st house, 2nd house...).
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Notes (Optional)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. Ring bell twice / 1st floor"
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              />
+            </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>

@@ -170,6 +170,7 @@ router.get('/', verifyToken, async (req, res) => {
       SELECT d.*, 
              c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
              c.route as customer_route, c.customer_category, c.billing_type,
+             c.serial_no as customer_serial_no, c.serial_no,
              u.name as delivery_boy_name,
              s.quantity as subscription_quantity,
              r.id as requirement_id,
@@ -219,7 +220,7 @@ router.get('/', verifyToken, async (req, res) => {
       params.push(`%${route}%`);
     }
 
-    query += ` ORDER BY c.route ASC, c.name ASC, d.id ASC`;
+    query += ` ORDER BY CASE WHEN c.serial_no IS NULL OR c.serial_no = 0 THEN 1 ELSE 0 END, c.serial_no ASC, c.route ASC, c.name ASC, d.id ASC`;
 
     const deliveries = await db.prepare(query).all(...params);
 
@@ -228,6 +229,7 @@ router.get('/', verifyToken, async (req, res) => {
     let bulkCustQuery = `
       SELECT c.id as customer_id, c.name as customer_name, c.phone as customer_phone,
               c.address as customer_address, c.route as customer_route,
+              c.serial_no as customer_serial_no, c.serial_no,
               c.customer_category, c.billing_type, c.delivery_boy_id,
               u.name as delivery_boy_name
       FROM customers c
@@ -281,6 +283,7 @@ router.get('/', verifyToken, async (req, res) => {
           customer_phone: bCust.customer_phone,
           customer_address: bCust.customer_address,
           customer_route: bCust.customer_route,
+          customer_serial_no: bCust.serial_no || bCust.customer_serial_no || 0,
           customer_category: 'BULK_HOTEL',
           billing_type: bCust.billing_type,
           delivery_boy_name: bCust.delivery_boy_name,
@@ -288,6 +291,21 @@ router.get('/', verifyToken, async (req, res) => {
         });
       }
     }
+
+    // Sort deliveries according to delivery sequence (serial_no)
+    deliveries.sort((a, b) => {
+      const aSerial = a.customer_serial_no || a.serial_no || 0;
+      const bSerial = b.customer_serial_no || b.serial_no || 0;
+      if (aSerial > 0 && bSerial > 0 && aSerial !== bSerial) {
+        return aSerial - bSerial;
+      }
+      if (aSerial > 0 && bSerial === 0) return -1;
+      if (aSerial === 0 && bSerial > 0) return 1;
+      const aRoute = a.customer_route || '';
+      const bRoute = b.customer_route || '';
+      if (aRoute !== bRoute) return aRoute.localeCompare(bRoute);
+      return (a.customer_name || '').localeCompare(b.customer_name || '');
+    });
 
     res.json(deliveries);
   } catch (err) {
