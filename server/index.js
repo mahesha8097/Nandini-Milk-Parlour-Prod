@@ -40,6 +40,11 @@ const corsOptions = {
       return callback(null, true);
     }
 
+    // Automatically allow Vercel deployment domains (*.vercel.app)
+    if (/\.vercel\.app$/.test(new URL(origin).hostname)) {
+      return callback(null, true);
+    }
+
     // In development mode, permit localhost and 127.0.0.1 on any port
     if (!isProd && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
       return callback(null, true);
