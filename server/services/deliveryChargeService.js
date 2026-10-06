@@ -51,14 +51,18 @@ function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
   }
 
   // Separate milk items and other items
-  // All MILK_RULE / Milk items for the customer on the day are combined together
+  // An item uses MILK_RULE only if:
+  // 1) deliveryChargeType is explicitly 'MILK_RULE'
+  // 2) OR if deliveryChargeType is not specified and category is 'Milk'
+  // If deliveryChargeType is 'FIXED_PER_UNIT' or 'NONE', it must NEVER use the Milk rule.
   const milkItems = [];
   const otherItems = [];
 
   for (const item of items) {
-    const isMilkRule = item.deliveryChargeType === 'MILK_RULE' ||
-      (!item.deliveryChargeType && item.category === 'Milk') ||
-      (item.category && item.category.toLowerCase() === 'milk');
+    const chargeType = item.deliveryChargeType || item.delivery_charge_type;
+    const isMilkCategory = Boolean(item.category && item.category.trim().toLowerCase() === 'milk');
+
+    const isMilkRule = chargeType === 'MILK_RULE' || (!chargeType && isMilkCategory);
 
     if (isMilkRule) {
       milkItems.push(item);
@@ -114,13 +118,24 @@ function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
   }
 
   // Handle other items (Fixed per unit or None)
+  // Per packet/unit: charge = fixedDeliveryCharge * quantity
   for (const item of otherItems) {
+    const chargeType = item.deliveryChargeType || item.delivery_charge_type;
+    const fixedCharge = item.fixedDeliveryCharge !== undefined
+      ? item.fixedDeliveryCharge
+      : (item.fixed_delivery_charge !== undefined ? item.fixed_delivery_charge : 0);
+
     let charge = 0;
-    if (item.deliveryChargeType === 'FIXED_PER_UNIT') {
-      charge = parseFloat(((item.fixedDeliveryCharge || 0) * item.quantity).toFixed(2));
-    } else if (item.deliveryChargeType === 'NONE') {
+    if (chargeType === 'FIXED_PER_UNIT') {
+      const perPacket = parseFloat(fixedCharge) || 0;
+      const qty = parseFloat(item.quantity) || 0;
+      charge = parseFloat((perPacket * qty).toFixed(2));
+    } else if (chargeType === 'NONE') {
+      charge = 0;
+    } else {
       charge = 0;
     }
+
     results.push({
       ...item,
       deliveryCharge: charge

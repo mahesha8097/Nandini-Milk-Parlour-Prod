@@ -725,6 +725,118 @@ console.log('\n[TEST 26] Temporary Skip and Multiple Edits Before Delivery');
   db.prepare(`DELETE FROM products WHERE id = ?`).run(prodId);
 }
 
+  // ----------------------------------------------------
+  // TEST 27: Fixed Delivery Charge per Unit / Packet Calculation
+  // ----------------------------------------------------
+  console.log('\n[TEST 27] Fixed Delivery Charge per Unit / Packet Calculation');
+  {
+    // Case A: Single product with category Milk but FIXED_PER_UNIT @ ₹1/packet
+    const fixedMilk1Pkt = [{
+      productId: 101,
+      productName: 'Samruddhi Milk 500ml',
+      category: 'Milk',
+      variantLabel: '500 ml',
+      unitVolumeLitres: 0.5,
+      quantity: 1,
+      sellingPrice: 28,
+      deliveryChargeType: 'FIXED_PER_UNIT',
+      fixedDeliveryCharge: 1.0
+    }];
+    const calc1 = calculateDeliveryChargesForCustomerDay('HOUSE', fixedMilk1Pkt);
+    assert.strictEqual(calc1[0].deliveryCharge, 1.0, '1 packet @ ₹1 fixed charge must be ₹1.00');
+
+    const fixedMilk2Pkt = [{
+      productId: 101,
+      productName: 'Samruddhi Milk 500ml',
+      category: 'Milk',
+      variantLabel: '500 ml',
+      unitVolumeLitres: 0.5,
+      quantity: 2,
+      sellingPrice: 28,
+      deliveryChargeType: 'FIXED_PER_UNIT',
+      fixedDeliveryCharge: 1.0
+    }];
+    const calc2 = calculateDeliveryChargesForCustomerDay('HOUSE', fixedMilk2Pkt);
+    assert.strictEqual(calc2[0].deliveryCharge, 2.0, '2 packets @ ₹1 fixed charge must be ₹2.00 (not ₹3 milk rule)');
+
+    const fixedMilk3Pkt = [{
+      productId: 101,
+      productName: 'Samruddhi Milk 500ml',
+      category: 'Milk',
+      variantLabel: '500 ml',
+      unitVolumeLitres: 0.5,
+      quantity: 3,
+      sellingPrice: 28,
+      deliveryChargeType: 'FIXED_PER_UNIT',
+      fixedDeliveryCharge: 1.0
+    }];
+    const calc3 = calculateDeliveryChargesForCustomerDay('HOUSE', fixedMilk3Pkt);
+    assert.strictEqual(calc3[0].deliveryCharge, 3.0, '3 packets @ ₹1 fixed charge must be ₹3.00 (not ₹4.50 milk rule)');
+
+    // Case B: Combined day with Shubham (MILK_RULE) + Samruddhi (FIXED_PER_UNIT)
+    const combined = [
+      {
+        productId: 1,
+        productName: 'Shubham Milk 500ml',
+        category: 'Milk',
+        variantLabel: '500 ml',
+        unitVolumeLitres: 0.5,
+        quantity: 1,
+        sellingPrice: 27,
+        deliveryChargeType: 'MILK_RULE'
+      },
+      {
+        productId: 101,
+        productName: 'Samruddhi Milk 500ml',
+        category: 'Milk',
+        variantLabel: '500 ml',
+        unitVolumeLitres: 0.5,
+        quantity: 2,
+        sellingPrice: 28,
+        deliveryChargeType: 'FIXED_PER_UNIT',
+        fixedDeliveryCharge: 1.0
+      }
+    ];
+    const calcCombined = calculateDeliveryChargesForCustomerDay('HOUSE', combined);
+    const shubham = calcCombined.find(i => i.productId === 1);
+    const samruddhi = calcCombined.find(i => i.productId === 101);
+    assert.strictEqual(shubham.deliveryCharge, 2.0, 'Shubham 0.5L MILK_RULE must be ₹2.00');
+    assert.strictEqual(samruddhi.deliveryCharge, 2.0, 'Samruddhi 2 pkts FIXED_PER_UNIT @ ₹1 must be ₹2.00');
+    const totalDayCharge = shubham.deliveryCharge + samruddhi.deliveryCharge;
+    assert.strictEqual(totalDayCharge, 4.0, 'Total combined day charge must be ₹4.00');
+
+    // Case C: delivery_charge_type with snake_case property fallback
+    const snakeCaseItem = [{
+      productId: 102,
+      productName: 'Ghee 500g',
+      category: 'Ghee',
+      variantLabel: '500 g',
+      unitVolumeLitres: 0.5,
+      quantity: 4,
+      sellingPrice: 350,
+      delivery_charge_type: 'FIXED_PER_UNIT',
+      fixed_delivery_charge: 5.0
+    }];
+    const calcSnake = calculateDeliveryChargesForCustomerDay('HOUSE', snakeCaseItem);
+    assert.strictEqual(calcSnake[0].deliveryCharge, 20.0, '4 packets @ ₹5 fixed charge must be ₹20.00');
+
+    // Case D: NONE delivery charge type
+    const noneItem = [{
+      productId: 103,
+      productName: 'Butter 100g',
+      category: 'Butter',
+      variantLabel: '100 g',
+      unitVolumeLitres: 0.1,
+      quantity: 2,
+      sellingPrice: 50,
+      deliveryChargeType: 'NONE'
+    }];
+    const calcNone = calculateDeliveryChargesForCustomerDay('HOUSE', noneItem);
+    assert.strictEqual(calcNone[0].deliveryCharge, 0.0, 'NONE delivery charge must be ₹0');
+
+    console.log('  ✓ Passed: Fixed delivery charge per packet (1 pkt=₹1, 2 pkts=₹2, 3 pkts=₹3) calculated correctly.');
+}
+
 async function runAsyncTests() {
   await test14();
   await test15();
@@ -732,7 +844,7 @@ async function runAsyncTests() {
   await test24();
 
   console.log('\n================================================================');
-  console.log(' ALL 26 COMPREHENSIVE BUSINESS RULE AUDIT TESTS PASSED! ✓');
+  console.log(' ALL 27 COMPREHENSIVE BUSINESS RULE AUDIT TESTS PASSED! ✓');
   console.log('================================================================\n');
 }
 
