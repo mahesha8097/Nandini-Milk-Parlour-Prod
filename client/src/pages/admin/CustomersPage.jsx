@@ -98,6 +98,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       delivery_boy_id: '',
       route: '',
       notes: '',
+      advance_balance: 0,
       initial_advance: 0
     });
     setFormError('');
@@ -106,6 +107,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
 
   const handleOpenEdit = (customer) => {
     setEditingCustomer(customer);
+    const adv = customer.advance_balance !== undefined ? customer.advance_balance : (customer.initial_advance || 0);
     setFormData({
       name: customer.name,
       phone: customer.phone,
@@ -115,7 +117,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       delivery_boy_id: customer.delivery_boy_id || '',
       route: customer.route || '',
       notes: customer.notes || '',
-      initial_advance: 0
+      advance_balance: adv,
+      initial_advance: adv
     });
     setFormError('');
     setIsAddModalOpen(true);
@@ -456,20 +459,23 @@ export default function CustomersPage({ initialOpenAdd = false }) {
               </select>
             </div>
 
-            {!editingCustomer && (
-              <div className="form-group">
-                <label className="form-label">Opening Advance Balance (₹)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  className="form-input"
-                  placeholder="0.00"
-                  value={formData.initial_advance}
-                  onChange={(e) => setFormData({ ...formData, initial_advance: parseFloat(e.target.value) || 0 })}
-                />
-              </div>
-            )}
+            <div className="form-group">
+              <label className="form-label">
+                {editingCustomer ? 'Advance Balance (₹)' : 'Opening Advance Balance (₹)'}
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                className="form-input"
+                placeholder="0.00"
+                value={formData.advance_balance !== undefined ? formData.advance_balance : (formData.initial_advance ?? 0)}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  setFormData({ ...formData, advance_balance: val, initial_advance: val });
+                }}
+              />
+            </div>
           </div>
 
           <div className="form-group">

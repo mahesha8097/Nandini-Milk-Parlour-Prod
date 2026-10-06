@@ -262,13 +262,22 @@ router.put('/:id', requireAdmin, async (req, res) => {
       delivery_boy_id,
       route,
       status,
-      notes
+      notes,
+      advance_balance,
+      initial_advance
     } = req.body;
+
+    const targetAdvance = advance_balance !== undefined
+      ? parseFloat(advance_balance)
+      : (initial_advance !== undefined ? parseFloat(initial_advance) : existing.advance_balance);
+
+    const oldAdvance = parseFloat(existing.advance_balance || 0);
+    const newAdvance = isNaN(targetAdvance) ? oldAdvance : targetAdvance;
 
     await db.prepare(`
       UPDATE customers
       SET name = ?, phone = ?, address = ?, customer_category = ?, billing_type = ?,
-          delivery_boy_id = ?, route = ?, status = ?, notes = ?, updated_at = datetime('now', 'localtime')
+          delivery_boy_id = ?, route = ?, status = ?, notes = ?, advance_balance = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
       (name || existing.name).trim(),
@@ -280,21 +289,47 @@ router.put('/:id', requireAdmin, async (req, res) => {
       route !== undefined ? route : existing.route,
       status || existing.status,
       notes !== undefined ? notes : existing.notes,
+      newAdvance,
       customerId
     );
+
+    // If advance balance changed, record adjustment in customer_ledger
+    const advanceDiff = parseFloat((newAdvance - oldAdvance).toFixed(2));
+    if (advanceDiff !== 0) {
+      try {
+        await db.prepare(`
+          INSERT INTO customer_ledger (
+            customer_id, transaction_date, transaction_type, reference_id, debit, credit,
+            advance_balance_after, pending_balance_after, description, created_at
+          ) VALUES (?, date('now', 'localtime'), 'ADJUSTMENT', 'MANUAL_EDIT', ?, ?, ?, ?, 'Admin adjusted advance balance', datetime('now', 'localtime'))
+        `).run(
+          customerId,
+          advanceDiff < 0 ? Math.abs(advanceDiff) : 0,
+          advanceDiff > 0 ? advanceDiff : 0,
+          newAdvance,
+          parseFloat(existing.pending_balance || 0)
+        );
+      } catch (ledgerErr) {
+        console.warn('Customer ledger adjustment notice:', ledgerErr.message);
+      }
+    }
 
     const updated = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
 
     // Audit log
-    await db.prepare(`
-      INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
-      VALUES (?, 'UPDATE_CUSTOMER', 'customers', ?, ?, datetime('now', 'localtime'))
-    `).run(req.user.id, customerId, `Updated customer: ${updated.name}`);
+    try {
+      await db.prepare(`
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+        VALUES (?, 'UPDATE_CUSTOMER', 'customers', ?, ?, datetime('now', 'localtime'))
+      `).run(req.user?.id || null, customerId, `Updated customer: ${updated.name} (advance: ₹${newAdvance})`);
+    } catch (auditErr) {
+      console.warn('Audit log notice:', auditErr.message);
+    }
 
     res.json(updated);
   } catch (err) {
     console.error('Update customer error:', err);
-    res.status(500).json({ error: 'Failed to update customer' });
+    res.status(500).json({ error: err.message || 'Failed to update customer' });
   }
 });
 
