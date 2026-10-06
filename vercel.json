@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "installCommand": "npm install && npm --prefix client install",
-  "buildCommand": "npm --prefix client run build",
+  "installCommand": "npm install --include=dev && cd client && npm install --include=dev",
+  "buildCommand": "cd client && npm run build",
   "outputDirectory": "client/dist",
   "routes": [
     {
