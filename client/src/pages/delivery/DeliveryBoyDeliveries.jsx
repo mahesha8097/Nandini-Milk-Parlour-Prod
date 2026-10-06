@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
+import ProductPacketImage from '../../components/ProductPacketImage';
 import {
   PackageCheck,
   CheckCircle2,
@@ -407,104 +408,169 @@ export default function DeliveryBoyDeliveries() {
   };
 
   // ----------------------------------------------------
-  // DATA GROUPING & FILTERING
+  // UNIFIED CUSTOMER GROUPING
   // ----------------------------------------------------
-  // 1. Separate House Deliveries vs Bulk Customers
-  const houseDeliveries = [];
-  const bulkCustomerMap = new Map();
+  // Every customer gets exactly ONE card in serial_no drop sequence order.
+  // Multiple products (e.g. Shubham Milk + Toned Milk) are grouped together inside the customer's card.
+  const customerMap = new Map();
 
   for (const del of deliveries) {
-    if (del.customer_category === 'BULK_HOTEL') {
-      if (!bulkCustomerMap.has(del.customer_id)) {
-        bulkCustomerMap.set(del.customer_id, {
-          customer_id: del.customer_id,
-          customer_serial_no: del.customer_serial_no,
-          customer_name: del.customer_name,
-          customer_phone: del.customer_phone,
-          customer_address: del.customer_address,
-          customer_route: del.customer_route,
-          customer_category: del.customer_category,
-          delivery_boy_id: del.delivery_boy_id,
-          delivery_boy_name: del.delivery_boy_name,
-          items: []
-        });
-      }
-      if (del.product_id && del.quantity > 0) {
-        bulkCustomerMap.get(del.customer_id).items.push(del);
-      }
-    } else {
-      houseDeliveries.push(del);
+    const custId = del.customer_id;
+    if (!customerMap.has(custId)) {
+      customerMap.set(custId, {
+        customer_id: custId,
+        customer_serial_no: del.customer_serial_no || del.serial_no || 0,
+        customer_name: del.customer_name,
+        customer_phone: del.customer_phone,
+        customer_address: del.customer_address,
+        customer_route: del.customer_route,
+        customer_category: del.customer_category,
+        delivery_boy_id: del.delivery_boy_id,
+        delivery_boy_name: del.delivery_boy_name,
+        billing_type: del.billing_type,
+        items: []
+      });
+    }
+
+    if (del.product_id && (del.quantity > 0 || del.status === 'SKIPPED')) {
+      customerMap.get(custId).items.push(del);
     }
   }
 
-  const bulkCustomerGroups = Array.from(bulkCustomerMap.values()).map((bGroup) => {
-    const hasProducts = bGroup.items.length > 0;
-    const isDelivered = hasProducts && bGroup.items.every((it) => it.status === 'DELIVERED');
-    const totalAmount = bGroup.items.reduce((acc, it) => acc + (it.total_amount || 0), 0);
-    const totalQuantity = bGroup.items.reduce((acc, it) => acc + (it.quantity || 0), 0);
+  const customerGroups = Array.from(customerMap.values()).map((cGroup) => {
+    const hasItems = cGroup.items.length > 0;
+    const nonSkippedItems = cGroup.items.filter((it) => it.status !== 'SKIPPED');
+    const isAllDelivered = hasItems && nonSkippedItems.length > 0 && nonSkippedItems.every((it) => it.status === 'DELIVERED');
+    const isAllSkipped = hasItems && cGroup.items.every((it) => it.status === 'SKIPPED');
+    const hasAnyDelivered = cGroup.items.some((it) => it.status === 'DELIVERED');
+
+    let groupStatus = 'PENDING';
+    if (isAllSkipped) {
+      groupStatus = 'SKIPPED';
+    } else if (isAllDelivered) {
+      groupStatus = 'DELIVERED';
+    } else if (hasAnyDelivered) {
+      groupStatus = 'PARTIALLY DELIVERED';
+    }
+
+    const totalAmount = nonSkippedItems.reduce((acc, it) => acc + (it.total_amount || 0), 0);
+    const totalQuantity = nonSkippedItems.reduce((acc, it) => acc + (it.quantity || 0), 0);
+    const hasSpecialReq = cGroup.items.some(
+      (it) => (it.requirement_type && it.requirement_type !== 'NORMAL') ||
+              (it.notes && (it.notes.includes('Extra') || it.notes.includes('+') || it.notes.includes('Adhoc')))
+    );
 
     return {
-      ...bGroup,
-      hasProducts,
-      isDelivered,
-      status: isDelivered ? 'DELIVERED' : 'PENDING',
+      ...cGroup,
+      hasItems,
+      isAllDelivered,
+      isAllSkipped,
+      status: groupStatus,
       totalAmount,
-      totalQuantity
+      totalQuantity,
+      hasSpecialReq
     };
   });
 
-  // Filter House Deliveries
-  const filteredHouseDeliveries = houseDeliveries.filter((del) => {
-    const isSpecial = del.requirement_type && del.requirement_type !== 'NORMAL';
-    const matchesSearch =
-      del.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-      del.customer_address?.toLowerCase().includes(search.toLowerCase()) ||
-      del.customer_route?.toLowerCase().includes(search.toLowerCase()) ||
-      del.product_name_snapshot?.toLowerCase().includes(search.toLowerCase());
-
-    let matchesStatus = true;
-    if (filterStatus === 'SPECIAL') {
-      matchesStatus = isSpecial;
-    } else if (filterStatus !== 'ALL') {
-      matchesStatus = del.status === filterStatus;
-    }
-
-    return matchesSearch && matchesStatus;
+  // Preserve drop sequence order (serial_no)
+  customerGroups.sort((a, b) => {
+    const aSerial = a.customer_serial_no || 0;
+    const bSerial = b.customer_serial_no || 0;
+    if (aSerial > 0 && bSerial > 0 && aSerial !== bSerial) return aSerial - bSerial;
+    if (aSerial > 0 && bSerial === 0) return -1;
+    if (aSerial === 0 && bSerial > 0) return 1;
+    const aRoute = a.customer_route || '';
+    const bRoute = b.customer_route || '';
+    if (aRoute !== bRoute) return aRoute.localeCompare(bRoute);
+    return (a.customer_name || '').localeCompare(b.customer_name || '');
   });
 
-  // Filter Bulk Groups
-  const filteredBulkGroups = bulkCustomerGroups.filter((bGroup) => {
-    const matchesSearch =
-      bGroup.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-      bGroup.customer_address?.toLowerCase().includes(search.toLowerCase()) ||
-      bGroup.customer_route?.toLowerCase().includes(search.toLowerCase()) ||
-      bGroup.items.some((it) => it.product_name_snapshot?.toLowerCase().includes(search.toLowerCase()));
-
-    let matchesStatus = true;
-    if (filterStatus === 'SPECIAL') {
-      matchesStatus = false; // Bulk customers don't have house subscription special requirements
-    } else if (filterStatus === 'DELIVERED') {
-      matchesStatus = bGroup.isDelivered;
-    } else if (filterStatus === 'PENDING') {
-      matchesStatus = !bGroup.isDelivered;
-    } else if (filterStatus === 'SKIPPED') {
-      matchesStatus = false;
+  // Group status actions
+  const handleMarkGroupDelivered = async (group) => {
+    if (group.customer_category === 'BULK_HOTEL' && (!group.items || group.items.length === 0)) {
+      handleOpenBulkModal(group);
+      return;
     }
+    const itemIds = (group.items || []).map((it) => it.id).filter(Boolean);
+    if (itemIds.length === 0) return;
+    try {
+      setDeliveries((prev) =>
+        prev.map((d) => (itemIds.includes(d.id) ? { ...d, status: 'DELIVERED' } : d))
+      );
+      await api.post('/deliveries/bulk-status', {
+        deliveryIds: itemIds,
+        status: 'DELIVERED'
+      });
+      showToast(`Marked delivered for ${group.customer_name}`);
+      fetchDeliveries(currentDate);
+    } catch (err) {
+      alert(err.message || 'Failed to update delivery status');
+      fetchDeliveries(currentDate);
+    }
+  };
 
-    return matchesSearch && matchesStatus;
+  const handleMarkGroupPending = async (group) => {
+    const itemIds = (group.items || []).map((it) => it.id).filter(Boolean);
+    if (itemIds.length === 0) return;
+    try {
+      setDeliveries((prev) =>
+        prev.map((d) => (itemIds.includes(d.id) ? { ...d, status: 'PENDING' } : d))
+      );
+      await api.post('/deliveries/bulk-status', {
+        deliveryIds: itemIds,
+        status: 'PENDING'
+      });
+      showToast(`Reverted ${group.customer_name} to Pending`);
+      fetchDeliveries(currentDate);
+    } catch (err) {
+      alert(err.message || 'Failed to update delivery status');
+      fetchDeliveries(currentDate);
+    }
+  };
+
+  const handleMarkGroupSkipped = async (group) => {
+    const itemIds = (group.items || []).map((it) => it.id).filter(Boolean);
+    if (itemIds.length === 0) return;
+    try {
+      setDeliveries((prev) =>
+        prev.map((d) => (itemIds.includes(d.id) ? { ...d, status: 'SKIPPED' } : d))
+      );
+      await api.post('/deliveries/bulk-status', {
+        deliveryIds: itemIds,
+        status: 'SKIPPED',
+        notes: 'Delivery skipped for today'
+      });
+      showToast(`Marked ${group.customer_name} as Skipped`);
+      fetchDeliveries(currentDate);
+    } catch (err) {
+      alert(err.message || 'Failed to update delivery status');
+      fetchDeliveries(currentDate);
+    }
+  };
+
+  // Filter Customer Groups
+  const filteredCustomerGroups = customerGroups.filter((group) => {
+    const matchesSearch =
+      group.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
+      group.customer_address?.toLowerCase().includes(search.toLowerCase()) ||
+      group.customer_route?.toLowerCase().includes(search.toLowerCase()) ||
+      group.items.some((it) => it.product_name_snapshot?.toLowerCase().includes(search.toLowerCase()));
+
+    if (!matchesSearch) return false;
+
+    if (filterStatus === 'ALL') return true;
+    if (filterStatus === 'PENDING') return group.status === 'PENDING' || group.status === 'PARTIALLY DELIVERED';
+    if (filterStatus === 'DELIVERED') return group.status === 'DELIVERED';
+    if (filterStatus === 'SKIPPED') return group.status === 'SKIPPED';
+    if (filterStatus === 'SPECIAL') return group.hasSpecialReq;
+    return true;
   });
 
-  // Counts
-  const totalHousePending = houseDeliveries.filter((d) => d.status === 'PENDING').length;
-  const totalHouseDelivered = houseDeliveries.filter((d) => d.status === 'DELIVERED').length;
-  const totalHouseSkipped = houseDeliveries.filter((d) => d.status === 'SKIPPED').length;
-  const totalSpecial = houseDeliveries.filter((d) => d.requirement_type && d.requirement_type !== 'NORMAL').length;
-
-  const totalBulkPending = bulkCustomerGroups.filter((b) => !b.isDelivered).length;
-  const totalBulkDelivered = bulkCustomerGroups.filter((b) => b.isDelivered).length;
-
-  const totalAllPending = totalHousePending + totalBulkPending;
-  const totalAllDelivered = totalHouseDelivered + totalBulkDelivered;
+  // Statistics
+  const totalPending = customerGroups.filter((g) => g.status === 'PENDING' || g.status === 'PARTIALLY DELIVERED').length;
+  const totalDelivered = customerGroups.filter((g) => g.status === 'DELIVERED').length;
+  const totalSkipped = customerGroups.filter((g) => g.status === 'SKIPPED').length;
+  const totalSpecial = customerGroups.filter((g) => g.hasSpecialReq).length;
 
   return (
     <div className="page-wrapper">
@@ -552,7 +618,7 @@ export default function DeliveryBoyDeliveries() {
             Today's Deliveries ({formatDisplayDate(currentDate)})
           </h1>
           <p className="page-subtitle">
-            {totalAllPending} Pending • {totalAllDelivered} Delivered • {bulkCustomerGroups.length} Bulk Orders
+            {totalPending} Pending • {totalDelivered} Delivered • {customerGroups.length} Customers
           </p>
         </div>
 
@@ -597,11 +663,11 @@ export default function DeliveryBoyDeliveries() {
         {/* Filter Pills */}
         <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
           {[
-            { id: 'ALL', label: `All (${houseDeliveries.length + bulkCustomerGroups.length})` },
-            { id: 'PENDING', label: `Pending (${totalAllPending})` },
-            { id: 'DELIVERED', label: `Delivered (${totalAllDelivered})` },
+            { id: 'ALL', label: `All (${customerGroups.length})` },
+            { id: 'PENDING', label: `Pending (${totalPending})` },
+            { id: 'DELIVERED', label: `Delivered (${totalDelivered})` },
             { id: 'SPECIAL', label: `Special Instructions (${totalSpecial})` },
-            { id: 'SKIPPED', label: `Skipped (${totalHouseSkipped})` }
+            { id: 'SKIPPED', label: `Skipped (${totalSkipped})` }
           ].map((pill) => (
             <button
               key={pill.id}
@@ -632,66 +698,71 @@ export default function DeliveryBoyDeliveries() {
         <div className="card" style={{ color: 'var(--accent-red)', padding: '20px' }}>
           {error}
         </div>
-      ) : filteredHouseDeliveries.length === 0 && filteredBulkGroups.length === 0 ? (
+      ) : filteredCustomerGroups.length === 0 ? (
         <EmptyState
           icon={PackageCheck}
           title="No deliveries found"
           description="No items match your filter criteria."
         />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* ========================================================================= */}
-          {/* SECTION 1: BULK ORDERS (MANUAL DAILY PRODUCTS & QUANTITIES) */}
-          {/* ========================================================================= */}
-          {filteredBulkGroups.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {filteredBulkGroups.map((bGroup) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {filteredCustomerGroups.map((group) => {
+            return (
+              <div
+                key={`cust_group_${group.customer_id}`}
+                className="card"
+                style={{
+                  padding: '16px',
+                  borderLeft: `5px solid ${
+                    group.status === 'DELIVERED'
+                      ? '#10b981'
+                      : group.status === 'SKIPPED'
+                      ? '#f59e0b'
+                      : group.hasSpecialReq
+                      ? '#0284c7'
+                      : '#0054a6'
+                  }`,
+                  background: group.status === 'DELIVERED' ? '#f0fdf4' : 'white',
+                  boxShadow: group.hasSpecialReq ? '0 4px 14px rgba(0,0,0,0.08)' : 'var(--shadow-sm)'
+                }}
+              >
+                {/* Customer Card Header */}
                 <div
-                  key={`bulk_group_${bGroup.customer_id}`}
-                  className="card"
                   style={{
-                    padding: '16px',
-                    borderLeft: `6px solid ${bGroup.isDelivered ? '#10b981' : '#7c3aed'}`,
-                    background: bGroup.isDelivered ? '#f0fdf4' : '#faf5ff',
-                    boxShadow: '0 4px 16px rgba(124, 58, 237, 0.10)'
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    marginBottom: '10px'
                   }}
                 >
-                  {/* Card Header */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      marginBottom: '10px'
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        {bGroup.customer_serial_no > 0 && (
-                          <span
-                            style={{
-                              background: '#0054a6',
-                              color: '#fff',
-                              fontWeight: '800',
-                              fontSize: '0.75rem',
-                              padding: '2px 8px',
-                              borderRadius: '12px'
-                            }}
-                            title={`Drop Order #${bGroup.customer_serial_no}`}
-                          >
-                            #{bGroup.customer_serial_no}
-                          </span>
-                        )}
-                        <h2
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      {group.customer_serial_no > 0 && (
+                        <span
                           style={{
-                            fontSize: '1.15rem',
+                            background: '#0054a6',
+                            color: '#fff',
                             fontWeight: '800',
-                            color: 'var(--text-primary)',
-                            margin: 0
+                            fontSize: '0.75rem',
+                            padding: '2px 8px',
+                            borderRadius: '12px'
                           }}
+                          title={`Drop Order #${group.customer_serial_no}`}
                         >
-                          {bGroup.customer_name}
-                        </h2>
+                          #{group.customer_serial_no}
+                        </span>
+                      )}
+                      <h3
+                        style={{
+                          fontSize: '1.1rem',
+                          fontWeight: '800',
+                          color: 'var(--text-primary)',
+                          margin: 0
+                        }}
+                      >
+                        {group.customer_name}
+                      </h3>
+                      {group.customer_category === 'BULK_HOTEL' && (
                         <span
                           className="badge"
                           style={{
@@ -699,186 +770,260 @@ export default function DeliveryBoyDeliveries() {
                             color: 'white',
                             fontWeight: '800',
                             fontSize: '0.72rem',
-                            letterSpacing: '0.04em'
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
                           }}
                         >
-                          🏨 BULK ORDER
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          fontSize: '0.78rem',
-                          color: 'var(--text-muted)',
-                          marginTop: '4px'
-                        }}
-                      >
-                        <MapPin size={14} color="#7c3aed" />
-                        <span style={{ fontWeight: '500' }}>{bGroup.customer_address}</span>
-                        {bGroup.customer_route && (
-                          <span
-                            style={{
-                              background: '#ede9fe',
-                              color: '#6d28d9',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontWeight: '700'
-                            }}
-                          >
-                            {bGroup.customer_route}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span
-                        className={`badge ${bGroup.isDelivered ? 'badge-success' : 'badge-info'}`}
-                        style={{ fontSize: '0.8rem', fontWeight: '800', padding: '4px 10px' }}
-                      >
-                        {bGroup.isDelivered ? '✓ DELIVERED' : 'PENDING ENTRY'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* TODAY'S PRODUCTS SECTION */}
-                  <div
-                    style={{
-                      background: 'white',
-                      border: '1.5px solid #e9d5ff',
-                      borderRadius: 'var(--radius-md)',
-                      padding: '12px 14px',
-                      marginBottom: '14px'
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '8px',
-                        borderBottom: '1px solid #f3e8ff',
-                        paddingBottom: '6px'
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontWeight: '800',
-                          fontSize: '0.8rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                          color: '#6d28d9'
-                        }}
-                      >
-                        TODAY'S PRODUCTS
-                      </span>
-                      {bGroup.hasProducts && (
-                        <span style={{ fontSize: '0.78rem', color: '#6b7280', fontWeight: '600' }}>
-                          Delivery Charge: <strong style={{ color: '#059669' }}>₹0 (Bulk Rule)</strong>
+                          <Building2 size={13} />
+                          HOTEL / BULK
                         </span>
                       )}
                     </div>
 
-                    {bGroup.hasProducts ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {bGroup.items.map((it) => {
-                          const unitLabel =
-                            it.variant_snapshot?.toLowerCase().includes('l')
-                              ? 'L'
-                              : it.variant_snapshot?.toLowerCase().includes('kg')
-                              ? 'kg'
-                              : 'L';
-                          return (
-                            <div
-                              key={it.id}
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '6px 8px',
-                                background: '#fcfaff',
-                                borderRadius: '4px'
-                              }}
-                            >
-                              <div>
-                                <span style={{ fontWeight: '800', fontSize: '0.98rem', color: '#1e1b4b' }}>
-                                  {it.product_name_snapshot} — {it.quantity} {unitLabel}
-                                </span>
-                                <span style={{ fontSize: '0.78rem', color: '#64748b', marginLeft: '6px' }}>
-                                  (@ ₹{it.unit_price_snapshot?.toFixed(2)} / {unitLabel})
-                                </span>
-                              </div>
-                              <span style={{ fontWeight: '800', fontSize: '0.92rem', color: '#4338ca' }}>
-                                ₹{it.total_amount?.toFixed(2)}
-                              </span>
-                            </div>
-                          );
-                        })}
-
-                        {/* Subtotal summary */}
-                        <div
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-muted)',
+                        marginTop: '3px'
+                      }}
+                    >
+                      <MapPin size={13} />
+                      <span>{group.customer_address}</span>
+                      {group.customer_route && (
+                        <span
                           style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            borderTop: '1px dashed #d8b4fe',
-                            paddingTop: '8px',
-                            marginTop: '4px',
-                            fontWeight: '800',
-                            fontSize: '0.95rem'
+                            background: '#f1f5f9',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontWeight: '600'
                           }}
                         >
-                          <span style={{ color: '#4c1d95' }}>Total Delivery Amount:</span>
-                          <span style={{ color: '#6d28d9', fontSize: '1.05rem' }}>
-                            ₹{bGroup.totalAmount.toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          textAlign: 'center',
-                          padding: '12px',
-                          color: '#7c3aed',
-                          background: '#faf5ff',
-                          borderRadius: '6px',
-                          border: '1px dashed #c4b5fd',
-                          fontSize: '0.85rem',
-                          fontWeight: '600'
-                        }}
-                      >
-                        <div>No products added for today yet. (Starts empty every day)</div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>
-                          Click <strong>+ Products</strong> below to enter today's items & quantities.
-                        </div>
+                          {group.customer_route}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                    <span
+                      className={`badge ${
+                        group.status === 'DELIVERED'
+                          ? 'badge-success'
+                          : group.status === 'SKIPPED'
+                          ? 'badge-warning'
+                          : group.status === 'PARTIALLY DELIVERED'
+                          ? 'badge-info'
+                          : 'badge-info'
+                      }`}
+                    >
+                      {group.status}
+                    </span>
+                    {group.hasItems && (
+                      <div style={{ fontSize: '0.82rem', fontWeight: '800', color: 'var(--text-primary)' }}>
+                        {group.totalQuantity} pkt{group.totalQuantity !== 1 ? 's' : ''} • ₹{group.totalAmount.toFixed(2)}
                       </div>
                     )}
                   </div>
+                </div>
 
-                  {/* Card Action Buttons (Simple, Mobile Friendly) */}
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    {/* Call Button */}
-                    {bGroup.customer_phone && (
-                      <a
-                        href={`tel:${bGroup.customer_phone}`}
-                        className="btn btn-outline btn-sm"
-                        style={{ flex: '1 1 auto', textDecoration: 'none', borderColor: '#c4b5fd', color: '#6d28d9' }}
+                {/* Customer Products List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
+                  {group.items.length === 0 ? (
+                    <div
+                      style={{
+                        background: '#faf5ff',
+                        border: '1.5px dashed #c084fc',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div style={{ fontSize: '0.85rem', color: '#6b21a8' }}>
+                        🏨 No daily products added yet for today.
+                      </div>
+                      <button
+                        onClick={() => handleOpenBulkModal(group)}
+                        className="btn btn-primary btn-sm"
+                        style={{ background: '#7c3aed', borderColor: '#6d28d9', fontWeight: '800' }}
                       >
-                        <Phone size={15} color="#7c3aed" />
-                        <span>Call</span>
-                      </a>
-                    )}
+                        <ShoppingBag size={14} /> Add Products
+                      </button>
+                    </div>
+                  ) : (
+                    group.items.map((item) => {
+                      const reqType = item.requirement_type || 'NORMAL';
+                      const isSkippedReq = reqType === 'SKIP_DELIVERY';
+                      const isQtyChangeReq = reqType === 'CHANGE_QUANTITY';
+                      const isExtraReq = reqType === 'ADD_EXTRA_QUANTITY';
+                      const hasExtraNote = item.notes && (item.notes.includes('Extra') || item.notes.includes('+') || item.notes.includes('Adhoc'));
 
-                    {/* Products / Edit Products Button */}
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            background: item.status === 'SKIPPED' ? '#fff1f2' : item.status === 'DELIVERED' ? '#f0fdf4' : '#f8fafc',
+                            border: '1px solid',
+                            borderColor: item.status === 'SKIPPED' ? '#fecdd3' : item.status === 'DELIVERED' ? '#bbf7d0' : 'var(--border-color)',
+                            borderRadius: 'var(--radius-md)',
+                            padding: '10px 12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px'
+                          }}
+                        >
+                          {/* Left: Product Image Thumbnail + Info */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                            <ProductPacketImage product={item} size={50} />
+
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: '800', fontSize: '0.98rem', color: 'var(--text-primary)' }}>
+                                  {item.quantity} × {item.product_name_snapshot}
+                                </span>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                                  ({item.variant_snapshot || 'Standard'})
+                                </span>
+                                {hasExtraNote && (
+                                  <span
+                                    style={{
+                                      background: '#fef3c7',
+                                      color: '#92400e',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '0.68rem',
+                                      fontWeight: '800'
+                                    }}
+                                  >
+                                    ⭐ Extra
+                                  </span>
+                                )}
+                                {isQtyChangeReq && item.status !== 'SKIPPED' && (
+                                  <span
+                                    style={{
+                                      background: '#e0f2fe',
+                                      color: '#0369a1',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '0.68rem',
+                                      fontWeight: '800'
+                                    }}
+                                  >
+                                    ✏ Today: {item.quantity}
+                                  </span>
+                                )}
+                                {isSkippedReq && (
+                                  <span
+                                    style={{
+                                      background: '#fee2e2',
+                                      color: '#dc2626',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '0.68rem',
+                                      fontWeight: '800'
+                                    }}
+                                  >
+                                    ⚠ Skip Requested
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Price line */}
+                              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                ₹{item.total_amount?.toFixed(2)}
+                                {item.delivery_charge_snapshot > 0 && ` (Incl. ₹${item.delivery_charge_snapshot} delivery)`}
+                                {item.notes && <span style={{ marginLeft: '6px', fontStyle: 'italic', color: '#64748b' }}>• 📝 {item.notes}</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right: Item Edit / Status */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {group.customer_category !== 'BULK_HOTEL' && (
+                              <button
+                                onClick={() => handleOpenEditModal(item)}
+                                className="btn btn-sm"
+                                style={{
+                                  background: '#eff6ff',
+                                  color: '#1d4ed8',
+                                  border: '1px solid #bfdbfe',
+                                  padding: '4px 8px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '700'
+                                }}
+                                title="Edit quantity or skip this product today"
+                              >
+                                <Edit3 size={13} />
+                                <span>Edit</span>
+                              </button>
+                            )}
+                            <span
+                              style={{
+                                fontSize: '0.7rem',
+                                fontWeight: '800',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: item.status === 'DELIVERED' ? '#dcfce7' : item.status === 'SKIPPED' ? '#fef3c7' : '#f1f5f9',
+                                color: item.status === 'DELIVERED' ? '#166534' : item.status === 'SKIPPED' ? '#92400e' : '#475569'
+                              }}
+                            >
+                              {item.status}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Bottom Actions Bar */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {group.customer_phone && (
+                    <a
+                      href={`tel:${group.customer_phone}`}
+                      className="btn btn-outline btn-sm"
+                      style={{ flex: '1 1 auto', textDecoration: 'none' }}
+                    >
+                      <Phone size={14} color="var(--primary)" />
+                      <span>Call ({group.customer_phone})</span>
+                    </a>
+                  )}
+
+                  {/* + Extra Product Button */}
+                  <button
+                    onClick={() => handleOpenExtraModal(group.items[0] || group)}
+                    className="btn btn-sm"
+                    style={{
+                      flex: '1 1 auto',
+                      background: '#fffbeb',
+                      color: '#b45309',
+                      border: '1.5px solid #fde68a',
+                      fontWeight: '800',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <PlusCircle size={15} color="#d97706" />
+                    <span>+ Extra Product</span>
+                  </button>
+
+                  {/* Bulk Product Management */}
+                  {group.customer_category === 'BULK_HOTEL' && (
                     <button
-                      onClick={() => handleOpenBulkModal(bGroup)}
+                      onClick={() => handleOpenBulkModal(group)}
                       className="btn btn-sm"
                       style={{
-                        flex: '1.5 1 auto',
+                        flex: '1 1 auto',
                         background: '#f3e8ff',
-                        color: '#6d28d9',
+                        color: '#6b21a8',
                         border: '1.5px solid #d8b4fe',
                         fontWeight: '800',
                         display: 'flex',
@@ -888,470 +1033,49 @@ export default function DeliveryBoyDeliveries() {
                       }}
                     >
                       <ShoppingBag size={15} color="#7c3aed" />
-                      <span>{bGroup.hasProducts ? 'Edit Products' : '+ Products'}</span>
+                      <span>Manage Products</span>
                     </button>
+                  )}
 
-                    {/* Mark Delivered Button */}
-                    {!bGroup.isDelivered ? (
-                      <button
-                        onClick={() => handleOpenBulkConfirm(bGroup)}
-                        className="btn btn-success btn-sm"
-                        disabled={!bGroup.hasProducts}
-                        style={{
-                          flex: '2 1 auto',
-                          padding: '10px 16px',
-                          fontSize: '0.875rem',
-                          fontWeight: '800',
-                          opacity: !bGroup.hasProducts ? 0.5 : 1
-                        }}
-                        title={!bGroup.hasProducts ? 'Add products first' : 'Mark Delivered'}
-                      >
-                        <CheckCircle2 size={16} /> Mark Delivered
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          // Undo bulk deliveries to pending
-                          bGroup.items.forEach((it) => handleMarkStatus(it.id, 'PENDING'));
-                        }}
-                        className="btn btn-outline btn-sm"
-                        style={{ flex: '1 1 auto' }}
-                        title="Undo Delivered Status"
-                      >
-                        <RotateCcw size={14} /> Undo Delivered
-                      </button>
-                    )}
-                  </div>
+                  {/* Deliver / Undo / Skip button */}
+                  {group.status !== 'DELIVERED' ? (
+                    <button
+                      onClick={() => handleMarkGroupDelivered(group)}
+                      className="btn btn-success btn-sm"
+                      style={{
+                        flex: '2 1 auto',
+                        padding: '10px 16px',
+                        fontSize: '0.875rem',
+                        fontWeight: '800'
+                      }}
+                      disabled={group.items.length === 0}
+                    >
+                      <CheckCircle2 size={16} /> Mark Delivered
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleMarkGroupPending(group)}
+                      className="btn btn-outline btn-sm"
+                      style={{ flex: '1 1 auto' }}
+                      title="Undo Delivery"
+                    >
+                      <RotateCcw size={14} /> Undo Delivery
+                    </button>
+                  )}
+
+                  {group.status !== 'SKIPPED' && group.status !== 'DELIVERED' && (
+                    <button
+                      onClick={() => handleMarkGroupSkipped(group)}
+                      className="btn btn-outline btn-sm"
+                      style={{ color: 'var(--accent-amber)', borderColor: '#fde68a' }}
+                    >
+                      <XCircle size={14} /> Skip
+                    </button>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* SECTION 2: HOUSE CUSTOMERS (SUBSCRIPTION-BASED WORKFLOW - 100% UNCHANGED) */}
-          {/* ========================================================================= */}
-          {filteredHouseDeliveries.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {filteredHouseDeliveries.map((del) => {
-                const reqType = del.requirement_type || 'NORMAL';
-                const isSkippedReq = reqType === 'SKIP_DELIVERY';
-                const isQtyChangeReq = reqType === 'CHANGE_QUANTITY';
-                const isExtraReq = reqType === 'ADD_EXTRA_QUANTITY';
-                const hasSpecialReq = isSkippedReq || isQtyChangeReq || isExtraReq;
-                const hasExtraNote =
-                  del.notes &&
-                  (del.notes.includes('Extra') || del.notes.includes('Adhoc') || del.notes.includes('+'));
-
-                return (
-                  <div
-                    key={del.id}
-                    className="card"
-                    style={{
-                      padding: '16px',
-                      borderLeft: `5px solid ${
-                        isSkippedReq
-                          ? '#ef4444'
-                          : del.status === 'DELIVERED'
-                          ? '#10b981'
-                          : del.status === 'SKIPPED'
-                          ? '#f59e0b'
-                          : hasSpecialReq
-                          ? '#0284c7'
-                          : '#0054a6'
-                      }`,
-                      background: isSkippedReq
-                        ? '#fff5f5'
-                        : del.status === 'DELIVERED'
-                        ? '#f0fdf4'
-                        : 'white',
-                      boxShadow: hasSpecialReq ? '0 4px 14px rgba(0,0,0,0.08)' : 'var(--shadow-sm)'
-                    }}
-                  >
-                    {/* Customer Header */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        marginBottom: '8px'
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                          {del.customer_serial_no > 0 && (
-                            <span
-                              style={{
-                                background: '#0054a6',
-                                color: '#fff',
-                                fontWeight: '800',
-                                fontSize: '0.75rem',
-                                padding: '2px 8px',
-                                borderRadius: '12px'
-                              }}
-                              title={`Drop Order #${del.customer_serial_no}`}
-                            >
-                              #{del.customer_serial_no}
-                            </span>
-                          )}
-                          <h3
-                            style={{
-                              fontSize: '1.05rem',
-                              fontWeight: '800',
-                              color: 'var(--text-primary)',
-                              margin: 0
-                            }}
-                          >
-                            {del.customer_name}
-                          </h3>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            fontSize: '0.75rem',
-                            color: 'var(--text-muted)',
-                            marginTop: '2px'
-                          }}
-                        >
-                          <MapPin size={13} />
-                          <span>{del.customer_address}</span>
-                          {del.customer_route && (
-                            <span
-                              style={{
-                                background: '#f1f5f9',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                fontWeight: '600'
-                              }}
-                            >
-                              {del.customer_route}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {hasExtraNote && (
-                          <span
-                            className="badge"
-                            style={{
-                              background: '#fef3c7',
-                              color: '#92400e',
-                              border: '1px solid #fde68a',
-                              fontWeight: '800',
-                              fontSize: '0.7rem'
-                            }}
-                          >
-                            ⭐ Extra Added
-                          </span>
-                        )}
-                        <span
-                          className={`badge ${
-                            del.status === 'DELIVERED'
-                              ? 'badge-success'
-                              : del.status === 'SKIPPED'
-                              ? 'badge-warning'
-                              : 'badge-info'
-                          }`}
-                        >
-                          {del.status}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Requirement Warning Banners */}
-                    {isSkippedReq && (
-                      <div
-                        style={{
-                          background: '#fee2e2',
-                          border: '1.5px solid #ef4444',
-                          borderRadius: 'var(--radius-md)',
-                          padding: '10px 14px',
-                          marginBottom: '12px',
-                          color: '#991b1b'
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontWeight: '800',
-                            fontSize: '0.9rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                          }}
-                        >
-                          <XCircle size={16} color="#dc2626" />
-                          ⚠ DO NOT DELIVER TODAY — CUSTOMER SKIP REQUIREMENT
-                        </div>
-                        <div style={{ fontSize: '0.8rem', marginTop: '4px' }}>
-                          Product: <strong>{del.product_name_snapshot} ({del.variant_snapshot})</strong>
-                        </div>
-                        {del.requirement_reason && (
-                          <div style={{ fontSize: '0.78rem', marginTop: '3px', fontStyle: 'italic' }}>
-                            Reason: {del.requirement_reason}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {isQtyChangeReq && (
-                      <div
-                        style={{
-                          background: '#e0f2fe',
-                          border: '1.5px solid #0284c7',
-                          borderRadius: 'var(--radius-md)',
-                          padding: '10px 14px',
-                          marginBottom: '12px',
-                          color: '#0369a1'
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontWeight: '800',
-                            fontSize: '0.9rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                          }}
-                        >
-                          <TrendingUp size={16} color="#0284c7" />
-                          ✏ TEMPORARY QUANTITY CHANGE
-                        </div>
-                        <div style={{ fontSize: '0.813rem', marginTop: '4px', fontWeight: '700' }}>
-                          Deliver Today: {del.quantity} pkt (Normal: {del.subscription_quantity || del.req_normal_quantity || 1} pkt)
-                        </div>
-                        {del.requirement_reason && (
-                          <div style={{ fontSize: '0.78rem', marginTop: '3px', fontStyle: 'italic' }}>
-                            Reason: {del.requirement_reason}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {isExtraReq && (
-                      <div
-                        style={{
-                          background: '#ecfdf5',
-                          border: '1.5px solid #10b981',
-                          borderRadius: 'var(--radius-md)',
-                          padding: '10px 14px',
-                          marginBottom: '12px',
-                          color: '#065f46'
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontWeight: '800',
-                            fontSize: '0.9rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
-                          }}
-                        >
-                          <PlusCircle size={16} color="#10b981" />
-                          ⚠ EXTRA QUANTITY INSTRUCTION
-                        </div>
-                        <div style={{ fontSize: '0.813rem', marginTop: '4px', fontWeight: '700' }}>
-                          Normal: {del.subscription_quantity || del.req_normal_quantity || 1} + Extra: {del.req_additional_quantity || 1} = Today's Total: {del.quantity} pkt
-                        </div>
-                        {del.requirement_reason && (
-                          <div style={{ fontSize: '0.78rem', marginTop: '3px', fontStyle: 'italic' }}>
-                            Reason: {del.requirement_reason}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Product Info Banner */}
-                    <div
-                      style={{
-                        background: '#f8fafc',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '10px 12px',
-                        marginBottom: '14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between'
-                      }}
-                    >
-                      <div>
-                        <span style={{ fontWeight: '800', fontSize: '1rem', color: 'var(--primary-dark)' }}>
-                          {del.quantity} × {del.product_name_snapshot}
-                        </span>
-                        <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                          ({del.variant_snapshot})
-                        </span>
-                        {((del.subscription_quantity && del.quantity !== del.subscription_quantity) || isQtyChangeReq) && del.status !== 'SKIPPED' && (
-                          <span
-                            className="badge"
-                            style={{
-                              background: '#dbeafe',
-                              color: '#1e40af',
-                              border: '1px solid #bfdbfe',
-                              fontWeight: '800',
-                              fontSize: '0.72rem',
-                              marginLeft: '8px'
-                            }}
-                          >
-                            ✏ Today: {del.quantity} (Normal: {del.subscription_quantity || del.req_normal_quantity || 1})
-                          </span>
-                        )}
-                        {del.notes && (
-                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px', fontStyle: 'italic' }}>
-                            📝 {del.notes}
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '0.875rem', fontWeight: '800', color: 'var(--text-primary)' }}>
-                          ₹{del.total_amount?.toFixed(2)}
-                        </div>
-                        {del.delivery_charge_snapshot > 0 && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            Incl. ₹{del.delivery_charge_snapshot} delivery
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions: Call, Edit Quantity, Add Extra Product, Deliver / Undo / Skip */}
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {del.customer_phone && (
-                        <a
-                          href={`tel:${del.customer_phone}`}
-                          className="btn btn-outline btn-sm"
-                          style={{ flex: '1 1 auto', textDecoration: 'none' }}
-                        >
-                          <Phone size={14} color="var(--primary)" />
-                          <span>Call ({del.customer_phone})</span>
-                        </a>
-                      )}
-
-                      {/* Edit Today's Quantity Button */}
-                      <button
-                        onClick={() => handleOpenEditModal(del)}
-                        className="btn btn-sm"
-                        style={{
-                          flex: '1 1 auto',
-                          background: '#eff6ff',
-                          color: '#1d4ed8',
-                          border: '1.5px solid #bfdbfe',
-                          fontWeight: '800',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px'
-                        }}
-                        title="Edit today's delivery quantity"
-                      >
-                        <Edit3 size={15} color="#2563eb" />
-                        <span>Edit</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleOpenExtraModal(del)}
-                        className="btn btn-sm"
-                        style={{
-                          flex: '1 1 auto',
-                          background: '#fffbeb',
-                          color: '#b45309',
-                          border: '1.5px solid #fde68a',
-                          fontWeight: '800',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '6px'
-                        }}
-                      >
-                        <PlusCircle size={15} color="#d97706" />
-                        <span>+ Extra Product</span>
-                      </button>
-
-                      {isSkippedReq ? (
-                        del.status !== 'SKIPPED' ? (
-                          <button
-                            onClick={() =>
-                              handleMarkStatus(
-                                del.id,
-                                'SKIPPED',
-                                del.requirement_reason
-                                    ? `Customer Requirement: ${del.requirement_reason}`
-                                    : 'Customer Requirement: Skip Delivery'
-                              )
-                            }
-                            className="btn btn-danger btn-sm"
-                            style={{
-                              flex: '2 1 auto',
-                              padding: '10px 16px',
-                              fontSize: '0.875rem',
-                              fontWeight: '800',
-                              background: '#dc2626',
-                              borderColor: '#b91c1c'
-                            }}
-                          >
-                            <XCircle size={16} /> Confirm Skip
-                          </button>
-                        ) : (
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              color: '#166534',
-                              fontWeight: '700',
-                              fontSize: '0.85rem'
-                            }}
-                          >
-                            <CheckCircle2 size={16} /> Skip Confirmed
-                          </div>
-                        )
-                      ) : del.status !== 'DELIVERED' ? (
-                        <button
-                          onClick={() => handleMarkStatus(del.id, 'DELIVERED')}
-                          className="btn btn-success btn-sm"
-                          style={{
-                            flex: '2 1 auto',
-                            padding: '10px 16px',
-                            fontSize: '0.875rem',
-                            fontWeight: '800'
-                          }}
-                        >
-                          <CheckCircle2 size={16} />
-                          {isQtyChangeReq
-                            ? `Deliver ${del.quantity} pkt`
-                            : isExtraReq
-                            ? `Deliver ${del.quantity} pkt (Extra)`
-                            : 'Mark Delivered'}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleMarkStatus(del.id, 'PENDING')}
-                          className="btn btn-outline btn-sm"
-                          style={{ flex: '1 1 auto' }}
-                          title="Undo Delivery"
-                        >
-                          <RotateCcw size={14} /> Undo
-                        </button>
-                      )}
-
-                      {!isSkippedReq && del.status !== 'SKIPPED' && (
-                        <button
-                          onClick={() => handleMarkStatus(del.id, 'SKIPPED')}
-                          className="btn btn-outline btn-sm"
-                          style={{ color: 'var(--accent-amber)', borderColor: '#fde68a' }}
-                        >
-                          <XCircle size={14} /> Skip
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+              </div>
+            );
+          })}
         </div>
       )}
 

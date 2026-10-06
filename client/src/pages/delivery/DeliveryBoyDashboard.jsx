@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import StatCard from '../../components/common/StatCard';
 import EmptyState from '../../components/common/EmptyState';
+import ProductPacketImage from '../../components/ProductPacketImage';
 import {
   Truck,
   PackageCheck,
@@ -314,29 +315,32 @@ export default function DeliveryBoyDashboard({ onNavigate }) {
                   border: '1px solid var(--border-color)'
                 }}
               >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {del.customer_serial_no > 0 && (
-                      <span
-                        style={{
-                          background: '#0054a6',
-                          color: '#fff',
-                          fontWeight: '800',
-                          fontSize: '0.7rem',
-                          padding: '1px 6px',
-                          borderRadius: '4px'
-                        }}
-                        title={`Drop Order #${del.customer_serial_no}`}
-                      >
-                        #{del.customer_serial_no}
-                      </span>
-                    )}
-                    <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>{del.customer_name}</span>
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    {del.product_name_snapshot
-                      ? `${del.product_name_snapshot} (${del.variant_snapshot}) × ${del.quantity} • ${del.customer_address}`
-                      : `🏨 Bulk Order (Manual Daily Products) • ${del.customer_address}`}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <ProductPacketImage product={del} size={40} />
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {del.customer_serial_no > 0 && (
+                        <span
+                          style={{
+                            background: '#0054a6',
+                            color: '#fff',
+                            fontWeight: '800',
+                            fontSize: '0.7rem',
+                            padding: '1px 6px',
+                            borderRadius: '4px'
+                          }}
+                          title={`Drop Order #${del.customer_serial_no}`}
+                        >
+                          #{del.customer_serial_no}
+                        </span>
+                      )}
+                      <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>{del.customer_name}</span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {del.product_name_snapshot
+                        ? `${del.product_name_snapshot} (${del.variant_snapshot}) × ${del.quantity} • ${del.customer_address}`
+                        : `🏨 Bulk Order (Manual Daily Products) • ${del.customer_address}`}
+                    </div>
                   </div>
                 </div>
                 <span className={`badge ${del.status === 'DELIVERED' ? 'badge-success' : del.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>

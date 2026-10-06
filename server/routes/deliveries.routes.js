@@ -172,6 +172,7 @@ router.get('/', verifyToken, async (req, res) => {
              c.route as customer_route, c.customer_category, c.billing_type,
              c.serial_no as customer_serial_no, c.serial_no,
              u.name as delivery_boy_name,
+             p.image_url as product_image_url,
              s.quantity as subscription_quantity,
              r.id as requirement_id,
              COALESCE(r.requirement_type, 'NORMAL') as requirement_type,
@@ -181,6 +182,7 @@ router.get('/', verifyToken, async (req, res) => {
              r.reason as requirement_reason
       FROM deliveries d
       JOIN customers c ON d.customer_id = c.id
+      LEFT JOIN products p ON d.product_id = p.id
       LEFT JOIN users u ON d.delivery_boy_id = u.id
       LEFT JOIN subscriptions s
         ON s.customer_id = d.customer_id
@@ -482,9 +484,12 @@ router.put('/:id/status', verifyToken, async (req, res) => {
     const updated = await db.prepare(`
       SELECT d.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
              c.route as customer_route, c.customer_category, c.billing_type,
+             c.serial_no as customer_serial_no, c.serial_no,
+             p.image_url as product_image_url,
              u.name as delivery_boy_name
       FROM deliveries d
       JOIN customers c ON d.customer_id = c.id
+      LEFT JOIN products p ON d.product_id = p.id
       LEFT JOIN users u ON d.delivery_boy_id = u.id
       WHERE d.id = ?
     `).get(deliveryId);

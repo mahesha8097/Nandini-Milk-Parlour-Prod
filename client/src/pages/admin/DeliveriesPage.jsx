@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
+import ProductPacketImage from '../../components/ProductPacketImage';
 import {
   PackageCheck,
   Calendar,
@@ -257,13 +258,18 @@ export default function DeliveriesPage() {
                     </div>
                   </td>
                   <td>
-                    <div style={{ fontWeight: '600' }}>
-                      {del.product_name_snapshot || (
-                        <span style={{ color: '#7c3aed', fontWeight: '700' }}>🏨 Bulk (Pending Products)</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {del.variant_snapshot ? `Variant: ${del.variant_snapshot}` : 'Manual Daily Entry'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <ProductPacketImage product={del} size={34} />
+                      <div>
+                        <div style={{ fontWeight: '600' }}>
+                          {del.product_name_snapshot || (
+                            <span style={{ color: '#7c3aed', fontWeight: '700' }}>🏨 Bulk (Pending Products)</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          {del.variant_snapshot ? `Variant: ${del.variant_snapshot}` : 'Manual Daily Entry'}
+                        </div>
+                      </div>
                     </div>
                     {((del.subscription_quantity && del.quantity !== del.subscription_quantity) || del.requirement_type === 'CHANGE_QUANTITY') && del.status !== 'SKIPPED' && (
                       <span
