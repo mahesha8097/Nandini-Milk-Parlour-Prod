@@ -24,10 +24,36 @@ if (isProduction && process.env.DATABASE_URL) {
     console.error('Unexpected error on idle PostgreSQL client:', err);
   });
 
+  // Automatically ensure PostgreSQL compatibility functions exist
+  pool.query(`
+    CREATE OR REPLACE FUNCTION datetime(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
+    RETURNS text AS $$
+    BEGIN
+      RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS');
+    END;
+    $$ LANGUAGE plpgsql IMMUTABLE;
+
+    CREATE OR REPLACE FUNCTION date(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
+    RETURNS text AS $$
+    BEGIN
+      RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
+    END;
+    $$ LANGUAGE plpgsql IMMUTABLE;
+  `).catch((err) => {
+    console.warn('PostgreSQL compatibility functions setup note:', err.message);
+  });
+
   function translateSql(sql) {
     let paramIndex = 0;
+    // Replace SQLite date/datetime function calls with PostgreSQL equivalents
+    const translated = sql
+      .replace(/datetime\s*\(\s*'now'\s*,\s*'localtime'\s*\)/gi, "TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')")
+      .replace(/datetime\s*\(\s*'now'\s*\)/gi, "TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')")
+      .replace(/date\s*\(\s*'now'\s*,\s*'localtime'\s*\)/gi, "TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')")
+      .replace(/date\s*\(\s*'now'\s*\)/gi, "TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')");
+
     // Translate ? placeholders to $1, $2, etc.
-    return sql.replace(/\?/g, () => `$${++paramIndex}`);
+    return translated.replace(/\?/g, () => `$${++paramIndex}`);
   }
 
   db = {

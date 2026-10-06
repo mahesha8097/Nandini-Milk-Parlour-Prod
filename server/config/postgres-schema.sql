@@ -9,11 +9,18 @@
 -- 1. Enable Cryptographic extensions
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 2. Compatibility function for SQLite datetime('now', 'localtime') calls
+-- 2. Compatibility functions for SQLite datetime/date calls
 CREATE OR REPLACE FUNCTION datetime(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
 RETURNS text AS $$
 BEGIN
   RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION date(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
+RETURNS text AS $$
+BEGIN
+  RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 

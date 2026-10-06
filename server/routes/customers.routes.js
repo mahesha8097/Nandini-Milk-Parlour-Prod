@@ -179,50 +179,68 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const initAdvance = parseFloat(initial_advance || 0);
 
-    const stmt = db.prepare(`
-      INSERT INTO customers (
-        name, phone, address, customer_category, billing_type, delivery_boy_id,
-        route, status, notes, advance_balance, pending_balance, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, datetime('now', 'localtime'), datetime('now', 'localtime'))
-    `);
+    let newCustomerId = null;
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO customers (
+          name, phone, address, customer_category, billing_type, delivery_boy_id,
+          route, status, notes, advance_balance, pending_balance, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, datetime('now', 'localtime'), datetime('now', 'localtime'))
+      `);
 
-    const result = await stmt.run(
-      name.trim(),
-      phone.trim(),
-      address.trim(),
-      customer_category,
-      billing_type,
-      delivery_boy_id || null,
-      route || '',
-      status || 'ACTIVE',
-      notes || '',
-      initAdvance
-    );
+      const result = await stmt.run(
+        name.trim(),
+        phone.trim(),
+        address.trim(),
+        customer_category,
+        billing_type,
+        delivery_boy_id || null,
+        route || '',
+        status || 'ACTIVE',
+        notes || '',
+        initAdvance
+      );
 
-    const newCustomerId = result.lastInsertRowid;
+      newCustomerId = result.lastInsertRowid;
 
-    // If initial advance deposit was provided, record in ledger
-    if (initAdvance > 0) {
-      await db.prepare(`
-        INSERT INTO customer_ledger (
-          customer_id, transaction_date, transaction_type, reference_id, debit, credit,
-          advance_balance_after, pending_balance_after, description, created_at
-        ) VALUES (?, date('now', 'localtime'), 'ADVANCE_DEPOSITED', 'INIT', 0, ?, ?, 0, 'Opening Advance Balance', datetime('now', 'localtime'))
-      `).run(newCustomerId, initAdvance, initAdvance);
+      // If initial advance deposit was provided, record in ledger
+      if (initAdvance > 0) {
+        await db.prepare(`
+          INSERT INTO customer_ledger (
+            customer_id, transaction_date, transaction_type, reference_id, debit, credit,
+            advance_balance_after, pending_balance_after, description, created_at
+          ) VALUES (?, date('now', 'localtime'), 'ADVANCE_DEPOSITED', 'INIT', 0, ?, ?, 0, 'Opening Advance Balance', datetime('now', 'localtime'))
+        `).run(newCustomerId, initAdvance, initAdvance);
+      }
+
+      const created = await db.prepare('SELECT * FROM customers WHERE id = ?').get(newCustomerId);
+
+      // Audit log (non-fatal if audit log insert encounters an issue)
+      try {
+        await db.prepare(`
+          INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+          VALUES (?, 'CREATE_CUSTOMER', 'customers', ?, ?, datetime('now', 'localtime'))
+        `).run(req.user?.id || null, newCustomerId, `Created customer: ${created?.name || name} (${customer_category}, ${billing_type})`);
+      } catch (auditErr) {
+        console.warn('Audit log notice (non-fatal):', auditErr.message);
+      }
+
+      res.status(201).json(created);
+    } catch (innerErr) {
+      // If customer record was created but subsequent operations failed, clean up orphaned customer record
+      if (newCustomerId) {
+        try {
+          await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ?').run(newCustomerId);
+          await db.prepare('DELETE FROM customers WHERE id = ?').run(newCustomerId);
+        } catch (cleanupErr) {
+          console.error('Failed to cleanup orphaned customer record:', cleanupErr);
+        }
+      }
+      throw innerErr;
     }
-
-    const created = await db.prepare('SELECT * FROM customers WHERE id = ?').get(newCustomerId);
-
-    // Audit log
-    await db.prepare(`
-      INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
-      VALUES (?, 'CREATE_CUSTOMER', 'customers', ?, ?, datetime('now', 'localtime'))
-    `).run(req.user.id, newCustomerId, `Created customer: ${created.name} (${created.customer_category}, ${created.billing_type})`);
-
-    res.status(201).json(created);
   } catch (err) {
     console.error('Create customer error:', err);
-    res.status(500).json({ error: 'Failed to create customer' });
+    res.status(500).json({ error: err.message || 'Failed to create customer' });
   }
 });
 
