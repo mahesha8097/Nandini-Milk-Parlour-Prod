@@ -143,13 +143,21 @@ export default function MonthlyBillGeneratePage() {
           };
         }
 
+        const chargeType = s.delivery_charge_type || prod.delivery_charge_type || 'MILK_RULE';
+        const fixedCharge = s.fixed_delivery_charge !== undefined
+          ? s.fixed_delivery_charge
+          : (prod.fixed_delivery_charge !== undefined ? prod.fixed_delivery_charge : 0);
+
         return {
           productId: s.product_id,
           productName: s.product_name || prod.name || 'Milk Product',
           variantLabel: s.variant_label || prod.variant_label || 'Pkt',
-          unitVolumeLitres: prod.unit_volume_litres || 0.5,
+          unitVolumeLitres: prod.unit_volume_litres || s.unit_volume_litres || 0.5,
           unitPrice: s.selling_price || prod.selling_price || 0,
           quantity: s.quantity || 1,
+          category: s.category || prod.category || 'Milk',
+          deliveryChargeType: chargeType,
+          fixedDeliveryCharge: fixedCharge,
           days: itemDayInfo.days,
           startDate: itemDayInfo.startDate,
           endDate: itemDayInfo.endDate,
@@ -166,6 +174,9 @@ export default function MonthlyBillGeneratePage() {
         unitVolumeLitres: firstProd.unit_volume_litres || 0.5,
         unitPrice: firstProd.selling_price,
         quantity: 1,
+        category: firstProd.category || 'Milk',
+        deliveryChargeType: firstProd.delivery_charge_type || 'MILK_RULE',
+        fixedDeliveryCharge: firstProd.fixed_delivery_charge !== undefined ? firstProd.fixed_delivery_charge : 0,
         days: defaultDayInfo.days,
         startDate: defaultDayInfo.startDate,
         endDate: defaultDayInfo.endDate,
@@ -210,6 +221,9 @@ export default function MonthlyBillGeneratePage() {
         unitVolumeLitres: firstProd.unit_volume_litres || 0.5,
         unitPrice: firstProd.selling_price,
         quantity: 1,
+        category: firstProd.category || 'Milk',
+        deliveryChargeType: firstProd.delivery_charge_type || 'MILK_RULE',
+        fixedDeliveryCharge: firstProd.fixed_delivery_charge !== undefined ? firstProd.fixed_delivery_charge : 0,
         days: totalDays,
         startDate: `${selectedMonth}-01`,
         endDate: `${selectedMonth}-${pad(totalDays)}`,
@@ -234,7 +248,10 @@ export default function MonthlyBillGeneratePage() {
         productName: prod.name,
         variantLabel: prod.variant_label,
         unitVolumeLitres: prod.unit_volume_litres || 0.5,
-        unitPrice: prod.selling_price
+        unitPrice: prod.selling_price,
+        category: prod.category || 'Milk',
+        deliveryChargeType: prod.delivery_charge_type || 'MILK_RULE',
+        fixedDeliveryCharge: prod.fixed_delivery_charge !== undefined ? prod.fixed_delivery_charge : 0
       };
     }));
   };
@@ -366,37 +383,120 @@ export default function MonthlyBillGeneratePage() {
   };
 
   // -------------------------------------------------------------
-  // EXACT 23 BUSINESS RULES DELIVERY CHARGE & PRICE CALCULATION
+  // EXACT BUSINESS RULES DELIVERY CHARGE & PRICE CALCULATION
   // -------------------------------------------------------------
   const selectedCustomer = customers.find(c => String(c.id) === String(selectedCustomerId)) || null;
+  const isBulkHotel = selectedCustomer?.customer_category === 'BULK_HOTEL';
 
-  // Calculate per-item delivery charges and total advance bill
-  const calculatedItems = items.map(item => {
-    const dailyVol = (item.unitVolumeLitres || 0.5) * item.quantity;
-    let dailyDelCharge = 0;
-    if (dailyVol <= 0.5) {
-      dailyDelCharge = 2.0;
-    } else if (dailyVol <= 1.0) {
-      dailyDelCharge = 3.0;
-    } else if (dailyVol <= 1.5) {
-      dailyDelCharge = 4.5;
-    } else if (dailyVol <= 2.0) {
-      dailyDelCharge = 6.0;
-    } else {
-      dailyDelCharge = dailyVol * 3.0;
+  // Calculate day-by-day delivery charges across all items
+  // Accurately respects:
+  // 1. Bulk / Hotel customers -> ₹0 delivery charges
+  // 2. Fixed per unit products -> (fixedDeliveryCharge * quantity) strictly calculated per packet
+  // 3. None products -> ₹0 delivery charge
+  // 4. Milk rule products -> pooled milk volume (<=0.5L=₹2, >0.5L=litres*3) distributed proportionally
+  const itemDelCharges = new Array(items.length).fill(0);
+
+  if (!isBulkHotel && items.length > 0) {
+    for (let d = 1; d <= defaultMonthDays; d++) {
+      // Find items active on day d
+      const activeIndices = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        const days = it.days || defaultMonthDays;
+        const isDayActive = Array.isArray(it.selectedDays) && it.selectedDays.length > 0
+          ? it.selectedDays.includes(d)
+          : d <= days;
+        if (isDayActive && (it.quantity || 0) > 0) {
+          activeIndices.push(i);
+        }
+      }
+
+      if (activeIndices.length === 0) continue;
+
+      // Group active items into milk rule items and other items
+      const milkIndices = [];
+      for (const idx of activeIndices) {
+        const it = items[idx];
+        const chargeType = it.deliveryChargeType || it.delivery_charge_type;
+        const isMilkCat = Boolean(it.category && it.category.trim().toLowerCase() === 'milk');
+        const isMilkRule = chargeType === 'MILK_RULE' || (!chargeType && isMilkCat);
+
+        if (isMilkRule) {
+          milkIndices.push(idx);
+        } else {
+          // Other items: FIXED_PER_UNIT or NONE
+          if (chargeType === 'FIXED_PER_UNIT') {
+            const fixedPerUnit = parseFloat(it.fixedDeliveryCharge !== undefined ? it.fixedDeliveryCharge : it.fixed_delivery_charge) || 0;
+            const charge = parseFloat((fixedPerUnit * (it.quantity || 1)).toFixed(2));
+            itemDelCharges[idx] += charge;
+          } else {
+            // NONE -> ₹0
+          }
+        }
+      }
+
+      // Calculate combined milk delivery charge for this day
+      if (milkIndices.length > 0) {
+        let dayMilkLitres = 0;
+        for (const idx of milkIndices) {
+          const it = items[idx];
+          let vol = it.unitVolumeLitres;
+          if (!vol || vol <= 0) {
+            if (it.variantLabel && it.variantLabel.toLowerCase().includes('500')) vol = 0.5;
+            else if (it.variantLabel && it.variantLabel.toLowerCase().includes('1')) vol = 1.0;
+            else vol = 1.0;
+          }
+          dayMilkLitres += vol * (it.quantity || 1);
+        }
+
+        let dayMilkCharge = 0;
+        if (dayMilkLitres > 0) {
+          if (dayMilkLitres <= 0.5) {
+            dayMilkCharge = 2.0;
+          } else {
+            dayMilkCharge = parseFloat((dayMilkLitres * 3.0).toFixed(2));
+          }
+        }
+
+        // Distribute proportionally among active milk items on this day
+        let remCharge = dayMilkCharge;
+        for (let m = 0; m < milkIndices.length; m++) {
+          const idx = milkIndices[m];
+          const it = items[idx];
+          let vol = it.unitVolumeLitres;
+          if (!vol || vol <= 0) {
+            if (it.variantLabel && it.variantLabel.toLowerCase().includes('500')) vol = 0.5;
+            else if (it.variantLabel && it.variantLabel.toLowerCase().includes('1')) vol = 1.0;
+            else vol = 1.0;
+          }
+          const itemVol = vol * (it.quantity || 1);
+
+          let charge = 0;
+          if (m === milkIndices.length - 1) {
+            charge = parseFloat(remCharge.toFixed(2));
+          } else {
+            charge = dayMilkLitres > 0
+              ? parseFloat(((itemVol / dayMilkLitres) * dayMilkCharge).toFixed(2))
+              : 0;
+            remCharge -= charge;
+          }
+          itemDelCharges[idx] += charge;
+        }
+      }
     }
+  }
 
+  const calculatedItems = items.map((item, idx) => {
     const itemDays = item.days || defaultMonthDays;
-    const totalQty = item.quantity * itemDays;
-    const milkSubtotal = item.unitPrice * item.quantity * itemDays;
-    const deliveryChargeTotal = dailyDelCharge * itemDays;
-    const lineTotal = milkSubtotal + deliveryChargeTotal;
-    const effectiveUnitPrice = totalQty > 0 ? (lineTotal / totalQty) : item.unitPrice;
+    const totalQty = (item.quantity || 1) * itemDays;
+    const milkSubtotal = parseFloat(((item.unitPrice || 0) * (item.quantity || 1) * itemDays).toFixed(2));
+    const deliveryChargeTotal = parseFloat((itemDelCharges[idx] || 0).toFixed(2));
+    const lineTotal = parseFloat((milkSubtotal + deliveryChargeTotal).toFixed(2));
+    const effectiveUnitPrice = totalQty > 0 ? parseFloat((lineTotal / totalQty).toFixed(2)) : (item.unitPrice || 0);
 
     return {
       ...item,
       itemDays,
-      dailyDelCharge,
       totalQty,
       milkSubtotal,
       deliveryChargeTotal,

@@ -57,7 +57,8 @@ router.get('/', verifyToken, async (req, res) => {
     // Attach active subscriptions summary for quick list view (Supports both SQLite & Async Postgres)
     const enrichedCustomers = await Promise.all((customers || []).map(async (c) => {
       const subs = await db.prepare(`
-        SELECT s.*, p.name as product_name, p.variant_label, p.category, p.selling_price
+        SELECT s.*, p.name as product_name, p.variant_label, p.category, p.unit_volume_litres,
+               p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge
         FROM subscriptions s
         JOIN products p ON s.product_id = p.id
         WHERE s.customer_id = ? AND s.is_active = 1
