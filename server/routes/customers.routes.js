@@ -298,56 +298,110 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Delete Customer (Admin only)
+router.delete('/:id', requireAdmin, async (req, res) => {
+  try {
+    const customerId = req.params.id;
+    const existing = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+    if (!existing) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Clean up dependent child records safely
+    await db.prepare('DELETE FROM daily_delivery_requirements WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM payments WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM bills WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM deliveries WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM subscriptions WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM customers WHERE id = ?').run(customerId);
+
+    // Audit log
+    try {
+      await db.prepare(`
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+        VALUES (?, 'DELETE_CUSTOMER', 'customers', ?, ?, datetime('now', 'localtime'))
+      `).run(req.user?.id || null, customerId, `Deleted customer: ${existing.name}`);
+    } catch (auditErr) {
+      console.warn('Audit log notice (non-fatal):', auditErr.message);
+    }
+
+    res.json({ message: 'Customer deleted successfully', id: customerId });
+  } catch (err) {
+    console.error('Delete customer error:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete customer' });
+  }
+});
+
 // ----------------- SUBSCRIPTION MANAGEMENT -----------------
 
-// Add subscription for customer (Admin only)
+// Add subscription for customer (Admin only) - supports single product or multiple products (e.g. Shubham + Toned)
 router.post('/:id/subscriptions', requireAdmin, async (req, res) => {
   try {
     const customerId = req.params.id;
-    const { product_id, quantity, frequency, custom_days, start_date, end_date } = req.body;
+    const { items, product_id, quantity, frequency, custom_days, start_date, end_date } = req.body;
 
-    if (!product_id || !quantity || !start_date) {
-      return res.status(400).json({ error: 'Product, quantity, and start date are required' });
+    const subList = Array.isArray(items) && items.length > 0
+      ? items
+      : [{ product_id, quantity, frequency, custom_days, start_date, end_date }];
+
+    if (subList.length === 0 || !subList[0].product_id) {
+      return res.status(400).json({ error: 'At least one product subscription is required' });
     }
 
-    const qty = parseInt(quantity);
-    if (isNaN(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'Valid positive quantity is required' });
+    const createdSubs = [];
+
+    for (const item of subList) {
+      const pid = item.product_id;
+      const qty = parseInt(item.quantity);
+      const sDate = item.start_date || start_date;
+      const eDate = item.end_date !== undefined ? item.end_date : (end_date || null);
+      const freq = item.frequency || frequency || 'DAILY';
+      const cDays = item.custom_days || custom_days || null;
+
+      if (!pid || isNaN(qty) || qty <= 0 || !sDate) {
+        continue;
+      }
+
+      const product = await db.prepare('SELECT * FROM products WHERE id = ?').get(pid);
+      if (!product) continue;
+
+      const stmt = db.prepare(`
+        INSERT INTO subscriptions (
+          customer_id, product_id, quantity, frequency, custom_days,
+          start_date, end_date, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
+      `);
+
+      const result = await stmt.run(
+        customerId,
+        pid,
+        qty,
+        freq,
+        cDays ? JSON.stringify(cDays) : null,
+        sDate,
+        eDate
+      );
+
+      const newSub = await db.prepare(`
+        SELECT s.*, p.name as product_name, p.category, p.variant_label, p.selling_price
+        FROM subscriptions s
+        JOIN products p ON s.product_id = p.id
+        WHERE s.id = ?
+      `).get(result.lastInsertRowid);
+
+      createdSubs.push(newSub);
     }
 
-    const product = await db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
+    if (createdSubs.length === 0) {
+      return res.status(400).json({ error: 'Valid product, positive quantity, and start date are required' });
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO subscriptions (
-        customer_id, product_id, quantity, frequency, custom_days,
-        start_date, end_date, is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
-    `);
-
-    const result = await stmt.run(
-      customerId,
-      product_id,
-      qty,
-      frequency || 'DAILY',
-      custom_days ? JSON.stringify(custom_days) : null,
-      start_date,
-      end_date || null
-    );
-
-    const newSub = await db.prepare(`
-      SELECT s.*, p.name as product_name, p.category, p.variant_label, p.selling_price
-      FROM subscriptions s
-      JOIN products p ON s.product_id = p.id
-      WHERE s.id = ?
-    `).get(result.lastInsertRowid);
-
-    res.status(201).json(newSub);
+    // Return array if items array was supplied, else single object
+    res.status(201).json(Array.isArray(items) ? createdSubs : createdSubs[0]);
   } catch (err) {
     console.error('Add subscription error:', err);
-    res.status(500).json({ error: 'Failed to add subscription' });
+    res.status(500).json({ error: err.message || 'Failed to add subscription' });
   }
 });
 

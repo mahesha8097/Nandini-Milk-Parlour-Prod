@@ -32,23 +32,9 @@ function calculateMilkDeliveryCharge(totalLitres) {
 }
 
 /**
- * Normalizes product key for grouping variants of the same product.
- * If base_product_name is given, or if product name has variant suffixes removed.
- */
-function getProductGroupKey(item) {
-  if (item.productGroupId) return `grp_${item.productGroupId}`;
-  if (item.productId) {
-    // If explicit product ID is provided without variant grouping, group by product name root or ID
-    // Normalize e.g. "Toned Milk 1L" / "Toned Milk 500ml" to "Toned Milk" if same base product
-    const name = (item.productName || '').trim();
-    const normalizedName = name.replace(/\s*(500\s*ml|1\s*l|2\s*l|500\s*g|1\s*kg|packet|pkt)\b/gi, '').trim().toLowerCase();
-    return normalizedName || `prod_${item.productId}`;
-  }
-  return (item.productName || 'unknown').trim().toLowerCase();
-}
-
-/**
  * Calculates delivery charges for a list of delivered items for a single customer on a given day.
+ * All Milk products (e.g. Shubham + Toned) delivered to the customer on the same day are combined
+ * together under the Milk rule: <= 500ml total is ₹2, 1L is ₹3 (and ₹3/L proportional for > 0.5L).
  * @param {string} customerCategory - 'HOUSE' or 'BULK_HOTEL'
  * @param {Array} items - Array of { productId, productName, category, unitVolumeLitres, variantLabel, quantity, deliveryChargeType, fixedDeliveryCharge }
  * @returns {Array} items with calculated deliveryCharge attached to each item
@@ -64,19 +50,18 @@ function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
     }));
   }
 
-  // Separate items by delivery charge rule
-  // MILK_RULE items are grouped by PRODUCT IDENTITY
-  const milkRuleGroups = new Map();
+  // Separate milk items and other items
+  // All MILK_RULE / Milk items for the customer on the day are combined together
+  const milkItems = [];
   const otherItems = [];
 
   for (const item of items) {
-    const isMilkRule = item.deliveryChargeType === 'MILK_RULE' || (!item.deliveryChargeType && item.category === 'Milk');
+    const isMilkRule = item.deliveryChargeType === 'MILK_RULE' ||
+      (!item.deliveryChargeType && item.category === 'Milk') ||
+      (item.category && item.category.toLowerCase() === 'milk');
+
     if (isMilkRule) {
-      const groupKey = getProductGroupKey(item);
-      if (!milkRuleGroups.has(groupKey)) {
-        milkRuleGroups.set(groupKey, []);
-      }
-      milkRuleGroups.get(groupKey).push(item);
+      milkItems.push(item);
     } else {
       otherItems.push(item);
     }
@@ -84,25 +69,25 @@ function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
 
   const results = [];
 
-  // Calculate each Milk product group independently
-  for (const [, groupItems] of milkRuleGroups) {
-    let groupTotalLitres = 0;
-    for (const m of groupItems) {
+  // Calculate combined Milk delivery charge
+  if (milkItems.length > 0) {
+    let totalMilkLitres = 0;
+    for (const m of milkItems) {
       let vol = m.unitVolumeLitres;
       if (!vol || vol <= 0) {
         if (m.variantLabel && m.variantLabel.toLowerCase().includes('500')) vol = 0.5;
         else if (m.variantLabel && m.variantLabel.toLowerCase().includes('1')) vol = 1.0;
         else vol = 1.0;
       }
-      groupTotalLitres += vol * m.quantity;
+      totalMilkLitres += vol * m.quantity;
     }
 
-    const groupDeliveryCharge = calculateMilkDeliveryCharge(groupTotalLitres);
+    const totalMilkDeliveryCharge = calculateMilkDeliveryCharge(totalMilkLitres);
 
-    // Distribute group charge across items in the group proportionally
-    let remainingCharge = groupDeliveryCharge;
-    for (let i = 0; i < groupItems.length; i++) {
-      const m = groupItems[i];
+    // Distribute group charge across milk items proportionally
+    let remainingCharge = totalMilkDeliveryCharge;
+    for (let i = 0; i < milkItems.length; i++) {
+      const m = milkItems[i];
       let vol = m.unitVolumeLitres;
       if (!vol || vol <= 0) {
         if (m.variantLabel && m.variantLabel.toLowerCase().includes('500')) vol = 0.5;
@@ -112,10 +97,12 @@ function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
       const itemVol = vol * m.quantity;
 
       let itemCharge = 0;
-      if (i === groupItems.length - 1) {
+      if (i === milkItems.length - 1) {
         itemCharge = parseFloat(remainingCharge.toFixed(2));
       } else {
-        itemCharge = parseFloat(((itemVol / groupTotalLitres) * groupDeliveryCharge).toFixed(2));
+        itemCharge = totalMilkLitres > 0
+          ? parseFloat(((itemVol / totalMilkLitres) * totalMilkDeliveryCharge).toFixed(2))
+          : 0;
         remainingCharge -= itemCharge;
       }
 
@@ -141,6 +128,16 @@ function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
   }
 
   return results;
+}
+
+function getProductGroupKey(item) {
+  if (item.productGroupId) return `grp_${item.productGroupId}`;
+  if (item.productId) {
+    const name = (item.productName || '').trim();
+    const normalizedName = name.replace(/\s*(500\s*ml|1\s*l|2\s*l|500\s*g|1\s*kg|packet|pkt)\b/gi, '').trim().toLowerCase();
+    return normalizedName || `prod_${item.productId}`;
+  }
+  return (item.productName || 'unknown').trim().toLowerCase();
 }
 
 module.exports = {

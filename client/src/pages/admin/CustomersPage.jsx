@@ -15,7 +15,8 @@ import {
   Truck,
   RefreshCw,
   Home,
-  Building2
+  Building2,
+  Trash2
 } from 'lucide-react';
 
 export default function CustomersPage({ initialOpenAdd = false }) {
@@ -143,6 +144,20 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       setFormError(err.message || 'Changes were not saved. Please try again.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteCustomer = async (customer) => {
+    if (!window.confirm(`Are you sure you want to delete "${customer.name}"? This will delete the customer profile, subscriptions, and associated history.`)) {
+      return;
+    }
+    try {
+      setLoading(true);
+      await api.delete(`/customers/${customer.id}`);
+      await fetchCustomers();
+    } catch (err) {
+      alert(err.message || 'Failed to delete customer');
+      setLoading(false);
     }
   };
 
@@ -310,6 +325,14 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                         title="Edit Customer"
                       >
                         <Edit2 size={15} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCustomer(c)}
+                        className="btn btn-outline btn-sm"
+                        style={{ padding: '6px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                        title={`Delete Customer: ${c.name}`}
+                      >
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   </td>

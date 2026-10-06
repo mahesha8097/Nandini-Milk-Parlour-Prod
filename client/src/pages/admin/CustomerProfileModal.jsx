@@ -38,6 +38,7 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
   const [showAddSub, setShowAddSub] = useState(false);
   const [editingSubId, setEditingSubId] = useState(null);
   const [products, setProducts] = useState([]);
+  const [subItems, setSubItems] = useState([{ product_id: '', quantity: 1 }]);
   const [subForm, setSubForm] = useState({
     product_id: '',
     quantity: 1,
@@ -71,8 +72,14 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
     try {
       const res = await api.get('/products');
       setProducts(res);
-      if (res.length > 0 && !subForm.product_id) {
-        setSubForm((prev) => ({ ...prev, product_id: res[0].id }));
+      if (res.length > 0) {
+        if (!subForm.product_id) {
+          setSubForm((prev) => ({ ...prev, product_id: res[0].id }));
+        }
+        setSubItems((prev) => prev.map(item => ({
+          ...item,
+          product_id: item.product_id || res[0].id
+        })));
       }
     } catch (e) {
       console.error(e);
@@ -88,8 +95,10 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
 
   const handleOpenAddSub = () => {
     setEditingSubId(null);
+    const defaultPid = products.length > 0 ? products[0].id : '';
+    setSubItems([{ product_id: defaultPid, quantity: 1 }]);
     setSubForm({
-      product_id: products.length > 0 ? products[0].id : '',
+      product_id: defaultPid,
       quantity: 1,
       frequency: 'DAILY',
       start_date: currentMonthFirstDay,
@@ -97,6 +106,22 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
     });
     setSubError('');
     setShowAddSub(true);
+  };
+
+  const handleAddSubItem = () => {
+    const defaultPid = products.length > 0 ? products[0].id : '';
+    setSubItems([...subItems, { product_id: defaultPid, quantity: 1 }]);
+  };
+
+  const handleRemoveSubItem = (index) => {
+    if (subItems.length <= 1) return;
+    setSubItems(subItems.filter((_, i) => i !== index));
+  };
+
+  const handleSubItemChange = (index, field, value) => {
+    const updated = [...subItems];
+    updated[index] = { ...updated[index], [field]: value };
+    setSubItems(updated);
   };
 
   const handleOpenEditSub = (sub) => {
@@ -120,7 +145,22 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
       if (editingSubId) {
         await api.put(`/customers/${customerId}/subscriptions/${editingSubId}`, subForm);
       } else {
-        await api.post(`/customers/${customerId}/subscriptions`, subForm);
+        const payload = subItems.length > 1
+          ? {
+              items: subItems.map(it => ({
+                product_id: it.product_id,
+                quantity: it.quantity,
+                start_date: subForm.start_date,
+                frequency: 'DAILY'
+              }))
+            }
+          : {
+              product_id: subItems[0]?.product_id || subForm.product_id,
+              quantity: subItems[0]?.quantity || subForm.quantity,
+              frequency: 'DAILY',
+              start_date: subForm.start_date
+            };
+        await api.post(`/customers/${customerId}/subscriptions`, payload);
       }
       setShowAddSub(false);
       setEditingSubId(null);
@@ -319,40 +359,112 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
 
               {showAddSub && (
                 <form onSubmit={handleSaveSubscription} className="card" style={{ marginBottom: '16px', background: '#f8fafc', padding: '16px', border: '1px solid var(--primary-light)' }}>
-                  <h5 style={{ fontSize: '0.875rem', marginBottom: '12px', fontWeight: '700', color: 'var(--primary)' }}>
-                    {editingSubId ? 'Edit Delivery Subscription' : 'New Delivery Subscription'}
-                  </h5>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <h5 style={{ fontSize: '0.875rem', margin: 0, fontWeight: '700', color: 'var(--primary)' }}>
+                      {editingSubId ? 'Edit Delivery Subscription' : 'New Delivery Subscription'}
+                    </h5>
+                    {!editingSubId && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Select one or more products for daily delivery
+                      </span>
+                    )}
+                  </div>
                   {subError && <div style={{ color: 'var(--accent-red)', fontSize: '0.8rem', marginBottom: '8px' }}>{subError}</div>}
-                  <div className="form-row">
-                    <div className="form-group" style={{ flex: 1.5 }}>
-                      <label className="form-label">Product</label>
-                      <select
-                        className="form-select"
-                        value={subForm.product_id}
-                        onChange={(e) => setSubForm({ ...subForm, product_id: e.target.value })}
-                        required
-                      >
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name} ({p.variant_label}) - ₹{p.selling_price}</option>
-                        ))}
-                      </select>
-                    </div>
 
-                    <div className="form-group" style={{ flex: 0.8 }}>
-                      <label className="form-label">Quantity / Day</label>
-                      <input
-                        type="number"
-                        min="1"
-                        className="form-input"
-                        value={subForm.quantity}
-                        onChange={(e) => setSubForm({ ...subForm, quantity: parseInt(e.target.value) || 1 })}
-                        required
-                      />
-                    </div>
+                  {editingSubId ? (
+                    /* Edit Single Subscription */
+                    <div className="form-row">
+                      <div className="form-group" style={{ flex: 1.5 }}>
+                        <label className="form-label">Product</label>
+                        <select
+                          className="form-select"
+                          value={subForm.product_id}
+                          onChange={(e) => setSubForm({ ...subForm, product_id: e.target.value })}
+                          required
+                        >
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.variant_label}) - ₹{p.selling_price}</option>
+                          ))}
+                        </select>
+                      </div>
 
+                      <div className="form-group" style={{ flex: 0.8 }}>
+                        <label className="form-label">Quantity / Day</label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input"
+                          value={subForm.quantity}
+                          onChange={(e) => setSubForm({ ...subForm, quantity: parseInt(e.target.value) || 1 })}
+                          required
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    /* Multi-Product Subscription Creation */
+                    <div>
+                      {subItems.map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', marginBottom: '10px' }}>
+                          <div className="form-group" style={{ flex: 2, marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: '0.75rem' }}>
+                              {idx === 0 ? 'Product / Milk 1' : `Additional Product / Milk ${idx + 1}`}
+                            </label>
+                            <select
+                              className="form-select"
+                              value={item.product_id}
+                              onChange={(e) => handleSubItemChange(idx, 'product_id', e.target.value)}
+                              required
+                            >
+                              {products.map((p) => (
+                                <option key={p.id} value={p.id}>{p.name} ({p.variant_label}) - ₹{p.selling_price}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="form-group" style={{ flex: 0.8, marginBottom: 0 }}>
+                            <label className="form-label" style={{ fontSize: '0.75rem' }}>Qty / Day</label>
+                            <input
+                              type="number"
+                              min="1"
+                              className="form-input"
+                              value={item.quantity}
+                              onChange={(e) => handleSubItemChange(idx, 'quantity', parseInt(e.target.value) || 1)}
+                              required
+                            />
+                          </div>
+
+                          {subItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSubItem(idx)}
+                              className="btn btn-outline btn-sm"
+                              style={{ color: 'var(--accent-red)', borderColor: '#fca5a5', height: '36px', padding: '0 8px' }}
+                              title="Remove product"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      <div style={{ marginTop: '6px', marginBottom: '14px' }}>
+                        <button
+                          type="button"
+                          onClick={handleAddSubItem}
+                          className="btn btn-outline btn-sm"
+                          style={{ fontSize: '0.813rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        >
+                          <PlusCircle size={15} /> Add Additional Product (e.g. Shubham Milk + Toned Milk)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Start Date row */}
+                  <div className="form-row" style={{ marginTop: '8px' }}>
                     <div className="form-group" style={{ flex: 1.2 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label className="form-label" style={{ marginBottom: 0 }}>Start Date</label>
+                        <label className="form-label" style={{ marginBottom: 0 }}>Delivery Start Date</label>
                         <div style={{ display: 'flex', gap: '4px' }}>
                           <button
                             type="button"
@@ -383,10 +495,14 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
                     </div>
                   </div>
 
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.78rem', color: '#065f46', marginBottom: '12px' }}>
+                    🥛 <strong>Combined Milk Rule:</strong> When delivering multiple milk types (e.g. Shubham + Toned), total milk volume is combined for delivery charge (1L = ₹3, 500ml = ₹2).
+                  </div>
+
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
                     <button type="button" onClick={() => { setShowAddSub(false); setEditingSubId(null); }} className="btn btn-outline btn-sm">Cancel</button>
                     <button type="submit" className="btn btn-primary btn-sm" disabled={subLoading}>
-                      {subLoading ? 'Saving...' : editingSubId ? 'Update & Save Subscription' : 'Save Subscription'}
+                      {subLoading ? 'Saving...' : editingSubId ? 'Update & Save Subscription' : subItems.length > 1 ? `Save ${subItems.length} Subscriptions` : 'Save Subscription'}
                     </button>
                   </div>
                 </form>

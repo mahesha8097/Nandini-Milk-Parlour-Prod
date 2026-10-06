@@ -157,9 +157,9 @@ console.log('\n[TEST 8] 1L + 500ml of same product -> Total 1.5L -> Delivery cha
 }
 
 // ----------------------------------------------------
-// TEST 9: Different product IDs must NOT be combined
+// TEST 9: Different milk products combine under Milk Rule (e.g. 500ml Toned + 500ml Special = 1L -> ₹3)
 // ----------------------------------------------------
-console.log('\n[TEST 9] Different product IDs must not be incorrectly combined (e.g. 500ml Toned Milk + 500ml Special Milk = ₹2 + ₹2 = ₹4)');
+console.log('\n[TEST 9] Different milk products combine under Milk Rule (e.g. 500ml Toned Milk + 500ml Special Milk = 1L -> ₹3 total)');
 {
   const items = [
     {
@@ -186,11 +186,11 @@ console.log('\n[TEST 9] Different product IDs must not be incorrectly combined (
   const calculated = calculateDeliveryChargesForCustomerDay('HOUSE', items);
   const item1 = calculated.find(i => i.productId === 1);
   const item2 = calculated.find(i => i.productId === 2);
-  assert.strictEqual(item1.deliveryCharge, 2.0, 'Product 1 (500ml) must have ₹2 charge');
-  assert.strictEqual(item2.deliveryCharge, 2.0, 'Product 2 (500ml) must have ₹2 charge');
   const total = item1.deliveryCharge + item2.deliveryCharge;
-  assert.strictEqual(total, 4.0, 'Separate products must not merge into 1L ₹3 rate. Total must be ₹4.00');
-  console.log('  ✓ Passed: 500ml Toned (₹2) + 500ml Special (₹2) = ₹', total);
+  assert.strictEqual(total, 3.0, 'Combining 500ml Toned + 500ml Special yields 1L total -> delivery charge must be ₹3.00');
+  assert.strictEqual(item1.deliveryCharge, 1.5, 'Product 1 (500ml) must have ₹1.50 proportional charge');
+  assert.strictEqual(item2.deliveryCharge, 1.5, 'Product 2 (500ml) must have ₹1.50 proportional charge');
+  console.log('  ✓ Passed: 500ml Toned (₹1.50) + 500ml Special (₹1.50) = 1L Total ₹', total);
 }
 
 // ----------------------------------------------------
