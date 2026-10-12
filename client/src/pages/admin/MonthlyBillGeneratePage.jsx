@@ -627,7 +627,6 @@ export default function MonthlyBillGeneratePage() {
     msg += `*Month:* ${selectedMonth}\n`;
     msg += `*Customer:* ${selectedCustomer.name}\n\n`;
     msg += `*Products & Schedule:* \n${itemsSummary}\n\n`;
-    msg += `*Milk Subtotal:* ₹${totalMilkSubtotal.toFixed(2)}\n`;
     msg += `*TOTAL AMOUNT TO PAY:* ₹${grossTotalBill.toFixed(2)}\n\n`;
     msg += `*Payment Details:*\n`;
     msg += `*Gpay / PhonePe / Paytm:* ${businessProfile.upi_phone || '7022754524'}\n`;
