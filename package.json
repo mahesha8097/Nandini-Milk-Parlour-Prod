@@ -11,7 +11,8 @@
     "test": "node server/tests/business_rules.test.js",
     "test:supabase": "node server/scripts/test-supabase.js",
     "db:init": "node server/scripts/init-supabase-db.js",
-    "db:migrate": "node server/scripts/migrate-sqlite-to-supabase.js"
+    "db:migrate": "node server/scripts/migrate-sqlite-to-supabase.js",
+    "db:sync": "node server/scripts/check-and-sync-supabase.js"
   },
   "keywords": [],
   "author": "",

@@ -27,7 +27,7 @@ export default function MonthlyBillGeneratePage() {
   const [selectedMonth, setSelectedMonth] = useState(() => getLocalDateString().slice(0, 7)); // YYYY-MM
   const [defaultMonthDays, setDefaultMonthDays] = useState(31);
   const [items, setItems] = useState([]); // Array of { productId, productName, variantLabel, unitVolumeLitres, unitPrice, quantity, days, startDate, endDate, selectedDays }
-  
+
   // Calendar Modal State
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [activeItemIndex, setActiveItemIndex] = useState(null);
@@ -87,7 +87,7 @@ export default function MonthlyBillGeneratePage() {
   const calculateDefaultDaysForCustomer = (cust, yearMonth = selectedMonth) => {
     const [year, month] = yearMonth.split('-').map(Number);
     const totalDaysInMonth = new Date(year, month, 0).getDate();
-    
+
     // Check if customer has subscription start_date in this month
     let startDay = 1;
     let endDay = totalDaysInMonth;
@@ -126,7 +126,7 @@ export default function MonthlyBillGeneratePage() {
     if (cust.subscriptions && cust.subscriptions.length > 0) {
       const mapped = cust.subscriptions.map(s => {
         const prod = prodList.find(p => p.id === s.product_id) || {};
-        
+
         let itemDayInfo = defaultDayInfo;
         if (s.start_date && s.start_date.startsWith(selectedMonth)) {
           const d = parseInt(s.start_date.split('-')[2], 10);
@@ -618,7 +618,7 @@ export default function MonthlyBillGeneratePage() {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const phoneFormatted = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
 
-    const itemsSummary = calculatedItems.map(it => 
+    const itemsSummary = calculatedItems.map(it =>
       `• ${it.productName} (${it.variantLabel}) × ${it.quantity}/day for ${it.itemDays} days (${it.totalQty} total @ ₹${it.effectiveUnitPrice.toFixed(2)}) = ₹${it.lineTotal.toFixed(2)}`
     ).join('\n');
 
@@ -628,7 +628,6 @@ export default function MonthlyBillGeneratePage() {
     msg += `*Customer:* ${selectedCustomer.name}\n\n`;
     msg += `*Products & Schedule:* \n${itemsSummary}\n\n`;
     msg += `*Milk Subtotal:* ₹${totalMilkSubtotal.toFixed(2)}\n`;
-    msg += `*Delivery Charges:* ₹${totalDeliveryCharges.toFixed(2)}\n`;
     msg += `*TOTAL AMOUNT TO PAY:* ₹${grossTotalBill.toFixed(2)}\n\n`;
     msg += `*Payment Details:*\n`;
     msg += `*Gpay / PhonePe / Paytm:* ${businessProfile.upi_phone || '7022754524'}\n`;
@@ -870,7 +869,7 @@ export default function MonthlyBillGeneratePage() {
           {items.map((item, idx) => {
             const calculated = calculatedItems[idx] || {};
             const itemDays = item.days || defaultMonthDays;
-            
+
             return (
               <div
                 key={idx}
