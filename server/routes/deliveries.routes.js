@@ -19,6 +19,41 @@ const {
  * Bulk / Hotel customers are strictly excluded from automatic subscriptions (they are manual daily).
  */
 async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = null) {
+  // FAST-PATH: Check if any active subscription on this date is missing from deliveries table.
+  // If all deliveries are already generated and up-to-date, return immediately in 1 quick query.
+  const missingCheck = await db.prepare(`
+    SELECT s.id 
+    FROM subscriptions s
+    JOIN customers c ON s.customer_id = c.id
+    WHERE s.is_active = 1
+      AND s.start_date <= ?
+      AND (s.end_date IS NULL OR s.end_date >= ?)
+      AND c.status = 'ACTIVE'
+      AND c.customer_category != 'BULK_HOTEL'
+      AND (? IS NULL OR c.agent_id = ? OR c.agent_id IS NULL)
+      AND (? IS NULL OR c.delivery_boy_id = ?)
+      AND NOT EXISTS (
+        SELECT 1 FROM deliveries d
+        WHERE d.customer_id = s.customer_id
+          AND d.delivery_date = ?
+          AND (d.product_id = s.product_id OR EXISTS (
+            SELECT 1 FROM daily_delivery_requirements r
+            WHERE r.customer_id = s.customer_id AND r.product_id = s.product_id
+              AND r.delivery_date = ? AND r.status = 'ACTIVE' AND r.target_product_id = d.product_id
+          ))
+      )
+    LIMIT 1
+  `).get(
+    dateStr, dateStr,
+    agentId || null, agentId || null,
+    deliveryBoyId || null, deliveryBoyId || null,
+    dateStr, dateStr
+  );
+
+  if (!missingCheck) {
+    return;
+  }
+
   // Find all active HOUSE customers (Bulk/Hotel customers do NOT use automatic subscriptions)
   let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE' AND customer_category != 'BULK_HOTEL'`;
   const params = [];

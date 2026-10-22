@@ -38,12 +38,88 @@ import {
   RefreshCw
 } from 'lucide-react';
 
+const VALID_ADMIN_TABS = [
+  'dashboard', 'customers', 'delivery-boys', 'deliveries', 'zones',
+  'daily-requirements', 'bills', 'monthly-bill-generate', 'payments',
+  'expenses', 'products', 'reports', 'profile', 'settings'
+];
+
+const VALID_DELIVERY_TABS = [
+  'dashboard', 'deliveries', 'zones', 'customers', 'history', 'profile'
+];
+
+function getStoredTab(role) {
+  try {
+    const hash = window.location.hash.replace(/^#\/?/, '').trim();
+    const saved = localStorage.getItem('nandini_current_tab');
+    const candidate = hash || saved;
+    if (candidate) {
+      if (role === 'DELIVERY_BOY' && VALID_DELIVERY_TABS.includes(candidate)) {
+        return candidate;
+      }
+      if (role === 'ADMIN' && VALID_ADMIN_TABS.includes(candidate)) {
+        return candidate;
+      }
+      if (!role && (VALID_ADMIN_TABS.includes(candidate) || VALID_DELIVERY_TABS.includes(candidate))) {
+        return candidate;
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return 'dashboard';
+}
+
 function MainApplication() {
   const { user, loading, hasAdmin } = useAuth();
   const [authView, setAuthView] = useState('LOGIN'); // 'LOGIN' | 'REGISTER_ADMIN'
-  const [currentTab, setCurrentTab] = useState('dashboard');
+  const [currentTab, setCurrentTab] = useState(() => getStoredTab());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [navParams, setNavParams] = useState({});
+
+  const handleNavigate = (tabId, params = {}) => {
+    setCurrentTab(tabId);
+    setNavParams(params);
+    try {
+      localStorage.setItem('nandini_current_tab', tabId);
+      if (window.location.hash !== `#${tabId}`) {
+        window.history.replaceState(null, '', `#${tabId}`);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  // Synchronize on browser back/forward buttons or hash change
+  React.useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace(/^#\/?/, '').trim();
+      if (hash && hash !== currentTab) {
+        setCurrentTab(hash);
+        try {
+          localStorage.setItem('nandini_current_tab', hash);
+        } catch {}
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [currentTab]);
+
+  // Validate active tab on user load and synchronize address bar
+  React.useEffect(() => {
+    if (user && currentTab) {
+      if (user.role === 'DELIVERY_BOY' && !VALID_DELIVERY_TABS.includes(currentTab)) {
+        handleNavigate('dashboard');
+        return;
+      }
+      if (window.location.hash !== `#${currentTab}`) {
+        window.history.replaceState(null, '', `#${currentTab}`);
+      }
+      try {
+        localStorage.setItem('nandini_current_tab', currentTab);
+      } catch {}
+    }
+  }, [user]);
 
   if (loading) {
     return (
@@ -63,11 +139,6 @@ function MainApplication() {
     }
     return <Login onGoToRegister={() => setAuthView('REGISTER_ADMIN')} />;
   }
-
-  const handleNavigate = (tabId, params = {}) => {
-    setCurrentTab(tabId);
-    setNavParams(params);
-  };
 
   // Render Admin View
   const renderAdminContent = () => {
@@ -128,7 +199,7 @@ function MainApplication() {
       {/* Sidebar (Desktop & Mobile Drawer) */}
       <Sidebar
         currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
+        setCurrentTab={handleNavigate}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -146,35 +217,35 @@ function MainApplication() {
             <>
               <button
                 className={`mobile-nav-item ${currentTab === 'dashboard' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('dashboard')}
+                onClick={() => handleNavigate('dashboard')}
               >
                 <LayoutDashboard size={20} />
                 <span>Dashboard</span>
               </button>
               <button
                 className={`mobile-nav-item ${currentTab === 'deliveries' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('deliveries')}
+                onClick={() => handleNavigate('deliveries')}
               >
                 <PackageCheck size={20} />
                 <span>Deliveries</span>
               </button>
               <button
                 className={`mobile-nav-item ${currentTab === 'customers' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('customers')}
+                onClick={() => handleNavigate('customers')}
               >
                 <Users size={20} />
                 <span>Customers</span>
               </button>
               <button
                 className={`mobile-nav-item ${currentTab === 'bills' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('bills')}
+                onClick={() => handleNavigate('bills')}
               >
                 <Receipt size={20} />
                 <span>Bills</span>
               </button>
               <button
                 className={`mobile-nav-item ${currentTab === 'profile' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('profile')}
+                onClick={() => handleNavigate('profile')}
               >
                 <UserCheck size={20} />
                 <span>Profile</span>
@@ -184,28 +255,28 @@ function MainApplication() {
             <>
               <button
                 className={`mobile-nav-item ${currentTab === 'dashboard' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('dashboard')}
+                onClick={() => handleNavigate('dashboard')}
               >
                 <LayoutDashboard size={20} />
                 <span>Home</span>
               </button>
               <button
                 className={`mobile-nav-item ${currentTab === 'deliveries' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('deliveries')}
+                onClick={() => handleNavigate('deliveries')}
               >
                 <PackageCheck size={20} />
                 <span>Deliveries</span>
               </button>
               <button
                 className={`mobile-nav-item ${currentTab === 'customers' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('customers')}
+                onClick={() => handleNavigate('customers')}
               >
                 <Users size={20} />
                 <span>Customers</span>
               </button>
               <button
                 className={`mobile-nav-item ${currentTab === 'profile' ? 'active' : ''}`}
-                onClick={() => setCurrentTab('profile')}
+                onClick={() => handleNavigate('profile')}
               >
                 <UserCheck size={20} />
                 <span>Profile</span>

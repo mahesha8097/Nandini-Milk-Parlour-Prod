@@ -299,11 +299,28 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   };
 
   // ----------------------------------------------------
-  // DATA FETCHING
+  // DATA FETCHING (optimized for speed & silent background sync)
   // ----------------------------------------------------
-  const fetchData = async () => {
+  const refreshDeliveriesOnly = async () => {
     try {
-      setLoading(true);
+      const params = { date: selectedDate };
+      if (userRole === 'DELIVERY_BOY' && currentUserId) {
+        params.delivery_boy_id = currentUserId;
+      } else if (dboyFilter) {
+        params.delivery_boy_id = dboyFilter;
+      }
+      const dels = await api.get('/deliveries', { params });
+      if (Array.isArray(dels)) {
+        setDeliveries(dels);
+      }
+    } catch (err) {
+      console.error('Silent deliveries refresh notice:', err);
+    }
+  };
+
+  const fetchData = async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
       setError('');
 
       const params = { date: selectedDate };
@@ -313,27 +330,39 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         params.delivery_boy_id = dboyFilter;
       }
 
-      const [dels, zoneList, prods, custs, dboys] = await Promise.all([
-        api.get('/deliveries', { params }).catch((err) => {
+      // If master collections (zones, products, customers) are already loaded in memory,
+      // only re-fetch deliveries on background updates to avoid redundant network roundtrips.
+      const hasMasterData = zones.length > 0 && products.length > 0 && customers.length > 0;
+
+      if (hasMasterData && silent) {
+        const dels = await api.get('/deliveries', { params }).catch((err) => {
           console.error('Deliveries fetch notice:', err);
           return [];
-        }),
-        api.get('/zones').catch(() => []),
-        api.get('/products').catch(() => []),
-        api.get('/customers').catch(() => []),
-        userRole === 'ADMIN' ? api.get('/delivery-boys').catch(() => []) : Promise.resolve([])
-      ]);
+        });
+        setDeliveries(dels || []);
+      } else {
+        const [dels, zoneList, prods, custs, dboys] = await Promise.all([
+          api.get('/deliveries', { params }).catch((err) => {
+            console.error('Deliveries fetch notice:', err);
+            return [];
+          }),
+          api.get('/zones').catch(() => []),
+          api.get('/products').catch(() => []),
+          api.get('/customers').catch(() => []),
+          userRole === 'ADMIN' ? api.get('/delivery-boys').catch(() => []) : Promise.resolve([])
+        ]);
 
-      setDeliveries(dels || []);
-      setZones(zoneList || []);
-      setProducts(prods || []);
-      setCustomers(custs || []);
-      setDeliveryBoys(dboys || []);
+        setDeliveries(dels || []);
+        setZones(zoneList || []);
+        setProducts(prods || []);
+        setCustomers(custs || []);
+        setDeliveryBoys(dboys || []);
+      }
     } catch (err) {
       console.error('Error fetching zone delivery data:', err);
       setError(err.message || 'Failed to load daily deliveries');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -632,26 +661,55 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   }, [activeZone, customerCategoryTab, customerStatusFilter, customerSearchQuery]);
 
   // ----------------------------------------------------
-  // ACTION HANDLERS
+  // ACTION HANDLERS (with instant optimistic UI updates)
   // ----------------------------------------------------
   // Mark delivery DELIVERED
   const handleMarkDelivered = async (deliveryId) => {
+    // 1. Instant optimistic update (0ms UI latency)
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        d.id === deliveryId
+          ? { ...d, status: 'DELIVERED', delivered_at: new Date().toISOString() }
+          : d
+      )
+    );
+
     try {
       await api.put(`/deliveries/${deliveryId}/status`, { status: 'DELIVERED' });
       showToast('Delivery marked as DELIVERED!');
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
+      // Revert on error
+      setDeliveries((prev) =>
+        prev.map((d) =>
+          d.id === deliveryId ? { ...d, status: 'PENDING', delivered_at: null } : d
+        )
+      );
       alert(err.message || 'Failed to update delivery');
     }
   };
 
   // Revert delivery to PENDING
   const handleRevertPending = async (deliveryId) => {
+    // 1. Instant optimistic update
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        d.id === deliveryId ? { ...d, status: 'PENDING', delivered_at: null } : d
+      )
+    );
+
     try {
       await api.put(`/deliveries/${deliveryId}/status`, { status: 'PENDING' });
       showToast('Delivery reverted to Pending.');
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
+      setDeliveries((prev) =>
+        prev.map((d) =>
+          d.id === deliveryId
+            ? { ...d, status: 'DELIVERED', delivered_at: new Date().toISOString() }
+            : d
+        )
+      );
       alert(err.message || 'Failed to revert delivery');
     }
   };
@@ -665,24 +723,54 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     const pendingItems = group.items.filter((it) => it.status !== 'DELIVERED');
     if (pendingItems.length === 0) return;
 
+    const pendingIds = new Set(pendingItems.map((it) => it.id));
+    // 1. Instant optimistic update for all items in group
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        pendingIds.has(d.id)
+          ? { ...d, status: 'DELIVERED', delivered_at: new Date().toISOString() }
+          : d
+      )
+    );
+
     try {
-      await Promise.all(
-        pendingItems.map((it) => api.put(`/deliveries/${it.id}/status`, { status: 'DELIVERED' }))
-      );
+      // Single bulk call instead of multiple parallel calls
+      await api.post('/deliveries/bulk-status', {
+        deliveryIds: pendingItems.map((it) => it.id),
+        status: 'DELIVERED'
+      });
       showToast(`Delivered to ${group.customer_name} (${group.flat_no || ''})!`);
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
+      // Revert on error
+      setDeliveries((prev) =>
+        prev.map((d) =>
+          pendingIds.has(d.id) ? { ...d, status: 'PENDING', delivered_at: null } : d
+        )
+      );
       alert(err.message || 'Failed to mark group delivered');
     }
   };
 
   // Single item delivery handler
   const handleDeliverSingleItem = async (item, customerName) => {
+    // 1. Instant optimistic update
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        d.id === item.id
+          ? { ...d, status: 'DELIVERED', delivered_at: new Date().toISOString() }
+          : d
+      )
+    );
+
     try {
       await api.put(`/deliveries/${item.id}/status`, { status: 'DELIVERED' });
       showToast(`Marked ${item.product_name_snapshot} delivered to ${customerName}!`);
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
+      setDeliveries((prev) =>
+        prev.map((d) => (d.id === item.id ? { ...d, status: 'PENDING', delivered_at: null } : d))
+      );
       alert(err.message || 'Failed to mark item delivered');
     }
   };
@@ -727,7 +815,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       const res = await api.post('/deliveries/temporary-change', payload);
       setIsEditModalOpen(false);
       showToast(res.message || "Today's delivery updated successfully!");
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
       setEditError(err.message || "Failed to update today's delivery.");
     } finally {
@@ -796,7 +884,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       const res = await api.post('/deliveries/extra', payload);
       setIsExtraModalOpen(false);
       showToast(res.message || 'Extra product added successfully!');
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
       setExtraError(err.message || 'Failed to add extra product.');
     } finally {
@@ -812,19 +900,29 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
   const handleConfirmSkip = async ({ reason, applyToRemainingMonth }) => {
     if (!selectedSkipTarget) return;
+    const itemsToSkip = selectedSkipTarget.items ? selectedSkipTarget.items : [selectedSkipTarget];
+    const itemIds = new Set(itemsToSkip.map((it) => it.id));
+
+    // 1. Instant optimistic update
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        itemIds.has(d.id)
+          ? { ...d, status: 'SKIPPED', notes: reason || 'Customer requested skip' }
+          : d
+      )
+    );
+    setIsSkipOpen(false);
+
     try {
-      const itemsToSkip = selectedSkipTarget.items ? selectedSkipTarget.items : [selectedSkipTarget];
-      await Promise.all(
-        itemsToSkip.map((it) =>
-          api.put(`/deliveries/${it.id}/status`, {
-            status: 'SKIPPED',
-            notes: reason || 'Customer requested skip'
-          })
-        )
-      );
+      await api.post('/deliveries/bulk-status', {
+        deliveryIds: itemsToSkip.map((it) => it.id),
+        status: 'SKIPPED',
+        notes: reason || 'Customer requested skip'
+      });
       showToast(`Marked delivery as SKIPPED for ${selectedSkipTarget.customer_name || 'customer'}.`);
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
+      refreshDeliveriesOnly();
       alert(err.message || 'Failed to skip delivery');
     }
   };
@@ -892,7 +990,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       await api.post('/deliveries/bulk-manage', payload);
       setIsBulkModalOpen(false);
       showToast(`Today's products saved for ${bulkModalCustomer.customer_name}.`);
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
       setBulkModalError(err.message || 'Failed to save bulk products.');
     } finally {
@@ -911,7 +1009,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         delivery_date: selectedDate
       });
       showToast(`Bulk delivery for ${group.customer_name} marked as DELIVERED.`);
-      fetchData();
+      refreshDeliveriesOnly();
     } catch (err) {
       alert(err.message || 'Failed to mark bulk delivery as delivered.');
     }
@@ -3022,7 +3120,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         delivery={selectedCorrectionDelivery}
         onSaveSuccess={(res) => {
           showToast(res.message || 'Delivery corrected successfully!');
-          fetchData();
+          refreshDeliveriesOnly();
         }}
       />
 
