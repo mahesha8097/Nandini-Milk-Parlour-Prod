@@ -9,6 +9,12 @@ const {
   correctDelivery,
   getDeliveryCorrectionHistory
 } = require('../services/deliveryCorrectionService');
+const {
+  isCustomerAuthorized,
+  isDeliveryAuthorized,
+  getDeliveryBoyAuthorizedZoneIds,
+  getDeliveryBoyAssignedRouteIds
+} = require('../services/routeAuthService');
 
 /**
  * Ensures pending delivery items exist for a given date based on active customer subscriptions.
@@ -19,6 +25,15 @@ const {
  * Bulk / Hotel customers are strictly excluded from automatic subscriptions (they are manual daily).
  */
 async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = null) {
+  let authorizedZoneIds = [];
+  if (deliveryBoyId) {
+    try {
+      authorizedZoneIds = await getDeliveryBoyAuthorizedZoneIds(deliveryBoyId, agentId || 1);
+    } catch (e) {
+      console.warn('Sync route zone lookup warning:', e.message);
+    }
+  }
+
   // FAST-PATH: Check if any active subscription on this date is missing from deliveries table.
   // If all deliveries are already generated and up-to-date, return immediately in 1 quick query.
   let missingSql = `
@@ -38,8 +53,14 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
     missingParams.push(agentId);
   }
   if (deliveryBoyId) {
-    missingSql += ` AND c.delivery_boy_id = ?`;
-    missingParams.push(deliveryBoyId);
+    if (authorizedZoneIds.length > 0) {
+      const zPlaceholders = authorizedZoneIds.map(() => '?').join(', ');
+      missingSql += ` AND (c.delivery_boy_id = ? OR c.zone_id IN (${zPlaceholders}))`;
+      missingParams.push(deliveryBoyId, ...authorizedZoneIds);
+    } else {
+      missingSql += ` AND c.delivery_boy_id = ?`;
+      missingParams.push(deliveryBoyId);
+    }
   }
 
   missingSql += `
@@ -67,12 +88,18 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
   let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE' AND customer_category != 'BULK_HOTEL'`;
   const params = [];
   if (agentId) {
-    custQuery += ` AND agent_id = ?`;
+    custQuery += ` AND (agent_id = ? OR agent_id IS NULL)`;
     params.push(agentId);
   }
   if (deliveryBoyId) {
-    custQuery += ` AND delivery_boy_id = ?`;
-    params.push(deliveryBoyId);
+    if (authorizedZoneIds.length > 0) {
+      const zPlaceholders = authorizedZoneIds.map(() => '?').join(', ');
+      custQuery += ` AND (delivery_boy_id = ? OR zone_id IN (${zPlaceholders}))`;
+      params.push(deliveryBoyId, ...authorizedZoneIds);
+    } else {
+      custQuery += ` AND delivery_boy_id = ?`;
+      params.push(deliveryBoyId);
+    }
   }
   const customers = await db.prepare(custQuery).all(...params);
 
@@ -236,9 +263,19 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
 // Get deliveries for a date with full filters (Includes active Bulk Customers starting with 0 products)
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const { date, status, delivery_boy_id, customer_id, route } = req.query;
+    const { date, status, delivery_boy_id, customer_id, route, route_id } = req.query;
     const targetDate = date || getLocalDateString();
     const agentId = req.agentId || 1;
+
+    let authorizedZoneIds = [];
+    if (req.user.role === 'DELIVERY_BOY') {
+      const assignedRouteIds = await getDeliveryBoyAssignedRouteIds(req.user.id, agentId);
+      // If delivery boy has no routes assigned, return empty list []
+      if (assignedRouteIds.length === 0) {
+        return res.json([]);
+      }
+      authorizedZoneIds = await getDeliveryBoyAuthorizedZoneIds(req.user.id, agentId);
+    }
 
     // Sync deliveries from active subscriptions for HOUSE customers
     const reqDboyId = req.user.role === 'DELIVERY_BOY' ? req.user.id : delivery_boy_id;
@@ -251,6 +288,7 @@ router.get('/', verifyToken, async (req, res) => {
              c.serial_no as customer_serial_no, c.serial_no,
              c.zone_id, c.flat_no,
              z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order, z.image_url as zone_image_url,
+             z.route_id,
              u.name as delivery_boy_name,
              p.image_url as product_image_url,
              s.quantity as subscription_quantity,
@@ -284,11 +322,22 @@ router.get('/', verifyToken, async (req, res) => {
     const params = [targetDate, agentId, agentId];
 
     if (req.user.role === 'DELIVERY_BOY') {
-      query += ` AND d.delivery_boy_id = ?`;
-      params.push(req.user.id);
+      if (authorizedZoneIds.length > 0) {
+        const zonePlaceholders = authorizedZoneIds.map(() => '?').join(', ');
+        query += ` AND (d.delivery_boy_id = ? OR c.zone_id IN (${zonePlaceholders}))`;
+        params.push(req.user.id, ...authorizedZoneIds);
+      } else {
+        query += ` AND d.delivery_boy_id = ?`;
+        params.push(req.user.id);
+      }
     } else if (delivery_boy_id) {
       query += ` AND d.delivery_boy_id = ?`;
       params.push(delivery_boy_id);
+    }
+
+    if (route_id) {
+      query += ` AND z.route_id = ?`;
+      params.push(route_id);
     }
 
     if (customer_id) {
@@ -318,6 +367,7 @@ router.get('/', verifyToken, async (req, res) => {
               c.serial_no as customer_serial_no, c.serial_no,
               c.zone_id, c.flat_no,
               z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order,
+              z.route_id,
               c.customer_category, c.billing_type, c.delivery_boy_id,
               u.name as delivery_boy_name
       FROM customers c
@@ -328,11 +378,22 @@ router.get('/', verifyToken, async (req, res) => {
     const bulkParams = [agentId];
 
     if (req.user.role === 'DELIVERY_BOY') {
-      bulkCustQuery += ` AND c.delivery_boy_id = ?`;
-      bulkParams.push(req.user.id);
+      if (authorizedZoneIds.length > 0) {
+        const zonePlaceholders = authorizedZoneIds.map(() => '?').join(', ');
+        bulkCustQuery += ` AND (c.delivery_boy_id = ? OR c.zone_id IN (${zonePlaceholders}))`;
+        bulkParams.push(req.user.id, ...authorizedZoneIds);
+      } else {
+        bulkCustQuery += ` AND c.delivery_boy_id = ?`;
+        bulkParams.push(req.user.id);
+      }
     } else if (delivery_boy_id) {
       bulkCustQuery += ` AND c.delivery_boy_id = ?`;
       bulkParams.push(delivery_boy_id);
+    }
+
+    if (route_id) {
+      bulkCustQuery += ` AND z.route_id = ?`;
+      bulkParams.push(route_id);
     }
 
     if (customer_id) {
@@ -422,8 +483,11 @@ router.post('/bulk-manage', verifyToken, async (req, res) => {
     }
 
     // Authorization check for Delivery Boy
-    if (req.user.role === 'DELIVERY_BOY' && customer.delivery_boy_id && customer.delivery_boy_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not authorized for this customer.' });
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isCustomerAuthorized(customer_id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this customer.' });
+      }
     }
 
     const deliveryBoyId = req.user.role === 'DELIVERY_BOY' ? req.user.id : (customer.delivery_boy_id || null);
@@ -509,8 +573,11 @@ router.post('/bulk-deliver', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Customer not found.' });
     }
 
-    if (req.user.role === 'DELIVERY_BOY' && customer.delivery_boy_id && customer.delivery_boy_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not authorized for this customer.' });
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isCustomerAuthorized(customer_id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this customer.' });
+      }
     }
 
     const targetDate = delivery_date;
@@ -635,9 +702,12 @@ router.put('/:id/status', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Delivery record not found' });
     }
 
-    // If Delivery Boy, ensure they are assigned to this delivery
-    if (req.user.role === 'DELIVERY_BOY' && delivery.delivery_boy_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not authorized to update this delivery' });
+    // If Delivery Boy, ensure they are authorized for this delivery via route hierarchy
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isDeliveryAuthorized(deliveryId, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized to update this delivery' });
+      }
     }
 
     // If delivery is currently DELIVERED and has a paid bill, protect financial history
@@ -701,9 +771,12 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
       const d = await db.prepare('SELECT id, customer_id, delivery_date, delivery_boy_id, status FROM deliveries WHERE id = ?').get(id);
       if (!d) continue;
 
-      // If delivery boy, verify assignment
-      if (req.user.role === 'DELIVERY_BOY' && d.delivery_boy_id !== req.user.id) {
-        continue;
+      // If delivery boy, verify assignment via route hierarchy
+      if (req.user.role === 'DELIVERY_BOY') {
+        const authorized = await isDeliveryAuthorized(id, req.user, req.agentId || 1);
+        if (!authorized) {
+          continue;
+        }
       }
 
       await updateStmt.run(status, notes || null, id);
@@ -726,6 +799,12 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
 // Check financial safety before correcting a delivery
 router.get('/:id/safety', verifyToken, async (req, res) => {
   try {
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isDeliveryAuthorized(req.params.id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this delivery' });
+      }
+    }
     const result = await checkCorrectionFinancialSafety(req.params.id, req.user);
     res.json(result);
   } catch (err) {
@@ -737,6 +816,12 @@ router.get('/:id/safety', verifyToken, async (req, res) => {
 // Correct an already completed delivery
 router.post('/:id/correct', verifyToken, async (req, res) => {
   try {
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isDeliveryAuthorized(req.params.id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized to correct this delivery' });
+      }
+    }
     const { corrected_quantity, status, reason } = req.body;
     const result = await correctDelivery({
       deliveryId: req.params.id,
@@ -762,6 +847,12 @@ router.post('/:id/correct', verifyToken, async (req, res) => {
 // Get correction history for a delivery
 router.get('/:id/corrections', verifyToken, async (req, res) => {
   try {
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isDeliveryAuthorized(req.params.id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this delivery' });
+      }
+    }
     const history = await getDeliveryCorrectionHistory(req.params.id);
     res.json(history);
   } catch (err) {
@@ -791,8 +882,11 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
     }
 
     // Authorization check for Delivery Boy
-    if (req.user.role === 'DELIVERY_BOY' && customer.delivery_boy_id && customer.delivery_boy_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not authorized for this customer.' });
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isCustomerAuthorized(customer_id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this customer.' });
+      }
     }
 
     const baseProduct = await db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
@@ -1151,9 +1245,12 @@ router.post('/extra', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
-    // If Delivery Boy, ensure customer is assigned to them (if assigned)
-    if (req.user.role === 'DELIVERY_BOY' && customer.delivery_boy_id && customer.delivery_boy_id !== req.user.id) {
-      return res.status(403).json({ error: 'Not authorized for this customer' });
+    // If Delivery Boy, ensure customer is authorized for them via route hierarchy
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isCustomerAuthorized(customer_id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this customer' });
+      }
     }
 
     const product = await db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
@@ -1317,6 +1414,13 @@ router.post('/adhoc', verifyToken, async (req, res) => {
 
     if (!customer || !product) {
       return res.status(404).json({ error: 'Customer or product not found' });
+    }
+
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isCustomerAuthorized(customer_id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this customer' });
+      }
     }
 
     const qty = parseInt(quantity, 10);

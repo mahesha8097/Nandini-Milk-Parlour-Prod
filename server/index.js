@@ -20,6 +20,7 @@ const dashboardRoutes = require('./routes/dashboard.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const dailyRequirementsRoutes = require('./routes/dailyRequirements.routes');
 const zoneRoutes = require('./routes/zones.routes');
+const routeRoutes = require('./routes/routes.routes');
 
 const { runMonthlyBillGeneration } = require('./services/billingService');
 
@@ -98,6 +99,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/zones', zoneRoutes);
+app.use('/api/routes', routeRoutes);
 
 // Safe Production Health check
 app.get('/api/health', (req, res) => {

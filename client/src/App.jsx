@@ -22,6 +22,7 @@ import ReportsPage from './pages/admin/ReportsPage';
 import AdminProfilePage from './pages/admin/AdminProfilePage';
 import SettingsPage from './pages/admin/SettingsPage';
 import ZonesPage from './pages/admin/ZonesPage';
+import RoutesPage from './pages/admin/RoutesPage';
 
 // Delivery Boy Pages
 import DeliveryBoyDashboard from './pages/delivery/DeliveryBoyDashboard';
@@ -40,7 +41,7 @@ import {
 } from 'lucide-react';
 
 const VALID_ADMIN_TABS = [
-  'dashboard', 'customers', 'delivery-boys', 'deliveries', 'zones',
+  'dashboard', 'customers', 'delivery-boys', 'deliveries', 'routes', 'zones',
   'daily-requirements', 'bills', 'monthly-bill-generate', 'payments',
   'expenses', 'products', 'reports', 'profile', 'settings'
 ];
@@ -152,6 +153,8 @@ function MainApplication() {
         return <DeliveryBoysPage initialOpenAdd={navParams.openAdd} />;
       case 'deliveries':
         return <DeliveriesPage />;
+      case 'routes':
+        return <RoutesPage onNavigate={handleNavigate} />;
       case 'zones':
         return <ZonesPage onNavigate={handleNavigate} />;
       case 'daily-requirements':

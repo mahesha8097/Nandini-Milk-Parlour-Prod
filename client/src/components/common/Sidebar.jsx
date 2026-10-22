@@ -16,6 +16,7 @@ import {
   Settings,
   LogOut,
   Building2,
+  Route as RouteIcon,
   X
 } from 'lucide-react';
 
@@ -27,6 +28,7 @@ export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) 
   const adminNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'deliveries', label: 'Daily Deliveries', icon: PackageCheck },
+    { id: 'routes', label: 'Routes', icon: RouteIcon },
     { id: 'zones', label: 'Zones', icon: Building2 },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'delivery-boys', label: 'Delivery Boys', icon: Truck },

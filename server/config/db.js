@@ -52,16 +52,35 @@ if (isProduction && process.env.DATABASE_URL) {
 
         try {
           await pool.query(`
+            CREATE TABLE IF NOT EXISTS routes (
+              id SERIAL PRIMARY KEY,
+              name TEXT NOT NULL,
+              description TEXT,
+              delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+              status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'INACTIVE')),
+              agent_id INTEGER DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+              updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+          `);
+        } catch (e) {
+          console.warn('Postgres routes init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
             CREATE TABLE IF NOT EXISTS zones (
               id SERIAL PRIMARY KEY,
               name TEXT NOT NULL,
               address TEXT,
               route_order INTEGER DEFAULT 0,
+              route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL,
               image_url TEXT,
               agent_id INTEGER DEFAULT 1,
               created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
               updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
             );
+            ALTER TABLE zones ADD COLUMN IF NOT EXISTS route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL;
           `);
         } catch (e) {
           console.warn('Postgres zones init note:', e.message);
@@ -102,8 +121,24 @@ if (isProduction && process.env.DATABASE_URL) {
           console.warn('Postgres delivery_corrections init note:', e.message);
         }
 
+        // Seed initial routes if none exist for agent 1
+        try {
+          const rCheck = await pool.query('SELECT COUNT(*) as count FROM routes WHERE agent_id = 1');
+          if (parseInt(rCheck.rows[0]?.count || '0', 10) === 0) {
+            await pool.query(`
+              INSERT INTO routes (name, description, status, agent_id)
+              VALUES 
+                ('Route 1', 'Main delivery route 1', 'ACTIVE', 1),
+                ('Route 2', 'Main delivery route 2', 'ACTIVE', 1),
+                ('Route 3', 'Main delivery route 3', 'ACTIVE', 1);
+            `);
+          }
+        } catch (rSeedErr) {
+          console.warn('Postgres routes seed note:', rSeedErr.message);
+        }
+
         const pgTenantTables = [
-          'users', 'zones', 'customers', 'products', 'deliveries', 'bills',
+          'users', 'routes', 'zones', 'customers', 'products', 'deliveries', 'bills',
           'payments', 'expenses', 'daily_delivery_requirements', 'delivery_corrections', 'business_profile'
         ];
         for (const tbl of pgTenantTables) {
@@ -266,12 +301,25 @@ if (isProduction && process.env.DATABASE_URL) {
         updated_at TEXT NOT NULL
       );
 
+      -- Routes table (Route 1, Route 2, etc. with optional assigned delivery boy)
+      CREATE TABLE IF NOT EXISTS routes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'INACTIVE')),
+        agent_id INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       -- Zones table (Apartment, villa community, gated community, or delivery cluster)
       CREATE TABLE IF NOT EXISTS zones (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         address TEXT,
         route_order INTEGER DEFAULT 0,
+        route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL,
         image_url TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -490,6 +538,41 @@ if (isProduction && process.env.DATABASE_URL) {
       }
     } catch (mErr) {
       console.warn('Migration note for business_profile.upi_phone:', mErr.message);
+    }
+
+    // Ensure routes table and route_id column exist in SQLite
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS routes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT,
+          delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'INACTIVE')),
+          agent_id INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const zoneTableInfo = db.prepare("PRAGMA table_info(zones)").all();
+      const hasRouteId = zoneTableInfo.some(col => col.name === 'route_id');
+      if (!hasRouteId) {
+        db.prepare("ALTER TABLE zones ADD COLUMN route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL").run();
+      }
+
+      // Seed initial routes if none exist for agent 1
+      const routeCount = db.prepare("SELECT COUNT(*) as count FROM routes WHERE agent_id = 1").get();
+      if (!routeCount || routeCount.count === 0) {
+        const insertRoute = db.prepare(`
+          INSERT INTO routes (name, description, status, agent_id, created_at, updated_at)
+          VALUES (?, ?, 'ACTIVE', 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        `);
+        insertRoute.run('Route 1', 'Main delivery route 1');
+        insertRoute.run('Route 2', 'Main delivery route 2');
+        insertRoute.run('Route 3', 'Main delivery route 3');
+      }
+    } catch (rErr) {
+      console.warn('Migration note for routes and zones route_id in SQLite:', rErr.message);
     }
 
     // Ensure serial_no, zone_id, flat_no columns exist on customers in SQLite

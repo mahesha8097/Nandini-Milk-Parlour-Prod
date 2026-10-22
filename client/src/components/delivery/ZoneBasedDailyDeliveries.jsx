@@ -35,7 +35,8 @@ import {
   CheckCheck,
   UserPlus,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Route as RouteIcon
 } from 'lucide-react';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 
@@ -101,6 +102,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [deliveryBoys, setDeliveryBoys] = useState([]);
+  const [routes, setRoutes] = useState([]);
+  const [selectedRouteId, setSelectedRouteId] = useState('ALL');
   const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -342,7 +345,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         });
         setDeliveries(dels || []);
       } else {
-        const [dels, zoneList, prods, custs, dboys] = await Promise.all([
+        const [dels, zoneList, prods, custs, dboys, routeList] = await Promise.all([
           api.get('/deliveries', { params }).catch((err) => {
             console.error('Deliveries fetch notice:', err);
             return [];
@@ -350,7 +353,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           api.get('/zones').catch(() => []),
           api.get('/products').catch(() => []),
           api.get('/customers').catch(() => []),
-          userRole === 'ADMIN' ? api.get('/delivery-boys').catch(() => []) : Promise.resolve([])
+          userRole === 'ADMIN' ? api.get('/delivery-boys').catch(() => []) : Promise.resolve([]),
+          api.get('/routes').catch(() => [])
         ]);
 
         setDeliveries(dels || []);
@@ -358,6 +362,20 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         setProducts(prods || []);
         setCustomers(custs || []);
         setDeliveryBoys(dboys || []);
+        setRoutes(routeList || []);
+
+        if (userRole === 'DELIVERY_BOY') {
+          if (routeList && routeList.length > 0) {
+            setSelectedRouteId(prev => {
+              if (prev === 'ALL' || prev === 'NONE' || !routeList.some(r => String(r.id) === String(prev))) {
+                return String(routeList[0].id);
+              }
+              return prev;
+            });
+          } else {
+            setSelectedRouteId('NONE');
+          }
+        }
       }
     } catch (err) {
       console.error('Error fetching zone delivery data:', err);
@@ -400,11 +418,23 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   // ZONE GROUPING & AGGREGATION LOGIC
   // ----------------------------------------------------
   const zoneGroups = useMemo(() => {
+    // Filter target zones based on active route in hierarchy
+    let targetZones = zones;
+    if (userRole === 'DELIVERY_BOY') {
+      if (routes.length === 0) return [];
+      const activeR = routes.find(r => String(r.id) === String(selectedRouteId)) || routes[0];
+      if (!activeR) return [];
+      targetZones = zones.filter(z => z.route_id === activeR.id);
+    } else if (selectedRouteId !== 'ALL' && selectedRouteId !== '') {
+      const rId = parseInt(selectedRouteId, 10);
+      targetZones = zones.filter(z => z.route_id === rId);
+    }
+
     // Map of zone key -> zone data + delivery items
     const map = new Map();
 
     // 1. Initialize known database zones
-    for (const z of zones) {
+    for (const z of targetZones) {
       map.set(`zone_${z.id}`, {
         key: `zone_${z.id}`,
         id: z.id,
@@ -412,6 +442,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         address: z.address || 'Bangalore',
         route_order: z.route_order || 0,
         image_url: z.image_url,
+        route_id: z.route_id,
         type: 'ZONE',
         deliveries: []
       });
@@ -548,7 +579,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         })
       };
     });
-  }, [zones, deliveries, customers]);
+  }, [zones, deliveries, customers, selectedRouteId, userRole, routes]);
 
   // Overall route summary metrics
   const routeSummary = useMemo(() => {
@@ -1147,6 +1178,114 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         )}
       </div>
 
+      {/* Route Hierarchy Bar (Routes -> Zones -> Customers -> Daily Deliveries) */}
+      {!activeZone && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          flexWrap: 'wrap',
+          marginBottom: '16px',
+          padding: '10px 16px',
+          background: '#ffffff',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '800', fontSize: '0.825rem', color: '#1e293b' }}>
+            <RouteIcon size={18} color="#2563eb" />
+            <span>{userRole === 'DELIVERY_BOY' ? 'Assigned Route:' : 'Route:'}</span>
+          </div>
+
+          {userRole === 'DELIVERY_BOY' ? (
+            routes.length === 0 ? (
+              <span style={{ fontSize: '0.85rem', color: '#dc2626', fontWeight: '700' }}>
+                No route assigned. Please contact your Admin.
+              </span>
+            ) : (
+              routes.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedRouteId(String(r.id));
+                    handleSelectZone(null);
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '999px',
+                    fontSize: '0.825rem',
+                    fontWeight: '700',
+                    border: String(selectedRouteId) === String(r.id) ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                    background: String(selectedRouteId) === String(r.id) ? '#eff6ff' : '#f8fafc',
+                    color: String(selectedRouteId) === String(r.id) ? '#1d4ed8' : '#475569',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>{r.name}</span>
+                  <span style={{ fontSize: '0.725rem', background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '999px' }}>
+                    {r.zone_count || 0} zones
+                  </span>
+                </button>
+              ))
+            )
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRouteId('ALL');
+                  handleSelectZone(null);
+                }}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '999px',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  border: selectedRouteId === 'ALL' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                  background: selectedRouteId === 'ALL' ? '#eff6ff' : '#f8fafc',
+                  color: selectedRouteId === 'ALL' ? '#1d4ed8' : '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                All Routes ({routes.length})
+              </button>
+              {routes.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedRouteId(String(r.id));
+                    handleSelectZone(null);
+                  }}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '999px',
+                    fontSize: '0.8rem',
+                    fontWeight: '700',
+                    border: String(selectedRouteId) === String(r.id) ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                    background: String(selectedRouteId) === String(r.id) ? '#eff6ff' : '#f8fafc',
+                    color: String(selectedRouteId) === String(r.id) ? '#1d4ed8' : '#475569',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>{r.name}</span>
+                  <span style={{ fontSize: '0.725rem', background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: '999px' }}>
+                    {r.zone_count || 0}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* SUMMARY BANNER: Zone progress + 4 KPI Stat Counters (Level 1 Zones Screen ONLY) */}
       {/* ========================================================================= */}
@@ -1370,9 +1509,57 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
           {/* Zones Card Stack */}
           {displayedZones.length === 0 ? (
-            <div style={{ background: 'white', padding: '30px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
-              No zones found matching "{zoneSearchQuery}".
-            </div>
+            userRole === 'DELIVERY_BOY' && routes.length === 0 ? (
+              <div style={{
+                background: 'white',
+                padding: '48px 24px',
+                textAlign: 'center',
+                borderRadius: '16px',
+                border: '1.5px dashed #cbd5e1',
+                color: '#64748b'
+              }}>
+                <div style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '50%',
+                  background: '#eff6ff',
+                  color: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px'
+                }}>
+                  <RouteIcon size={28} />
+                </div>
+                <h3 style={{ margin: '0 0 6px 0', fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>
+                  No route assigned. Please contact your Admin.
+                </h3>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                  Once your Parlour Admin assigns you to a route, your assigned zones and daily customer deliveries will appear here.
+                </p>
+              </div>
+            ) : userRole === 'DELIVERY_BOY' ? (
+              <div style={{
+                background: 'white',
+                padding: '40px 24px',
+                textAlign: 'center',
+                borderRadius: '16px',
+                border: '1.5px dashed #cbd5e1',
+                color: '#64748b'
+              }}>
+                <Building2 size={36} color="#94a3b8" style={{ margin: '0 auto 12px' }} />
+                <h3 style={{ margin: '0 0 6px 0', fontSize: '1.05rem', fontWeight: '800', color: '#0f172a' }}>
+                  No zones in this route yet
+                </h3>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                  Your assigned route does not contain any zones yet. Please contact your Admin.
+                </p>
+              </div>
+            ) : (
+              <div style={{ background: 'white', padding: '30px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                {zoneSearchQuery ? `No zones found matching "${zoneSearchQuery}".` : 'No zones found for this route.'}
+              </div>
+            )
           ) : (
             displayedZones.map((zone, idx) => {
               const isSelected = activeZone?.key === zone.key;

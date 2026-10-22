@@ -2,29 +2,55 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { requireAdmin, verifyToken } = require('../middleware/auth');
+const {
+  getDeliveryBoyAssignedRouteIds,
+  getDeliveryBoyAuthorizedZoneIds,
+  isCustomerAuthorized
+} = require('../services/routeAuthService');
 
-// Get all customers (with filters: search, category, billing_type, status, route, delivery_boy_id)
+// Get all customers (with filters: search, category, billing_type, status, route, route_id, delivery_boy_id)
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const { search, category, billing_type, status, delivery_boy_id, route } = req.query;
+    const { search, category, billing_type, status, delivery_boy_id, route, route_id } = req.query;
+    const agentId = req.agentId || 1;
 
     let query = `
-      SELECT c.*, z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order,
+      SELECT c.*, 
+             z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order, z.route_id,
+             r.name as route_name, r.delivery_boy_id as route_delivery_boy_id,
              u.name as delivery_boy_name, u.phone as delivery_boy_phone
       FROM customers c
       LEFT JOIN zones z ON c.zone_id = z.id
-      LEFT JOIN users u ON c.delivery_boy_id = u.id
+      LEFT JOIN routes r ON z.route_id = r.id
+      LEFT JOIN users u ON COALESCE(c.delivery_boy_id, r.delivery_boy_id) = u.id
       WHERE c.agent_id = ?
     `;
-    const params = [req.agentId || 1];
+    const params = [agentId];
 
-    // Delivery boy can only view assigned customers
+    // Delivery boy can only view customers on their assigned route(s) (Requirement 8 & 9)
     if (req.user.role === 'DELIVERY_BOY') {
-      query += ` AND c.delivery_boy_id = ?`;
-      params.push(req.user.id);
+      const assignedRouteIds = await getDeliveryBoyAssignedRouteIds(req.user.id, agentId);
+      if (assignedRouteIds.length === 0) {
+        // No active route assigned -> return empty list (Rule 8)
+        return res.json([]);
+      }
+      const authorizedZoneIds = await getDeliveryBoyAuthorizedZoneIds(req.user.id, agentId);
+      if (authorizedZoneIds.length > 0) {
+        const placeholders = authorizedZoneIds.map(() => '?').join(', ');
+        query += ` AND (c.zone_id IN (${placeholders}) OR c.delivery_boy_id = ?)`;
+        params.push(...authorizedZoneIds, req.user.id);
+      } else {
+        query += ` AND c.delivery_boy_id = ?`;
+        params.push(req.user.id);
+      }
     } else if (delivery_boy_id) {
-      query += ` AND c.delivery_boy_id = ?`;
-      params.push(delivery_boy_id);
+      query += ` AND (c.delivery_boy_id = ? OR r.delivery_boy_id = ?)`;
+      params.push(delivery_boy_id, delivery_boy_id);
+    }
+
+    if (route_id) {
+      query += ` AND z.route_id = ?`;
+      params.push(route_id);
     }
 
     if (category) {
@@ -81,24 +107,28 @@ router.get('/', verifyToken, async (req, res) => {
 // Get single customer profile with comprehensive details
 router.get('/:id', verifyToken, async (req, res) => {
   try {
-    const customerId = req.params.id;
+    const customerId = parseInt(req.params.id, 10);
+    const agentId = req.agentId || 1;
 
-    // Delivery boy access check
+    // Delivery boy authorization check (Requirement 9)
     if (req.user.role === 'DELIVERY_BOY') {
-      const check = await db.prepare('SELECT id FROM customers WHERE id = ? AND delivery_boy_id = ?').get(customerId, req.user.id);
-      if (!check) {
-        return res.status(403).json({ error: 'Not authorized to view this customer' });
+      const authorized = await isCustomerAuthorized(customerId, req.user, agentId);
+      if (!authorized) {
+        return res.status(403).json({ error: 'You are not authorized to view this customer.' });
       }
     }
 
     const customer = await db.prepare(`
-      SELECT c.*, z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order,
+      SELECT c.*, 
+             z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order, z.route_id,
+             r.name as route_name, r.delivery_boy_id as route_delivery_boy_id,
              u.name as delivery_boy_name, u.phone as delivery_boy_phone
       FROM customers c
       LEFT JOIN zones z ON c.zone_id = z.id
-      LEFT JOIN users u ON c.delivery_boy_id = u.id
-      WHERE c.id = ?
-    `).get(customerId);
+      LEFT JOIN routes r ON z.route_id = r.id
+      LEFT JOIN users u ON COALESCE(c.delivery_boy_id, r.delivery_boy_id) = u.id
+      WHERE c.id = ? AND COALESCE(c.agent_id, 1) = ?
+    `).get(customerId, agentId);
 
     if (!customer) {
       return res.status(404).json({ error: 'Customer not found' });
@@ -210,6 +240,27 @@ router.post('/', requireAdmin, async (req, res) => {
       const parsedZoneId = zone_id ? parseInt(zone_id, 10) || null : null;
       const cleanFlatNo = flat_no ? flat_no.trim() : null;
 
+      let assignedRouteName = route || '';
+      let assignedDboyId = delivery_boy_id ? parseInt(delivery_boy_id, 10) || null : null;
+
+      // Automatically determine route and delivery boy from the zone's route (Requirement 6)
+      if (parsedZoneId) {
+        const zInfo = await db.prepare(`
+          SELECT z.*, r.name as route_name, r.delivery_boy_id as route_dboy_id
+          FROM zones z
+          LEFT JOIN routes r ON z.route_id = r.id
+          WHERE z.id = ?
+        `).get(parsedZoneId);
+        if (zInfo) {
+          if (zInfo.route_name) {
+            assignedRouteName = zInfo.route_name;
+          }
+          if (!assignedDboyId && zInfo.route_dboy_id) {
+            assignedDboyId = zInfo.route_dboy_id;
+          }
+        }
+      }
+
       const result = await stmt.run(
         assignedSerial,
         name.trim(),
@@ -219,8 +270,8 @@ router.post('/', requireAdmin, async (req, res) => {
         parsedZoneId,
         customer_category,
         billing_type,
-        delivery_boy_id || null,
-        route || '',
+        assignedDboyId,
+        assignedRouteName,
         status || 'ACTIVE',
         notes || '',
         initAdvance,
@@ -339,6 +390,27 @@ router.put('/:id', requireAdmin, async (req, res) => {
       ? (flat_no ? flat_no.trim() : null)
       : (existing.flat_no || null);
 
+    let finalRoute = route !== undefined ? route : existing.route;
+    let finalDboyId = delivery_boy_id !== undefined ? delivery_boy_id : existing.delivery_boy_id;
+
+    // Automatically determine route and delivery boy if zone changed (Requirement 6)
+    if (newZoneId && newZoneId !== existing.zone_id) {
+      const zInfo = await db.prepare(`
+        SELECT z.*, r.name as route_name, r.delivery_boy_id as route_dboy_id
+        FROM zones z
+        LEFT JOIN routes r ON z.route_id = r.id
+        WHERE z.id = ?
+      `).get(newZoneId);
+      if (zInfo) {
+        if (zInfo.route_name) {
+          finalRoute = zInfo.route_name;
+        }
+        if (delivery_boy_id === undefined && zInfo.route_dboy_id) {
+          finalDboyId = zInfo.route_dboy_id;
+        }
+      }
+    }
+
     await db.prepare(`
       UPDATE customers
       SET name = ?, phone = ?, address = ?, flat_no = ?, zone_id = ?, customer_category = ?, billing_type = ?,
@@ -352,8 +424,8 @@ router.put('/:id', requireAdmin, async (req, res) => {
       newZoneId,
       customer_category || existing.customer_category,
       billing_type || existing.billing_type,
-      delivery_boy_id !== undefined ? delivery_boy_id : existing.delivery_boy_id,
-      route !== undefined ? route : existing.route,
+      finalDboyId,
+      finalRoute,
       status || existing.status,
       notes !== undefined ? notes : existing.notes,
       newAdvance,

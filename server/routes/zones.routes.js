@@ -2,21 +2,52 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { requireAdmin, verifyToken } = require('../middleware/auth');
+const { getDeliveryBoyAssignedRouteIds } = require('../services/routeAuthService');
 
-// Get all zones (Accessible to both Admin and Delivery Boy)
+// Get all zones
+// Admin: gets all zones in parlour/agent
+// Delivery Boy: gets ONLY zones belonging to their assigned active route(s)
 router.get('/', verifyToken, async (req, res) => {
   try {
     const agentId = req.agentId || 1;
-    const zones = await db.prepare(`
+    const isDeliveryBoy = req.user.role === 'DELIVERY_BOY';
+
+    let assignedRouteIds = [];
+    if (isDeliveryBoy) {
+      assignedRouteIds = await getDeliveryBoyAssignedRouteIds(req.user.id, agentId);
+      if (assignedRouteIds.length === 0) {
+        // Delivery boy has no assigned route -> see zero zones (Requirement 8 & 9)
+        return res.json([]);
+      }
+    }
+
+    let query = `
       SELECT z.*, 
+             r.name as route_name,
+             r.delivery_boy_id as route_delivery_boy_id,
+             u.name as delivery_boy_name,
+             u.phone as delivery_boy_phone,
              COUNT(c.id) as customer_count
       FROM zones z
+      LEFT JOIN routes r ON z.route_id = r.id
+      LEFT JOIN users u ON r.delivery_boy_id = u.id
       LEFT JOIN customers c ON c.zone_id = z.id AND c.status = 'ACTIVE' AND COALESCE(c.agent_id, 1) = ?
       WHERE COALESCE(z.agent_id, 1) = ?
-      GROUP BY z.id
-      ORDER BY z.route_order ASC, z.name ASC
-    `).all(agentId, agentId);
+    `;
+    const params = [agentId, agentId];
 
+    if (isDeliveryBoy) {
+      const placeholders = assignedRouteIds.map(() => '?').join(', ');
+      query += ` AND z.route_id IN (${placeholders})`;
+      params.push(...assignedRouteIds);
+    }
+
+    query += `
+      GROUP BY z.id, r.name, r.delivery_boy_id, u.name, u.phone
+      ORDER BY z.route_order ASC, z.name ASC
+    `;
+
+    const zones = await db.prepare(query).all(...params);
     res.json(zones || []);
   } catch (err) {
     console.error('Fetch zones error:', err);
@@ -27,19 +58,32 @@ router.get('/', verifyToken, async (req, res) => {
 // Create Zone (Admin only)
 router.post('/', requireAdmin, async (req, res) => {
   try {
-    const { name, address, route_order, image_url } = req.body;
+    const { name, address, route_order, route_id, image_url } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Zone name is required' });
     }
 
     const agentId = req.agentId || 1;
     const order = route_order !== undefined ? parseInt(route_order, 10) || 0 : 0;
-    const result = await db.prepare(`
-      INSERT INTO zones (name, address, route_order, image_url, agent_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
-    `).run(name.trim(), (address || '').trim(), order, image_url || null, agentId);
+    const rId = route_id !== undefined ? (route_id ? parseInt(route_id, 10) || null : null) : null;
 
-    const created = await db.prepare('SELECT * FROM zones WHERE id = ?').get(result.lastInsertRowid);
+    let route = null;
+    if (rId) {
+      route = await db.prepare('SELECT * FROM routes WHERE id = ? AND COALESCE(agent_id, 1) = ?').get(rId, agentId);
+    }
+
+    const result = await db.prepare(`
+      INSERT INTO zones (name, address, route_order, route_id, image_url, agent_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+    `).run(name.trim(), (address || '').trim(), order, rId, image_url || null, agentId);
+
+    const created = await db.prepare(`
+      SELECT z.*, r.name as route_name
+      FROM zones z
+      LEFT JOIN routes r ON z.route_id = r.id
+      WHERE z.id = ?
+    `).get(result.lastInsertRowid);
+
     res.status(201).json(created);
   } catch (err) {
     console.error('Create zone error:', err);
@@ -50,26 +94,57 @@ router.post('/', requireAdmin, async (req, res) => {
 // Update Zone (Admin only)
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
-    const zoneId = req.params.id;
+    const zoneId = parseInt(req.params.id, 10);
     const agentId = req.agentId || 1;
     const existing = await db.prepare('SELECT * FROM zones WHERE id = ? AND COALESCE(agent_id, 1) = ?').get(zoneId, agentId);
     if (!existing) {
       return res.status(404).json({ error: 'Zone not found' });
     }
 
-    const { name, address, route_order, image_url } = req.body;
+    const { name, address, route_order, route_id, image_url } = req.body;
     const newName = (name !== undefined ? name : existing.name).trim();
     const newAddress = address !== undefined ? address.trim() : existing.address;
     const newOrder = route_order !== undefined ? parseInt(route_order, 10) || 0 : existing.route_order;
     const newImage = image_url !== undefined ? image_url : existing.image_url;
+    const newRouteId = route_id !== undefined ? (route_id ? parseInt(route_id, 10) || null : null) : existing.route_id;
 
     await db.prepare(`
       UPDATE zones
-      SET name = ?, address = ?, route_order = ?, image_url = ?, updated_at = datetime('now', 'localtime')
+      SET name = ?, address = ?, route_order = ?, route_id = ?, image_url = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ? AND COALESCE(agent_id, 1) = ?
-    `).run(newName, newAddress, newOrder, newImage, zoneId, agentId);
+    `).run(newName, newAddress, newOrder, newRouteId, newImage, zoneId, agentId);
 
-    const updated = await db.prepare('SELECT * FROM zones WHERE id = ?').get(zoneId);
+    // If route_id changed, synchronize customer route and delivery boy
+    if (route_id !== undefined && newRouteId !== existing.route_id) {
+      try {
+        let routeName = null;
+        let routeDboyId = null;
+        if (newRouteId) {
+          const r = await db.prepare('SELECT name, delivery_boy_id FROM routes WHERE id = ?').get(newRouteId);
+          if (r) {
+            routeName = r.name;
+            routeDboyId = r.delivery_boy_id;
+          }
+        }
+        await db.prepare(`
+          UPDATE customers
+          SET route = COALESCE(?, route),
+              delivery_boy_id = COALESCE(?, delivery_boy_id),
+              updated_at = datetime('now', 'localtime')
+          WHERE zone_id = ? AND COALESCE(agent_id, 1) = ?
+        `).run(routeName, routeDboyId, zoneId, agentId);
+      } catch (syncErr) {
+        console.warn('Sync zone route change to customers note:', syncErr.message);
+      }
+    }
+
+    const updated = await db.prepare(`
+      SELECT z.*, r.name as route_name
+      FROM zones z
+      LEFT JOIN routes r ON z.route_id = r.id
+      WHERE z.id = ?
+    `).get(zoneId);
+
     res.json(updated);
   } catch (err) {
     console.error('Update zone error:', err);
@@ -80,7 +155,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
 // Delete Zone (Admin only - sets zone_id = NULL on customers safely)
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
-    const zoneId = req.params.id;
+    const zoneId = parseInt(req.params.id, 10);
     const agentId = req.agentId || 1;
     await db.prepare('UPDATE customers SET zone_id = NULL WHERE zone_id = ? AND COALESCE(agent_id, 1) = ?').run(zoneId, agentId);
     await db.prepare('DELETE FROM zones WHERE id = ? AND COALESCE(agent_id, 1) = ?').run(zoneId, agentId);

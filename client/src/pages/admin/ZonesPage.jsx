@@ -19,7 +19,8 @@ import {
   Home,
   ShoppingBag,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Route as RouteIcon
 } from 'lucide-react';
 
 function ZoneBuildingThumbnail({ name = '', index = 0 }) {
@@ -111,14 +112,16 @@ export default function ZonesPage({ onNavigate }) {
     }
   };
 
-  // Search
+  // Search & Filter
   const [zoneSearch, setZoneSearch] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
+  const [routeFilter, setRouteFilter] = useState('ALL');
+  const [routes, setRoutes] = useState([]);
 
   // Modals for Zones
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [zoneForm, setZoneForm] = useState({ id: null, name: '', address: '', route_order: '' });
+  const [zoneForm, setZoneForm] = useState({ id: null, name: '', address: '', route_order: '', route_id: '' });
   const [savingZone, setSavingZone] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -129,12 +132,14 @@ export default function ZonesPage({ onNavigate }) {
     try {
       setLoading(true);
       setError('');
-      const [zonesRes, custsRes] = await Promise.all([
+      const [zonesRes, custsRes, routesRes] = await Promise.all([
         api.get('/zones'),
-        api.get('/customers')
+        api.get('/customers'),
+        api.get('/routes').catch(() => [])
       ]);
       setZones(zonesRes || []);
       setCustomers(custsRes || []);
+      setRoutes(routesRes || []);
     } catch (err) {
       console.error(err);
       setError(err.message || 'Failed to load zones');
@@ -158,6 +163,9 @@ export default function ZonesPage({ onNavigate }) {
         name: z.name,
         address: z.address || 'Bangalore',
         route_order: z.route_order || 0,
+        route_id: z.route_id || null,
+        route_name: z.route_name || null,
+        delivery_boy_name: z.delivery_boy_name || null,
         type: 'ZONE',
         customers: []
       });
@@ -242,12 +250,21 @@ export default function ZonesPage({ onNavigate }) {
   }, [allZoneGroups, selectedZoneKey]);
 
   const displayedZones = useMemo(() => {
-    if (!zoneSearch.trim()) return allZoneGroups;
+    let list = allZoneGroups;
+    if (routeFilter !== 'ALL') {
+      if (routeFilter === 'UNASSIGNED') {
+        list = list.filter((g) => g.type === 'ZONE' && !g.route_id);
+      } else {
+        const rId = parseInt(routeFilter, 10);
+        list = list.filter((g) => g.type === 'ZONE' && g.route_id === rId);
+      }
+    }
+    if (!zoneSearch.trim()) return list;
     const q = zoneSearch.toLowerCase().trim();
-    return allZoneGroups.filter((g) =>
+    return list.filter((g) =>
       g.name.toLowerCase().includes(q) || (g.address && g.address.toLowerCase().includes(q))
     );
-  }, [allZoneGroups, zoneSearch]);
+  }, [allZoneGroups, zoneSearch, routeFilter]);
 
   const filteredActiveZoneCustomers = useMemo(() => {
     if (!activeZone) return [];
@@ -267,7 +284,8 @@ export default function ZonesPage({ onNavigate }) {
       id: null,
       name: '',
       address: '',
-      route_order: zones.length + 1
+      route_order: zones.length + 1,
+      route_id: routeFilter !== 'ALL' && routeFilter !== 'UNASSIGNED' ? routeFilter : ''
     });
     setFormError('');
     setIsCreateModalOpen(true);
@@ -278,7 +296,8 @@ export default function ZonesPage({ onNavigate }) {
       id: zone.id,
       name: zone.name,
       address: zone.address || '',
-      route_order: zone.route_order !== undefined && zone.route_order !== null ? zone.route_order : ''
+      route_order: zone.route_order !== undefined && zone.route_order !== null ? zone.route_order : '',
+      route_id: zone.route_id ? String(zone.route_id) : ''
     });
     setFormError('');
     setIsEditModalOpen(true);
@@ -297,14 +316,16 @@ export default function ZonesPage({ onNavigate }) {
         await api.put(`/zones/${zoneForm.id}`, {
           name: zoneForm.name.trim(),
           address: zoneForm.address.trim(),
-          route_order: parseInt(zoneForm.route_order, 10) || 0
+          route_order: parseInt(zoneForm.route_order, 10) || 0,
+          route_id: zoneForm.route_id ? parseInt(zoneForm.route_id, 10) : null
         });
         setIsEditModalOpen(false);
       } else {
         await api.post('/zones', {
           name: zoneForm.name.trim(),
           address: zoneForm.address.trim(),
-          route_order: parseInt(zoneForm.route_order, 10) || 0
+          route_order: parseInt(zoneForm.route_order, 10) || 0,
+          route_id: zoneForm.route_id ? parseInt(zoneForm.route_id, 10) : null
         });
         setIsCreateModalOpen(false);
       }
@@ -480,6 +501,77 @@ export default function ZonesPage({ onNavigate }) {
             </div>
           </div>
 
+          {/* Route Filter Pills Bar */}
+          {routes.length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              flexWrap: 'wrap',
+              background: '#ffffff',
+              padding: '10px 16px',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '800', fontSize: '0.825rem', color: '#1e293b' }}>
+                <RouteIcon size={16} color="#2563eb" />
+                <span>Filter by Route:</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRouteFilter('ALL')}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '999px',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  border: routeFilter === 'ALL' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                  background: routeFilter === 'ALL' ? '#eff6ff' : '#f8fafc',
+                  color: routeFilter === 'ALL' ? '#1d4ed8' : '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                All Zones ({allZoneGroups.length})
+              </button>
+              {routes.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRouteFilter(String(r.id))}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: '999px',
+                    fontSize: '0.8rem',
+                    fontWeight: '700',
+                    border: String(routeFilter) === String(r.id) ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                    background: String(routeFilter) === String(r.id) ? '#eff6ff' : '#f8fafc',
+                    color: String(routeFilter) === String(r.id) ? '#1d4ed8' : '#475569',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {r.name}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setRouteFilter('UNASSIGNED')}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '999px',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  border: routeFilter === 'UNASSIGNED' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                  background: routeFilter === 'UNASSIGNED' ? '#eff6ff' : '#f8fafc',
+                  color: routeFilter === 'UNASSIGNED' ? '#1d4ed8' : '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                Unassigned Zones
+              </button>
+            </div>
+          )}
+
           {/* Zones Grid */}
           {displayedZones.length === 0 ? (
             <div style={{ background: 'white', padding: '40px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
@@ -526,16 +618,46 @@ export default function ZonesPage({ onNavigate }) {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                           {zone.type === 'ZONE' && (
-                            <span style={{
-                              background: '#2563eb',
-                              color: 'white',
-                              fontSize: '0.72rem',
-                              fontWeight: '900',
-                              padding: '2px 8px',
-                              borderRadius: '999px'
-                            }}>
-                              Route #{zone.route_order || (idx + 1)}
-                            </span>
+                            <>
+                              <span style={{
+                                background: '#2563eb',
+                                color: 'white',
+                                fontSize: '0.72rem',
+                                fontWeight: '900',
+                                padding: '2px 8px',
+                                borderRadius: '999px'
+                              }}>
+                                Stop #{zone.route_order || (idx + 1)}
+                              </span>
+                              {zone.route_name ? (
+                                <span style={{
+                                  background: '#eff6ff',
+                                  color: '#1d4ed8',
+                                  border: '1px solid #bfdbfe',
+                                  fontSize: '0.72rem',
+                                  fontWeight: '800',
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}>
+                                  <RouteIcon size={11} /> {zone.route_name}
+                                </span>
+                              ) : (
+                                <span style={{
+                                  background: '#f8fafc',
+                                  color: '#64748b',
+                                  border: '1px solid #e2e8f0',
+                                  fontSize: '0.72rem',
+                                  fontWeight: '700',
+                                  padding: '2px 8px',
+                                  borderRadius: '999px'
+                                }}>
+                                  No Route
+                                </span>
+                              )}
+                            </>
                           )}
                           <h3 style={{ fontSize: '1.08rem', fontWeight: '800', color: '#0f172a', margin: 0, wordBreak: 'break-word' }}>
                             {zone.name}
@@ -892,6 +1014,28 @@ export default function ZonesPage({ onNavigate }) {
           </div>
 
           <div className="form-group">
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <RouteIcon size={14} color="#2563eb" />
+              <span>Assigned Route</span>
+            </label>
+            <select
+              className="form-select"
+              value={zoneForm.route_id}
+              onChange={(e) => setZoneForm({ ...zoneForm, route_id: e.target.value })}
+            >
+              <option value="">-- No Route Assigned (Assign Later) --</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} {r.delivery_boy_name ? `(${r.delivery_boy_name})` : '(No Delivery Boy Assigned)'}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '4px' }}>
+              Links this zone directly into the Route hierarchy (Routes → Zones → Customers).
+            </div>
+          </div>
+
+          <div className="form-group">
             <label className="form-label">Route Sequence Order</label>
             <input
               type="number"
@@ -958,6 +1102,25 @@ export default function ZonesPage({ onNavigate }) {
               value={zoneForm.address}
               onChange={(e) => setZoneForm({ ...zoneForm, address: e.target.value })}
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <RouteIcon size={14} color="#2563eb" />
+              <span>Assigned Route</span>
+            </label>
+            <select
+              className="form-select"
+              value={zoneForm.route_id}
+              onChange={(e) => setZoneForm({ ...zoneForm, route_id: e.target.value })}
+            >
+              <option value="">-- No Route Assigned (Assign Later) --</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} {r.delivery_boy_name ? `(${r.delivery_boy_name})` : '(No Delivery Boy Assigned)'}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-group">

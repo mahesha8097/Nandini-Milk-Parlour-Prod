@@ -35,6 +35,32 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT,
   is_active INTEGER DEFAULT 1,
   assigned_route TEXT,
+  agent_id INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+  updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+-- 3b. Routes table (Routes -> Zones -> Customers -> Deliveries hierarchy)
+CREATE TABLE IF NOT EXISTS routes (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'INACTIVE')),
+  agent_id INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+  updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+-- 3c. Zones table (Apartment and Villa Communities)
+CREATE TABLE IF NOT EXISTS zones (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT,
+  route_order INTEGER DEFAULT 0,
+  route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL,
+  image_url TEXT,
+  agent_id INTEGER DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
   updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
 );
