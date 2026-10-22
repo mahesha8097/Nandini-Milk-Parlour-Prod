@@ -560,14 +560,14 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             className="btn btn-outline btn-sm"
             style={{ fontWeight: '700' }}
           >
-            <Building2 size={15} color="#2563eb" /> + New Zone
+            <Building2 size={15} color="#2563eb" /> New Zone
           </button>
           <button
             onClick={() => handleOpenAdd(activeZone?.id)}
             className="btn btn-primary btn-sm"
             style={{ fontWeight: '800' }}
           >
-            <PlusCircle size={15} /> + Add Customer
+            <PlusCircle size={15} /> Add Customer
           </button>
         </div>
       </div>
@@ -981,7 +981,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 className="btn btn-primary btn-sm"
                 style={{ fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                <PlusCircle size={15} /> + Add Customer to this Zone
+                <PlusCircle size={15} /> Add Customer to this Zone
               </button>
             </div>
           </div>

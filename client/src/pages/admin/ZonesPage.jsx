@@ -357,7 +357,7 @@ export default function ZonesPage({ onNavigate }) {
             className="btn btn-primary btn-sm"
             style={{ fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <PlusCircle size={15} /> + Add Zone
+            <PlusCircle size={15} /> Add Zone
           </button>
         </div>
       </div>
