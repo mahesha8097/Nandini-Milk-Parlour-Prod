@@ -22,7 +22,9 @@ import {
   ShoppingBag,
   Sparkles,
   Layers,
-  ArrowRight
+  ArrowRight,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 
 function ZoneBuildingThumbnail({ name = '', index = 0 }) {
@@ -555,6 +557,25 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           <button onClick={fetchCustomers} className="btn btn-outline btn-sm">
             <RefreshCw size={15} /> Refresh
           </button>
+          <a
+            href="/Nandini_Customers_Bulk_Import_Template.xlsx"
+            download="Nandini_Customers_Bulk_Import_Template.xlsx"
+            className="btn btn-outline btn-sm"
+            style={{
+              fontWeight: '700',
+              color: '#16a34a',
+              borderColor: '#86efac',
+              background: '#f0fdf4',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              textDecoration: 'none'
+            }}
+            title="Download Excel Sheet to add all customers at once with zone dropdowns"
+          >
+            <Download size={15} />
+            <span>Download Excel Sheet</span>
+          </a>
           <button
             onClick={() => setIsCreateZoneModalOpen(true)}
             className="btn btn-outline btn-sm"

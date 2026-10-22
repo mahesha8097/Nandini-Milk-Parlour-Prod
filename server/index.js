@@ -111,6 +111,12 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Public downloadable template for bulk customer onboarding
+app.get('/api/download/customer-template', (req, res) => {
+  const filePath = path.join(__dirname, '../Nandini_Customers_Bulk_Import_Template.xlsx');
+  res.download(filePath, 'Nandini_Customers_Bulk_Import_Template.xlsx');
+});
+
 // Run monthly advance generation on server startup for current month safely in non-serverless environments
 if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
   try {

@@ -8,6 +8,19 @@ const {
   isCustomerAuthorized
 } = require('../services/routeAuthService');
 
+const path = require('path');
+const fs = require('fs');
+
+// Download Excel Customer Onboarding Template
+router.get('/download-template', (req, res) => {
+  const filePath = path.join(__dirname, '../../Nandini_Customers_Bulk_Import_Template.xlsx');
+  if (fs.existsSync(filePath)) {
+    res.download(filePath, 'Nandini_Customers_Bulk_Import_Template.xlsx');
+  } else {
+    res.status(404).json({ error: 'Template file not found' });
+  }
+});
+
 // Get all customers (with filters: search, category, billing_type, status, route, route_id, delivery_boy_id)
 router.get('/', verifyToken, async (req, res) => {
   try {
