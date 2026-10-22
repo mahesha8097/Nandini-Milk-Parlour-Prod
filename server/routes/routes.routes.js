@@ -365,6 +365,13 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Route not found' });
     }
 
+    // Safely reset customer route text if assigned to this route or its zones
+    await db.prepare(`
+      UPDATE customers
+      SET route = NULL, updated_at = datetime('now', 'localtime')
+      WHERE (route = ? OR zone_id IN (SELECT id FROM zones WHERE route_id = ?)) AND COALESCE(agent_id, 1) = ?
+    `).run(route.name, routeId, agentId);
+
     // Safely unlink all zones belonging to this route
     await db.prepare(`
       UPDATE zones
@@ -372,25 +379,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       WHERE route_id = ? AND COALESCE(agent_id, 1) = ?
     `).run(routeId, agentId);
 
-    // Check if route has historical deliveries through customer records
-    const hasDeliveries = await db.prepare(`
-      SELECT 1 FROM deliveries d
-      JOIN customers c ON d.customer_id = c.id
-      JOIN zones z ON c.zone_id = z.id
-      WHERE z.route_id = ? LIMIT 1
-    `).get(routeId);
-
-    if (hasDeliveries) {
-      // Soft deactivation preserves historical audits & delivery attribution
-      await db.prepare(`
-        UPDATE routes
-        SET status = 'INACTIVE', updated_at = datetime('now', 'localtime')
-        WHERE id = ? AND COALESCE(agent_id, 1) = ?
-      `).run(routeId, agentId);
-      return res.json({ message: `Route "${route.name}" has been deactivated safely to protect historical records.` });
-    }
-
-    // Delete record if no historical deliveries exist
+    // Delete record cleanly
     await db.prepare('DELETE FROM routes WHERE id = ? AND COALESCE(agent_id, 1) = ?').run(routeId, agentId);
     res.json({ message: `Route "${route.name}" deleted successfully.` });
   } catch (err) {

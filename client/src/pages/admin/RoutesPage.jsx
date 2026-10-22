@@ -202,6 +202,33 @@ export default function RoutesPage({ onNavigate }) {
     }
   };
 
+  // Delete Route
+  const handleDeleteRoute = async (route, e) => {
+    if (e) e.stopPropagation();
+    if (!route) return;
+
+    const confirmMsg = `Are you sure you want to delete "${route.name}"?\n\nAny attached zones will safely become unassigned, and no customers or delivery history will be lost.`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await api.delete(`/routes/${route.id}`);
+      showToast(`Route "${route.name}" deleted successfully.`);
+      if (selectedRouteId === route.id) {
+        setSelectedRouteId(null);
+        setSelectedRouteDetail(null);
+      }
+      await fetchData();
+    } catch (err) {
+      console.error('Delete route error:', err);
+      alert(err.message || 'Failed to delete route');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Quick Delivery Boy Assignment
   const handleAssignDeliveryBoy = async (deliveryBoyId) => {
     if (!selectedRouteDetail?.route) return;
@@ -529,15 +556,44 @@ export default function RoutesPage({ onNavigate }) {
                 </div>
               </div>
 
-              {/* Edit route details */}
-              <button
-                onClick={() => handleOpenEditModal(selectedRouteDetail.route)}
-                className="btn btn-outline"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px' }}
-              >
-                <Edit2 size={16} />
-                <span>Edit Route</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {/* Edit route details */}
+                <button
+                  onClick={() => handleOpenEditModal(selectedRouteDetail.route)}
+                  className="btn btn-outline"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px' }}
+                >
+                  <Edit2 size={16} />
+                  <span>Edit Route</span>
+                </button>
+
+                {/* Delete route */}
+                <button
+                  onClick={() => handleDeleteRoute(selectedRouteDetail.route)}
+                  className="btn btn-outline"
+                  title="Delete Route"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    color: '#dc2626',
+                    borderColor: '#fca5a5',
+                    background: '#ffffff'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#fef2f2';
+                    e.currentTarget.style.borderColor = '#f87171';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#ffffff';
+                    e.currentTarget.style.borderColor = '#fca5a5';
+                  }}
+                >
+                  <Trash2 size={16} />
+                  <span>Delete Route</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1015,16 +1071,46 @@ export default function RoutesPage({ onNavigate }) {
                       </span>
                     </div>
 
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      color: '#2563eb',
-                      fontWeight: '700',
-                      fontSize: '0.813rem'
-                    }}>
-                      <span>Manage</span>
-                      <ChevronRight size={16} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteRoute(route, e)}
+                        title={`Delete ${route.name}`}
+                        style={{
+                          background: '#ffffff',
+                          border: '1px solid #fee2e2',
+                          color: '#dc2626',
+                          borderRadius: '8px',
+                          padding: '6px 8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fef2f2';
+                          e.currentTarget.style.borderColor = '#fca5a5';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#ffffff';
+                          e.currentTarget.style.borderColor = '#fee2e2';
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        color: '#2563eb',
+                        fontWeight: '700',
+                        fontSize: '0.813rem'
+                      }}>
+                        <span>Manage</span>
+                        <ChevronRight size={16} />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1187,22 +1273,47 @@ export default function RoutesPage({ onNavigate }) {
               </select>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
               <button
                 type="button"
-                onClick={() => setIsEditModalOpen(false)}
-                className="btn btn-outline"
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  handleDeleteRoute(editForm);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#dc2626',
+                  fontWeight: '700',
+                  fontSize: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  padding: '6px 0'
+                }}
               >
-                Cancel
+                <Trash2 size={15} />
+                <span>Delete Route</span>
               </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="btn btn-primary"
-                style={{ fontWeight: '700' }}
-              >
-                {submitting ? 'Saving...' : 'Save Changes'}
-              </button>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="btn btn-outline"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="btn btn-primary"
+                  style={{ fontWeight: '700' }}
+                >
+                  {submitting ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
             </div>
           </form>
         </Modal>
