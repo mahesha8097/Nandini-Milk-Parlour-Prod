@@ -26,91 +26,104 @@ if (isProduction && process.env.DATABASE_URL) {
     console.error('Unexpected error on idle PostgreSQL client:', err);
   });
 
-  // Automatically ensure PostgreSQL compatibility functions and tables exist safely
-  (async () => {
-    try {
-      await pool.query(`
-        CREATE OR REPLACE FUNCTION datetime(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
-        RETURNS text AS $$
-        BEGIN
-          RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS');
-        END;
-        $$ LANGUAGE plpgsql IMMUTABLE;
-
-        CREATE OR REPLACE FUNCTION date(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
-        RETURNS text AS $$
-        BEGIN
-          RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
-        END;
-        $$ LANGUAGE plpgsql IMMUTABLE;
-      `);
-
-      // Ensure zones table exists
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS zones (
-          id SERIAL PRIMARY KEY,
-          name TEXT NOT NULL,
-          address TEXT,
-          route_order INTEGER DEFAULT 0,
-          image_url TEXT,
-          agent_id INTEGER DEFAULT 1,
-          created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
-          updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
-        );
-      `);
-
-      // Ensure customer columns exist
-      await pool.query(`
-        ALTER TABLE customers ADD COLUMN IF NOT EXISTS serial_no INTEGER DEFAULT 0;
-        ALTER TABLE customers ADD COLUMN IF NOT EXISTS flat_no TEXT;
-        ALTER TABLE customers ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;
-      `);
-
-      // Ensure delivery_corrections table exists
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS delivery_corrections (
-          id SERIAL PRIMARY KEY,
-          delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
-          customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-          product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
-          delivery_date TEXT NOT NULL,
-          previous_status TEXT NOT NULL,
-          new_status TEXT NOT NULL,
-          previous_quantity INTEGER NOT NULL,
-          corrected_quantity INTEGER NOT NULL,
-          previous_amount REAL NOT NULL DEFAULT 0,
-          corrected_amount REAL NOT NULL DEFAULT 0,
-          reason TEXT,
-          corrected_by_user_id INTEGER REFERENCES users(id),
-          corrected_by_role TEXT,
-          agent_id INTEGER DEFAULT 1,
-          created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
-        );
-      `);
-
-      // Ensure agent_id exists on all tenant tables
-      const pgTenantTables = [
-        'users', 'zones', 'customers', 'products', 'deliveries', 'bills',
-        'payments', 'expenses', 'daily_delivery_requirements', 'delivery_corrections', 'business_profile'
-      ];
-      for (const tbl of pgTenantTables) {
+  let pgInitPromise = null;
+  function ensurePgInit() {
+    if (!pgInitPromise) {
+      pgInitPromise = (async () => {
         try {
           await pool.query(`
-            ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS agent_id INTEGER DEFAULT 1;
-            UPDATE ${tbl} SET agent_id = 1 WHERE agent_id IS NULL;
-          `);
-        } catch (tblErr) {
-          console.warn(`PostgreSQL ${tbl}.agent_id setup note:`, tblErr.message);
-        }
-      }
+            CREATE OR REPLACE FUNCTION datetime(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
+            RETURNS text AS $$
+            BEGIN
+              RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS');
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE;
 
-      await pool.query(`
-        ALTER TABLE business_profile DROP CONSTRAINT IF EXISTS business_profile_id_check;
-      `);
-    } catch (err) {
-      console.warn('PostgreSQL safe startup schema check note:', err.message);
+            CREATE OR REPLACE FUNCTION date(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
+            RETURNS text AS $$
+            BEGIN
+              RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE;
+          `);
+        } catch (e) {
+          console.warn('Postgres functions init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
+            CREATE TABLE IF NOT EXISTS zones (
+              id SERIAL PRIMARY KEY,
+              name TEXT NOT NULL,
+              address TEXT,
+              route_order INTEGER DEFAULT 0,
+              image_url TEXT,
+              agent_id INTEGER DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+              updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+          `);
+        } catch (e) {
+          console.warn('Postgres zones init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
+            ALTER TABLE customers ADD COLUMN IF NOT EXISTS serial_no INTEGER DEFAULT 0;
+            ALTER TABLE customers ADD COLUMN IF NOT EXISTS flat_no TEXT;
+            ALTER TABLE customers ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;
+          `);
+        } catch (e) {
+          console.warn('Postgres customers columns init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
+            CREATE TABLE IF NOT EXISTS delivery_corrections (
+              id SERIAL PRIMARY KEY,
+              delivery_id INTEGER,
+              customer_id INTEGER,
+              product_id INTEGER,
+              delivery_date TEXT NOT NULL,
+              previous_status TEXT NOT NULL,
+              new_status TEXT NOT NULL,
+              previous_quantity INTEGER NOT NULL,
+              corrected_quantity INTEGER NOT NULL,
+              previous_amount REAL NOT NULL DEFAULT 0,
+              corrected_amount REAL NOT NULL DEFAULT 0,
+              reason TEXT,
+              corrected_by_user_id INTEGER,
+              corrected_by_role TEXT,
+              agent_id INTEGER DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+          `);
+        } catch (e) {
+          console.warn('Postgres delivery_corrections init note:', e.message);
+        }
+
+        const pgTenantTables = [
+          'users', 'zones', 'customers', 'products', 'deliveries', 'bills',
+          'payments', 'expenses', 'daily_delivery_requirements', 'delivery_corrections', 'business_profile'
+        ];
+        for (const tbl of pgTenantTables) {
+          try {
+            await pool.query(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS agent_id INTEGER DEFAULT 1;`);
+            await pool.query(`UPDATE ${tbl} SET agent_id = 1 WHERE agent_id IS NULL;`);
+          } catch (tblErr) {
+            // Safe ignore if table doesn't exist yet
+          }
+        }
+
+        try {
+          await pool.query(`ALTER TABLE business_profile DROP CONSTRAINT IF EXISTS business_profile_id_check;`);
+        } catch (e) {}
+      })();
     }
-  })();
+    return pgInitPromise;
+  }
+  // Start in background on module load
+  ensurePgInit();
 
   function translateSql(sql) {
     let paramIndex = 0;
@@ -178,7 +191,8 @@ if (isProduction && process.env.DATABASE_URL) {
           client.release();
         }
       };
-    }
+    },
+    initPostgres: ensurePgInit
   };
 } else {
   // ====================================================================

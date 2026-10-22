@@ -30,7 +30,7 @@ router.get('/', requireAdmin, async (req, res) => {
         SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Milk' OR product_name_snapshot LIKE '%Milk%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as today_milk_quantity_litres,
         SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as today_curd_quantity_litres
       FROM deliveries
-      WHERE delivery_date = ? AND agent_id = ?
+      WHERE delivery_date = ? AND COALESCE(agent_id, 1) = ?
     `).get(today, agentId);
 
     // 2. Customer Summary
@@ -45,7 +45,7 @@ router.get('/', requireAdmin, async (req, res) => {
         SUM(pending_balance) as total_pending_balance,
         SUM(CASE WHEN pending_balance > 0 THEN 1 ELSE 0 END) as customers_with_pending
       FROM customers
-      WHERE status = 'ACTIVE' AND agent_id = ?
+      WHERE status = 'ACTIVE' AND COALESCE(agent_id, 1) = ?
     `).get(agentId);
 
     // 3. Payments Summary
@@ -55,27 +55,27 @@ router.get('/', requireAdmin, async (req, res) => {
         SUM(CASE WHEN payment_type = 'ADVANCE_PAYMENT' THEN amount ELSE 0 END) as today_advance_collection,
         SUM(CASE WHEN payment_type = 'POSTPAID_BILL_PAYMENT' THEN amount ELSE 0 END) as today_postpaid_collection
       FROM payments
-      WHERE payment_date = ? AND agent_id = ?
+      WHERE payment_date = ? AND COALESCE(agent_id, 1) = ?
     `).get(today, agentId);
 
     const monthPayments = await db.prepare(`
       SELECT SUM(amount) as month_collection
       FROM payments
-      WHERE payment_date LIKE ? AND agent_id = ?
+      WHERE payment_date LIKE ? AND COALESCE(agent_id, 1) = ?
     `).get(`${currentMonth}%`, agentId);
 
     // 4. Expenses Summary
     const todayExpenses = await db.prepare(`
-      SELECT SUM(amount) as today_expense FROM expenses WHERE expense_date = ? AND agent_id = ?
+      SELECT SUM(amount) as today_expense FROM expenses WHERE expense_date = ? AND COALESCE(agent_id, 1) = ?
     `).get(today, agentId);
 
     const monthExpenses = await db.prepare(`
-      SELECT SUM(amount) as month_expense FROM expenses WHERE expense_date LIKE ? AND agent_id = ?
+      SELECT SUM(amount) as month_expense FROM expenses WHERE expense_date LIKE ? AND COALESCE(agent_id, 1) = ?
     `).get(`${currentMonth}%`, agentId);
 
     // 5. Active Delivery Boys count
     const activeDboys = await db.prepare(`
-      SELECT COUNT(*) as count FROM users WHERE role = 'DELIVERY_BOY' AND is_active = 1 AND agent_id = ?
+      SELECT COUNT(*) as count FROM users WHERE role = 'DELIVERY_BOY' AND is_active = 1 AND COALESCE(agent_id, 1) = ?
     `).get(agentId);
 
     // 6. Sales Overview by Periods (Today, This Week, This Month)
@@ -86,7 +86,7 @@ router.get('/', requireAdmin, async (req, res) => {
         SUM(CASE WHEN category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%' THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as curd_litres,
         SUM(CASE WHEN category_snapshot NOT IN ('Milk', 'Curd') AND product_name_snapshot NOT LIKE '%Milk%' AND product_name_snapshot NOT LIKE '%Curd%' THEN total_amount ELSE 0 END) as other_sales_amount
       FROM deliveries
-      WHERE delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED' AND agent_id = ?
+      WHERE delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED' AND COALESCE(agent_id, 1) = ?
     `).get(weekStartStr, today, agentId);
 
     const monthSales = await db.prepare(`
@@ -96,7 +96,7 @@ router.get('/', requireAdmin, async (req, res) => {
         SUM(CASE WHEN category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%' THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as curd_litres,
         SUM(CASE WHEN category_snapshot NOT IN ('Milk', 'Curd') AND product_name_snapshot NOT LIKE '%Milk%' AND product_name_snapshot NOT LIKE '%Curd%' THEN total_amount ELSE 0 END) as other_sales_amount
       FROM deliveries
-      WHERE delivery_date LIKE ? AND status = 'DELIVERED' AND agent_id = ?
+      WHERE delivery_date LIKE ? AND status = 'DELIVERED' AND COALESCE(agent_id, 1) = ?
     `).get(`${currentMonth}%`, agentId);
 
     // 7. Recent Activity (Latest 10 deliveries, payments, or bills)
@@ -104,7 +104,7 @@ router.get('/', requireAdmin, async (req, res) => {
       SELECT d.*, c.name as customer_name
       FROM deliveries d
       JOIN customers c ON d.customer_id = c.id
-      WHERE d.agent_id = ?
+      WHERE COALESCE(d.agent_id, 1) = ?
       ORDER BY d.id DESC
       LIMIT 8
     `).all(agentId);
@@ -113,7 +113,7 @@ router.get('/', requireAdmin, async (req, res) => {
       SELECT p.*, c.name as customer_name
       FROM payments p
       JOIN customers c ON p.customer_id = c.id
-      WHERE p.agent_id = ?
+      WHERE COALESCE(p.agent_id, 1) = ?
       ORDER BY p.id DESC
       LIMIT 5
     `).all(agentId);

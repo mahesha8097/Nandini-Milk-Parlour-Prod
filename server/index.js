@@ -71,6 +71,18 @@ if (!fs.existsSync(uploadDir)) {
 }
 app.use('/uploads', express.static(uploadDir));
 
+// Ensure database schema is ready before API routes execute (critical for serverless cold starts)
+app.use(async (req, res, next) => {
+  if (db.initPostgres) {
+    try {
+      await db.initPostgres();
+    } catch (e) {
+      console.warn('Postgres schema init middleware warning:', e.message);
+    }
+  }
+  next();
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
