@@ -31,9 +31,71 @@ import {
   ChevronLeft,
   ChevronRight,
   Home,
-  Layers
+  Layers,
+  ArrowRight
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
+
+function ZoneBuildingThumbnail({ name = '', index = 0 }) {
+  const lower = (name || '').toLowerCase();
+  const colors = [
+    { bg: '#eff6ff', stroke: '#2563eb', accent: '#3b82f6', fill: '#dbeafe' },
+    { bg: '#fdf4ff', stroke: '#c026d3', accent: '#d946ef', fill: '#fae8ff' },
+    { bg: '#f0fdf4', stroke: '#16a34a', accent: '#22c55e', fill: '#dcfce7' },
+    { bg: '#fff7ed', stroke: '#ea580c', accent: '#f97316', fill: '#ffedd5' },
+    { bg: '#f0fdfa', stroke: '#0d9488', accent: '#14b8a6', fill: '#ccfbf1' }
+  ];
+  const color = colors[index % colors.length];
+
+  if (lower.includes('villa') || lower.includes('green view')) {
+    return (
+      <div style={{ width: '52px', height: '52px', borderRadius: '10px', background: color.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: `1.5px solid ${color.fill}` }}>
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+          <path d="M6 22L20 8L34 22H30V32H10V22H6Z" fill={color.fill} stroke={color.stroke} strokeWidth="2" strokeLinejoin="round"/>
+          <rect x="16" y="24" width="8" height="8" rx="1" fill={color.stroke}/>
+          <rect x="12" y="16" width="4" height="4" rx="0.5" fill={color.accent}/>
+          <rect x="24" y="16" width="4" height="4" rx="0.5" fill={color.accent}/>
+        </svg>
+      </div>
+    );
+  }
+
+  if (lower.includes('house') || lower.includes('independent') || lower.includes('unassigned')) {
+    return (
+      <div style={{ width: '52px', height: '52px', borderRadius: '10px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1.5px solid #e2e8f0' }}>
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+          <path d="M8 20L20 10L32 20V32H8V20Z" fill="#f1f5f9" stroke="#64748b" strokeWidth="2" strokeLinejoin="round"/>
+          <path d="M17 32V22H23V32" fill="#64748b"/>
+          <circle cx="20" cy="16" r="2" fill="#94a3b8"/>
+        </svg>
+      </div>
+    );
+  }
+
+  if (lower.includes('bulk') || lower.includes('commercial')) {
+    return (
+      <div style={{ width: '52px', height: '52px', borderRadius: '10px', background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1.5px solid #fef3c7' }}>
+        <ShoppingBag size={26} color="#d97706" />
+      </div>
+    );
+  }
+
+  // Apartment High-Rise Default
+  return (
+    <div style={{ width: '52px', height: '52px', borderRadius: '10px', background: color.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: `1.5px solid ${color.fill}` }}>
+      <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+        <rect x="10" y="8" width="20" height="26" rx="2" fill={color.fill} stroke={color.stroke} strokeWidth="2"/>
+        <rect x="14" y="12" width="3" height="3" rx="0.5" fill={color.stroke}/>
+        <rect x="23" y="12" width="3" height="3" rx="0.5" fill={color.stroke}/>
+        <rect x="14" y="18" width="3" height="3" rx="0.5" fill={color.stroke}/>
+        <rect x="23" y="18" width="3" height="3" rx="0.5" fill={color.stroke}/>
+        <rect x="14" y="24" width="3" height="3" rx="0.5" fill={color.stroke}/>
+        <rect x="23" y="24" width="3" height="3" rx="0.5" fill={color.stroke}/>
+        <rect x="17" y="28" width="6" height="6" fill={color.accent}/>
+      </svg>
+    </div>
+  );
+}
 
 export default function DailyRequirementsPage() {
   const todayStr = getLocalDateString();
@@ -57,13 +119,36 @@ export default function DailyRequirementsPage() {
   // Local draft state for active edits per row: { [rowKey]: { requirement_type, target_product_id, required_quantity, additional_quantity, reason } }
   const [drafts, setDrafts] = useState({});
 
+  // Selected Zone state (persisted across page reloads)
+  const [selectedZoneKey, setSelectedZoneKey] = useState(() => {
+    try {
+      return localStorage.getItem('nandini_daily_req_selected_zone') || null;
+    } catch {
+      return null;
+    }
+  });
+
   // Filter & Search state
-  const [search, setSearch] = useState('');
+  const [zoneSearch, setZoneSearch] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
   const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState('');
   const [selectedRoute, setSelectedRoute] = useState('');
   const [selectedReqFilter, setSelectedReqFilter] = useState('ALL'); // 'ALL' | 'SPECIAL' | 'NORMAL' | 'SKIP_DELIVERY' | 'CHANGE_QUANTITY' | 'ADD_EXTRA_QUANTITY'
-  const [selectedZoneFilter, setSelectedZoneFilter] = useState('ALL'); // 'ALL' | zoneId | 'BULK' | 'UNASSIGNED'
-  const [collapsedZones, setCollapsedZones] = useState({}); // { [zoneKey]: boolean }
+
+  const handleSelectZone = (key) => {
+    setSelectedZoneKey(key);
+    setCustomerSearch('');
+    setSelectedReqFilter('ALL');
+    try {
+      if (key) {
+        localStorage.setItem('nandini_daily_req_selected_zone', String(key));
+      } else {
+        localStorage.removeItem('nandini_daily_req_selected_zone');
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  };
 
   // Bulk Order Modal State
   const [allCustomers, setAllCustomers] = useState([]);
@@ -375,21 +460,8 @@ export default function DailyRequirementsPage() {
   // Unique routes from items
   const availableRoutes = Array.from(new Set(items.map((it) => it.customer_route).filter(Boolean)));
 
-  // Accordion collapse helpers
-  const toggleZoneCollapse = (zoneKey) => {
-    setCollapsedZones((prev) => ({ ...prev, [zoneKey]: !prev[zoneKey] }));
-  };
-
-  const expandAllZones = () => setCollapsedZones({});
-  
-  const collapseAllZones = () => {
-    const allKeys = {};
-    zoneGroups.forEach((g) => { allKeys[g.key] = true; });
-    setCollapsedZones(allKeys);
-  };
-
-  // Group items by Apartment / Villa Zone
-  const zoneGroups = useMemo(() => {
+  // Group all items by Apartment / Villa Zone
+  const allZoneGroups = useMemo(() => {
     const map = new Map();
 
     // 1. Initialize known database zones
@@ -426,49 +498,8 @@ export default function DailyRequirementsPage() {
       items: []
     };
 
-    // 2. Filter items and place into appropriate zone group
+    // 2. Distribute all items into zone groups
     for (const it of items) {
-      const key = `${it.customer_id}_${it.product_id}`;
-      const draft = drafts[key] || {};
-      const effectiveType = draft.requirement_type || it.requirement_type || 'NORMAL';
-
-      const matchesSearch =
-        it.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-        it.customer_phone?.includes(search) ||
-        it.customer_address?.toLowerCase().includes(search.toLowerCase()) ||
-        it.flat_no?.toLowerCase().includes(search.toLowerCase()) ||
-        it.zone_name?.toLowerCase().includes(search.toLowerCase()) ||
-        it.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-        it.target_product_name?.toLowerCase().includes(search.toLowerCase());
-
-      const matchesDboy = !selectedDeliveryBoy || String(it.delivery_boy_id) === String(selectedDeliveryBoy);
-      const matchesRoute = !selectedRoute || it.customer_route === selectedRoute;
-
-      let matchesType = true;
-      if (selectedReqFilter === 'SPECIAL') {
-        matchesType = effectiveType !== 'NORMAL';
-      } else if (selectedReqFilter === 'NORMAL') {
-        matchesType = effectiveType === 'NORMAL';
-      } else if (selectedReqFilter !== 'ALL') {
-        matchesType = effectiveType === selectedReqFilter;
-      }
-
-      if (!matchesSearch || !matchesDboy || !matchesRoute || !matchesType) {
-        continue;
-      }
-
-      // Filter by selectedZoneFilter
-      if (selectedZoneFilter !== 'ALL') {
-        if (selectedZoneFilter === 'BULK') {
-          if (it.customer_category !== 'BULK_HOTEL') continue;
-        } else if (selectedZoneFilter === 'UNASSIGNED') {
-          if (it.customer_category === 'BULK_HOTEL' || it.zone_id) continue;
-        } else {
-          if (String(it.zone_id) !== String(selectedZoneFilter)) continue;
-        }
-      }
-
-      // Distribute item into zone group
       if (it.customer_category === 'BULK_HOTEL') {
         bulkGroup.items.push(it);
       } else if (it.zone_id && map.has(`zone_${it.zone_id}`)) {
@@ -489,10 +520,10 @@ export default function DailyRequirementsPage() {
     }
 
     const allGroups = Array.from(map.values());
-    if (unassignedGroup.items.length > 0 || selectedZoneFilter === 'UNASSIGNED') {
+    if (unassignedGroup.items.length > 0) {
       allGroups.push(unassignedGroup);
     }
-    if (bulkGroup.items.length > 0 || selectedZoneFilter === 'BULK') {
+    if (bulkGroup.items.length > 0) {
       allGroups.push(bulkGroup);
     }
 
@@ -538,23 +569,56 @@ export default function DailyRequirementsPage() {
         extraCount
       };
     });
-  }, [zones, items, drafts, search, selectedDeliveryBoy, selectedRoute, selectedReqFilter, selectedZoneFilter]);
+  }, [zones, items, drafts]);
 
-  // Visible groups with items, or the explicitly selected zone
-  const visibleZoneGroups = useMemo(() => {
-    if (selectedZoneFilter !== 'ALL') {
-      return zoneGroups.filter((g) => {
-        if (selectedZoneFilter === 'BULK') return g.type === 'BULK';
-        if (selectedZoneFilter === 'UNASSIGNED') return g.type === 'UNASSIGNED';
-        return String(g.id) === String(selectedZoneFilter);
-      });
-    }
-    return zoneGroups.filter((g) => g.items.length > 0);
-  }, [zoneGroups, selectedZoneFilter]);
+  // Active Zone when one is clicked / selected
+  const activeZone = useMemo(() => {
+    if (!selectedZoneKey) return null;
+    return allZoneGroups.find((g) => g.key === selectedZoneKey) || null;
+  }, [allZoneGroups, selectedZoneKey]);
 
-  const totalMatchingItems = useMemo(() => {
-    return visibleZoneGroups.reduce((acc, g) => acc + g.items.length, 0);
-  }, [visibleZoneGroups]);
+  // Level 1: Filtered zones based on zoneSearch
+  const displayedZones = useMemo(() => {
+    if (!zoneSearch.trim()) return allZoneGroups;
+    const q = zoneSearch.toLowerCase().trim();
+    return allZoneGroups.filter((g) =>
+      g.name.toLowerCase().includes(q) || (g.address && g.address.toLowerCase().includes(q))
+    );
+  }, [allZoneGroups, zoneSearch]);
+
+  // Level 2: Filtered customer items in the active zone
+  const filteredActiveZoneItems = useMemo(() => {
+    if (!activeZone) return [];
+    return activeZone.items.filter((it) => {
+      const key = `${it.customer_id}_${it.product_id}`;
+      const draft = drafts[key] || {};
+      const effectiveType = draft.requirement_type || it.requirement_type || 'NORMAL';
+
+      const q = customerSearch.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        it.customer_name?.toLowerCase().includes(q) ||
+        it.customer_phone?.includes(q) ||
+        it.customer_address?.toLowerCase().includes(q) ||
+        it.flat_no?.toLowerCase().includes(q) ||
+        it.product_name?.toLowerCase().includes(q) ||
+        it.target_product_name?.toLowerCase().includes(q);
+
+      const matchesDboy = !selectedDeliveryBoy || String(it.delivery_boy_id) === String(selectedDeliveryBoy);
+      const matchesRoute = !selectedRoute || it.customer_route === selectedRoute;
+
+      let matchesType = true;
+      if (selectedReqFilter === 'SPECIAL') {
+        matchesType = effectiveType !== 'NORMAL';
+      } else if (selectedReqFilter === 'NORMAL') {
+        matchesType = effectiveType === 'NORMAL';
+      } else if (selectedReqFilter !== 'ALL') {
+        matchesType = effectiveType === selectedReqFilter;
+      }
+
+      return matchesSearch && matchesDboy && matchesRoute && matchesType;
+    });
+  }, [activeZone, drafts, customerSearch, selectedDeliveryBoy, selectedRoute, selectedReqFilter]);
 
   return (
     <div className="page-wrapper">
@@ -687,201 +751,7 @@ export default function DailyRequirementsPage() {
         </div>
       </div>
 
-      {/* Search & Filter Toolbar */}
-      <div className="card" style={{ padding: '14px 16px', marginBottom: '20px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'center' }}>
-          {/* Search Box */}
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="Search customer, phone, or product..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ paddingLeft: '36px' }}
-            />
-            <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-          </div>
-
-          {/* Delivery Boy Filter */}
-          <div>
-            <select
-              className="form-input"
-              value={selectedDeliveryBoy}
-              onChange={(e) => setSelectedDeliveryBoy(e.target.value)}
-            >
-              <option value="">All Delivery Boys</option>
-              {deliveryBoys.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.assigned_route || 'General'})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Route Filter */}
-          <div>
-            <select
-              className="form-input"
-              value={selectedRoute}
-              onChange={(e) => setSelectedRoute(e.target.value)}
-            >
-              <option value="">All Routes</option>
-              {availableRoutes.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Requirement Type Filter */}
-          <div>
-            <select
-              className="form-input"
-              value={selectedReqFilter}
-              onChange={(e) => setSelectedReqFilter(e.target.value)}
-              style={{ fontWeight: '600' }}
-            >
-              <option value="ALL">All Requirements ({items.length})</option>
-              <option value="SPECIAL">Special Requirements Only ({summary.specialRequirements || 0})</option>
-              <option value="NORMAL">Normal Subscription Only</option>
-              <option value="SKIP_DELIVERY">Skip Deliveries ({summary.skipDeliveries || 0})</option>
-              <option value="CHANGE_QUANTITY">Quantity Changes ({summary.quantityChanges || 0})</option>
-              <option value="ADD_EXTRA_QUANTITY">Extra Quantity ({summary.extraQuantity || 0})</option>
-            </select>
-          </div>
-
-          {/* Zone Filter Dropdown */}
-          <div>
-            <select
-              className="form-input"
-              value={selectedZoneFilter}
-              onChange={(e) => setSelectedZoneFilter(e.target.value)}
-              style={{ fontWeight: '700', color: '#1e293b' }}
-            >
-              <option value="ALL">🏢 All Zones ({zones.length + 2})</option>
-              {zones.map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.name} {z.address ? `(${z.address})` : ''}
-                </option>
-              ))}
-              <option value="BULK">🍽️ Bulk & Commercial Accounts</option>
-              <option value="UNASSIGNED">🏠 Independent Houses / Unassigned</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Zone Quick Switcher Tabs & Controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflowX: 'auto', paddingBottom: '4px', maxWidth: '100%' }}>
-          <button
-            type="button"
-            onClick={() => setSelectedZoneFilter('ALL')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '999px',
-              fontSize: '0.8rem',
-              fontWeight: '800',
-              border: selectedZoneFilter === 'ALL' ? '2px solid #2563eb' : '1px solid #cbd5e1',
-              background: selectedZoneFilter === 'ALL' ? '#eff6ff' : 'white',
-              color: selectedZoneFilter === 'ALL' ? '#1d4ed8' : '#475569',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <Layers size={14} /> All Zones ({zoneGroups.filter((g) => g.items.length > 0).length})
-          </button>
-
-          {zoneGroups.filter((g) => g.items.length > 0).map((g) => {
-            const isSelected = selectedZoneFilter === (g.id ? String(g.id) : g.type === 'BULK' ? 'BULK' : 'UNASSIGNED');
-            return (
-              <button
-                key={g.key}
-                type="button"
-                onClick={() => setSelectedZoneFilter(isSelected ? 'ALL' : (g.id ? String(g.id) : g.type === 'BULK' ? 'BULK' : 'UNASSIGNED'))}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '999px',
-                  fontSize: '0.8rem',
-                  fontWeight: '800',
-                  border: isSelected ? '2px solid #2563eb' : '1px solid #e2e8f0',
-                  background: isSelected ? '#eff6ff' : 'white',
-                  color: isSelected ? '#1d4ed8' : '#475569',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                {g.type === 'BULK' ? <ShoppingBag size={13} color="#d97706" /> : g.type === 'UNASSIGNED' ? <Home size={13} color="#64748b" /> : <Building2 size={13} color="#2563eb" />}
-                <span>{g.name}</span>
-                <span style={{
-                  background: isSelected ? '#2563eb' : '#f1f5f9',
-                  color: isSelected ? 'white' : '#64748b',
-                  padding: '1px 6px',
-                  borderRadius: '999px',
-                  fontSize: '0.7rem'
-                }}>
-                  {g.totalCustomers}
-                </span>
-                {g.specialCount > 0 && (
-                  <span style={{
-                    width: '7px',
-                    height: '7px',
-                    borderRadius: '50%',
-                    background: '#f59e0b',
-                    display: 'inline-block'
-                  }} title={`${g.specialCount} special requirements`} />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Expand / Collapse All Toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            type="button"
-            onClick={expandAllZones}
-            style={{
-              padding: '5px 12px',
-              fontSize: '0.78rem',
-              fontWeight: '700',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              background: 'white',
-              color: '#475569',
-              cursor: 'pointer'
-            }}
-          >
-            Expand All
-          </button>
-          <button
-            type="button"
-            onClick={collapseAllZones}
-            style={{
-              padding: '5px 12px',
-              fontSize: '0.78rem',
-              fontWeight: '700',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              background: 'white',
-              color: '#475569',
-              cursor: 'pointer'
-            }}
-          >
-            Collapse All
-          </button>
-        </div>
-      </div>
-
-      {/* Customer Delivery Requirements by Zone */}
+      {/* Loading & Error States */}
       {loading ? (
         <div style={{ padding: '60px', textAlign: 'center' }}>
           <RefreshCw size={28} className="spin" color="var(--primary)" />
@@ -893,427 +763,622 @@ export default function DailyRequirementsPage() {
         <div className="card" style={{ color: 'var(--accent-red)', padding: '24px', textAlign: 'center' }}>
           {error}
         </div>
-      ) : visibleZoneGroups.length === 0 || totalMatchingItems === 0 ? (
-        <EmptyState
-          icon={ClipboardList}
-          title={`No customers found for ${selectedDate}`}
-          description={
-            search || selectedReqFilter !== 'ALL' || selectedZoneFilter !== 'ALL'
-              ? 'No customer requirements match your active search and filter criteria.'
-              : 'No active subscriptions scheduled for this date.'
-          }
-        />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {visibleZoneGroups.map((group) => {
-            const isCollapsed = Boolean(collapsedZones[group.key]);
+      ) : !activeZone ? (
+        /* ========================================================================= */
+        /* LEVEL 1: ALL ZONES OVERVIEW                                               */
+        /* ========================================================================= */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Header & Zone Search Toolbar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: '900', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Building2 size={20} color="#2563eb" />
+                Apartment & Community Zones
+              </h2>
+              <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '3px 0 0 0' }}>
+                Click any zone below to manage customer requirements (skips, quantity changes, product switches) for {selectedDate}.
+              </p>
+            </div>
 
-            return (
-              <div
-                key={group.key}
+            {/* Zone Search Box */}
+            <div style={{ position: 'relative', width: '280px', maxWidth: '100%' }}>
+              <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search zone or apartment..."
+                value={zoneSearch}
+                onChange={(e) => setZoneSearch(e.target.value)}
                 style={{
-                  background: 'white',
-                  borderRadius: '16px',
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
-                  overflow: 'hidden'
+                  width: '100%',
+                  padding: '8px 12px 8px 36px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  outline: 'none',
+                  background: 'white'
                 }}
-              >
-                {/* Zone Section Header Banner */}
-                <div
-                  onClick={() => toggleZoneCollapse(group.key)}
-                  style={{
-                    padding: '14px 20px',
-                    background: isCollapsed ? '#ffffff' : '#f8fafc',
-                    borderBottom: isCollapsed ? 'none' : '1px solid #e2e8f0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    {/* Zone Badge / Thumbnail */}
-                    <div style={{
-                      width: '42px',
-                      height: '42px',
-                      borderRadius: '10px',
-                      background: group.type === 'BULK' ? '#fef3c7' : group.type === 'UNASSIGNED' ? '#f1f5f9' : '#eff6ff',
-                      color: group.type === 'BULK' ? '#d97706' : group.type === 'UNASSIGNED' ? '#64748b' : '#2563eb',
+              />
+            </div>
+          </div>
+
+          {/* Zones Grid */}
+          {displayedZones.length === 0 ? (
+            <div style={{ background: 'white', padding: '40px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+              No zones found matching "{zoneSearch}".
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+              gap: '16px'
+            }}>
+              {displayedZones.map((zone, idx) => {
+                return (
+                  <div
+                    key={zone.key}
+                    onClick={() => handleSelectZone(zone.key)}
+                    style={{
+                      background: 'white',
+                      borderRadius: '14px',
+                      border: '1.5px solid #e2e8f0',
+                      padding: '18px 20px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      {group.type === 'BULK' ? <ShoppingBag size={22} /> : group.type === 'UNASSIGNED' ? <Home size={22} /> : <Building2 size={22} />}
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '14px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#2563eb';
+                      e.currentTarget.style.boxShadow = '0 6px 20px rgba(37,99,235,0.12)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.03)';
+                      e.currentTarget.style.transform = 'none';
+                    }}
+                  >
+                    {/* Top: Icon + Zone Name & Address */}
+                    <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
+                      <ZoneBuildingThumbnail name={zone.name} index={idx} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                          {zone.type === 'ZONE' && (
+                            <span style={{
+                              background: '#2563eb',
+                              color: 'white',
+                              fontSize: '0.72rem',
+                              fontWeight: '900',
+                              padding: '2px 8px',
+                              borderRadius: '999px'
+                            }}>
+                              Route #{zone.route_order || (idx + 1)}
+                            </span>
+                          )}
+                          <h3 style={{ fontSize: '1.08rem', fontWeight: '800', color: '#0f172a', margin: 0, wordBreak: 'break-word' }}>
+                            {zone.name}
+                          </h3>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <MapPin size={13} color="#94a3b8" />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {zone.address || 'General delivery area'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        {group.type === 'ZONE' && (
-                          <span style={{
-                            background: '#2563eb',
-                            color: 'white',
-                            fontSize: '0.72rem',
-                            fontWeight: '900',
-                            padding: '2px 8px',
-                            borderRadius: '999px'
-                          }}>
-                            Route #{group.route_order || 1}
-                          </span>
-                        )}
-                        <h2 style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
-                          {group.name}
-                        </h2>
+                    {/* Middle: Metrics and Special Requirement Badge */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#475569' }}>
+                        <span style={{ color: '#0f172a', fontWeight: '800' }}>{zone.totalCustomers}</span> Customers • <span style={{ color: '#0f172a', fontWeight: '800' }}>{zone.totalItems}</span> Scheduled
                       </div>
-                      {group.address && (
-                        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <MapPin size={13} color="#94a3b8" />
-                          <span>{group.address}</span>
-                        </div>
+
+                      {zone.specialCount > 0 && (
+                        <span style={{
+                          background: '#fef3c7',
+                          color: '#b45309',
+                          border: '1px solid #fde68a',
+                          fontSize: '0.75rem',
+                          fontWeight: '800',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}>
+                          <Sparkles size={12} color="#d97706" />
+                          {zone.specialCount} Special Change{zone.specialCount !== 1 ? 's' : ''}
+                        </span>
                       )}
                     </div>
-                  </div>
 
-                  {/* Right Zone Statistics & Collapse Arrow */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{
-                      background: '#f1f5f9',
-                      color: '#334155',
-                      fontSize: '0.8rem',
-                      fontWeight: '800',
-                      padding: '4px 12px',
-                      borderRadius: '8px'
-                    }}>
-                      {group.totalCustomers} Customer{group.totalCustomers !== 1 ? 's' : ''} • {group.totalItems} Scheduled
-                    </span>
-
-                    {group.specialCount > 0 && (
+                    {/* Bottom: Open Zone Action */}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', paddingTop: '6px' }}>
                       <span style={{
-                        background: '#fef3c7',
-                        color: '#b45309',
-                        border: '1px solid #fde68a',
-                        fontSize: '0.76rem',
+                        color: '#2563eb',
+                        fontSize: '0.84rem',
                         fontWeight: '800',
-                        padding: '3px 10px',
-                        borderRadius: '8px',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '5px'
+                        gap: '4px'
                       }}>
-                        <Sparkles size={13} color="#d97706" />
-                        {group.specialCount} Special Change{group.specialCount !== 1 ? 's' : ''}
+                        Open Requirements <ChevronRight size={16} />
                       </span>
-                    )}
-
-                    <div style={{
-                      width: '30px',
-                      height: '30px',
-                      borderRadius: '6px',
-                      background: '#f1f5f9',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#64748b'
-                    }}>
-                      {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
                     </div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* ========================================================================= */
+        /* LEVEL 2: ACTIVE ZONE CUSTOMER REQUIREMENTS                                */
+        /* ========================================================================= */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Back Button */}
+          <div>
+            <button
+              type="button"
+              onClick={() => handleSelectZone(null)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '10px',
+                border: '1px solid #cbd5e1',
+                background: 'white',
+                color: '#0f172a',
+                fontWeight: '800',
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#94a3b8';
+                e.currentTarget.style.background = '#f8fafc';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.background = 'white';
+              }}
+            >
+              <ChevronLeft size={18} /> Back to All Zones
+            </button>
+          </div>
+
+          {/* Active Zone Header Card */}
+          <div style={{
+            background: 'white',
+            borderRadius: '14px',
+            border: '1.5px solid #e2e8f0',
+            padding: '18px 22px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+              <ZoneBuildingThumbnail name={activeZone.name} index={0} />
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                  {activeZone.type === 'ZONE' && (
+                    <span style={{
+                      background: '#2563eb',
+                      color: 'white',
+                      fontSize: '0.72rem',
+                      fontWeight: '900',
+                      padding: '2px 8px',
+                      borderRadius: '999px'
+                    }}>
+                      Route #{activeZone.route_order || 1}
+                    </span>
+                  )}
+                  <h2 style={{ fontSize: '1.35rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
+                    {activeZone.name}
+                  </h2>
                 </div>
+                <div style={{ fontSize: '0.85rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <MapPin size={14} color="#94a3b8" />
+                  <span>{activeZone.address}</span>
+                </div>
+              </div>
+            </div>
 
-                {/* Respected Customers inside this Zone */}
-                {!isCollapsed && (
-                  <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px', background: '#f8fafc' }}>
-                    {group.items.length === 0 ? (
-                      <div style={{ padding: '24px', textAlign: 'center', background: 'white', borderRadius: '10px', color: '#64748b', border: '1px dashed #cbd5e1' }}>
-                        No deliveries scheduled for <strong>{group.name}</strong> on {selectedDate}.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{
+                background: '#f1f5f9',
+                color: '#334155',
+                fontSize: '0.84rem',
+                fontWeight: '800',
+                padding: '6px 14px',
+                borderRadius: '8px'
+              }}>
+                {activeZone.totalCustomers} Customer{activeZone.totalCustomers !== 1 ? 's' : ''} • {activeZone.totalItems} Scheduled
+              </span>
+
+              {activeZone.specialCount > 0 && (
+                <span style={{
+                  background: '#fef3c7',
+                  color: '#b45309',
+                  border: '1px solid #fde68a',
+                  fontSize: '0.84rem',
+                  fontWeight: '800',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}>
+                  <Sparkles size={14} color="#d97706" />
+                  {activeZone.specialCount} Special Change{activeZone.specialCount !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Active Zone Customer Filter Toolbar */}
+          <div className="card" style={{ padding: '14px 16px', background: 'white' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'center' }}>
+              {/* Customer Search Box */}
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Search customer, flat #, phone, product..."
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  style={{ paddingLeft: '36px' }}
+                />
+                <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+              </div>
+
+              {/* Requirement Type Filter */}
+              <div>
+                <select
+                  className="form-input"
+                  value={selectedReqFilter}
+                  onChange={(e) => setSelectedReqFilter(e.target.value)}
+                  style={{ fontWeight: '700' }}
+                >
+                  <option value="ALL">All Requirements ({activeZone.items.length})</option>
+                  <option value="SPECIAL">Special Requirements Only ({activeZone.specialCount})</option>
+                  <option value="NORMAL">Normal Subscription Only</option>
+                  <option value="SKIP_DELIVERY">Skip Deliveries ({activeZone.skipCount})</option>
+                  <option value="CHANGE_QUANTITY">Quantity Changes ({activeZone.qtyChangeCount})</option>
+                  <option value="ADD_EXTRA_QUANTITY">Extra Quantity ({activeZone.extraCount})</option>
+                </select>
+              </div>
+
+              {/* Delivery Boy Filter */}
+              {deliveryBoys.length > 0 && (
+                <div>
+                  <select
+                    className="form-input"
+                    value={selectedDeliveryBoy}
+                    onChange={(e) => setSelectedDeliveryBoy(e.target.value)}
+                  >
+                    <option value="">All Delivery Boys</option>
+                    {deliveryBoys.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.assigned_route || 'General'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Route Filter */}
+              {availableRoutes.length > 1 && (
+                <div>
+                  <select
+                    className="form-input"
+                    value={selectedRoute}
+                    onChange={(e) => setSelectedRoute(e.target.value)}
+                  >
+                    <option value="">All Routes</option>
+                    {availableRoutes.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Customer Requirement Cards */}
+          {filteredActiveZoneItems.length === 0 ? (
+            <div style={{ background: 'white', padding: '40px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+              No customers found in <strong>{activeZone.name}</strong> matching your search/filter criteria.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {filteredActiveZoneItems.map((item) => {
+                const key = `${item.customer_id}_${item.product_id}`;
+                const draft = drafts[key] || {
+                  requirement_type: item.requirement_type || 'NORMAL',
+                  target_product_id: item.product_id,
+                  required_quantity: item.normal_quantity,
+                  additional_quantity: 1,
+                  reason: item.reason || ''
+                };
+                const statusInfo = saveStatus[key] || {};
+                const isSpecial = draft.requirement_type !== 'NORMAL';
+                const isSkipped = draft.requirement_type === 'SKIP_DELIVERY';
+                const isQtyChange = draft.requirement_type === 'CHANGE_QUANTITY';
+                const isExtra = draft.requirement_type === 'ADD_EXTRA_QUANTITY';
+                const isProductSwitched = draft.target_product_id && Number(draft.target_product_id) !== Number(item.product_id);
+                const targetProdObj = products.find((p) => p.id === Number(draft.target_product_id)) || item;
+
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      padding: '16px 18px',
+                      borderRadius: '12px',
+                      border: isSpecial ? '1.5px solid #93c5fd' : '1px solid #e2e8f0',
+                      borderLeft: `5px solid ${
+                        isSkipped
+                          ? '#ef4444'
+                          : isQtyChange
+                          ? '#0284c7'
+                          : isExtra
+                          ? '#10b981'
+                          : '#3b82f6'
+                      }`,
+                      background: isSkipped ? '#fef2f2' : isSpecial ? '#ffffff' : 'white',
+                      boxShadow: isSpecial ? '0 4px 12px rgba(37,99,235,0.06)' : '0 1px 3px rgba(0,0,0,0.02)'
+                    }}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', alignItems: 'flex-start' }}>
+                      {/* Customer & Product Info with Flat Number */}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                          {/* Flat / Villa Number Chip */}
+                          <span style={{
+                            background: '#0054a6',
+                            color: 'white',
+                            fontWeight: '900',
+                            fontSize: '0.78rem',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            letterSpacing: '-0.01em'
+                          }}>
+                            {item.flat_no ? (item.flat_no.toLowerCase().includes('villa') ? item.flat_no : `Flat ${item.flat_no}`) : `Stop #${item.customer_serial_no || item.customer_id}`}
+                          </span>
+
+                          <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>
+                            {item.customer_name}
+                          </h3>
+
+                          <span className={`badge ${item.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.68rem' }}>
+                            {item.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                          <MapPin size={13} />
+                          <span>{item.customer_address}</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          <span>Phone: <strong>{item.customer_phone || 'N/A'}</strong></span>
+                          <span>•</span>
+                          <span>Route: <strong>{item.customer_route || 'General'}</strong></span>
+                          <span>•</span>
+                          <span>Agent: <strong>{item.delivery_boy_name || 'Unassigned'}</strong></span>
+                        </div>
+
+                        <div style={{ marginTop: '10px', padding: '6px 10px', background: '#f1f5f9', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: '800', color: 'var(--primary-dark)', fontSize: '0.875rem' }}>
+                            {item.product_name} ({item.variant_label})
+                          </span>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            Normal: <strong>{item.normal_quantity} pkt</strong> (@ ₹{item.selling_price})
+                          </span>
+                        </div>
                       </div>
-                    ) : (
-                      group.items.map((item) => {
-                        const key = `${item.customer_id}_${item.product_id}`;
-                        const draft = drafts[key] || {
-                          requirement_type: item.requirement_type || 'NORMAL',
-                          target_product_id: item.product_id,
-                          required_quantity: item.normal_quantity,
-                          additional_quantity: 1,
-                          reason: item.reason || ''
-                        };
-                        const statusInfo = saveStatus[key] || {};
-                        const isSpecial = draft.requirement_type !== 'NORMAL';
-                        const isSkipped = draft.requirement_type === 'SKIP_DELIVERY';
-                        const isQtyChange = draft.requirement_type === 'CHANGE_QUANTITY';
-                        const isExtra = draft.requirement_type === 'ADD_EXTRA_QUANTITY';
 
-                        const isProductSwitched = draft.target_product_id && Number(draft.target_product_id) !== Number(item.product_id);
-                        const targetProdObj = products.find((p) => p.id === Number(draft.target_product_id)) || item;
-
-                        return (
-                          <div
-                            key={key}
+                      {/* Requirement Control Form */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                          <label style={{ fontSize: '0.78rem', fontWeight: '800', color: '#475569', minWidth: '130px' }}>
+                            Today's Requirement:
+                          </label>
+                          <select
+                            className="form-input"
                             style={{
-                              padding: '16px 18px',
-                              borderRadius: '12px',
-                              border: isSpecial ? '1.5px solid #93c5fd' : '1px solid #e2e8f0',
-                              borderLeft: `5px solid ${
-                                isSkipped
-                                  ? '#ef4444'
-                                  : isQtyChange
-                                  ? '#0284c7'
-                                  : isExtra
-                                  ? '#10b981'
-                                  : '#3b82f6'
-                              }`,
-                              background: isSkipped ? '#fef2f2' : isSpecial ? '#ffffff' : 'white',
-                              boxShadow: isSpecial ? '0 4px 12px rgba(37,99,235,0.06)' : '0 1px 3px rgba(0,0,0,0.02)'
+                              flex: '1 1 180px',
+                              fontWeight: '700',
+                              color: isSkipped ? '#b91c1c' : isSpecial ? '#0369a1' : '#1e293b',
+                              background: isSkipped ? '#fee2e2' : isSpecial ? '#e0f2fe' : 'white',
+                              borderColor: isSkipped ? '#fca5a5' : isSpecial ? '#7dd3fc' : 'var(--border-color)'
                             }}
+                            value={draft.requirement_type}
+                            onChange={(e) => handleDraftChange(key, 'requirement_type', e.target.value)}
                           >
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', alignItems: 'flex-start' }}>
-                              {/* Customer & Product Info with Flat Number */}
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                                  {/* Flat / Villa Number Chip */}
-                                  <span style={{
-                                    background: '#0054a6',
-                                    color: 'white',
-                                    fontWeight: '900',
-                                    fontSize: '0.78rem',
-                                    padding: '2px 8px',
-                                    borderRadius: '6px',
-                                    letterSpacing: '-0.01em'
-                                  }}>
-                                    {item.flat_no ? (item.flat_no.toLowerCase().includes('villa') ? item.flat_no : `Flat ${item.flat_no}`) : `Stop #${item.customer_serial_no || item.customer_id}`}
-                                  </span>
+                            <option value="NORMAL">NORMAL (Deliver {item.normal_quantity} × {item.product_name})</option>
+                            <option value="SKIP_DELIVERY">SKIP DELIVERY (Do not deliver today)</option>
+                            <option value="CHANGE_QUANTITY">CHANGE QUANTITY / PRODUCT (Deliver different qty or product)</option>
+                            <option value="ADD_EXTRA_QUANTITY">ADD EXTRA QUANTITY (Add extra)</option>
+                          </select>
+                        </div>
 
-                                  <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>
-                                    {item.customer_name}
-                                  </h3>
+                        {/* Quantity & Product Adjustment Controls */}
+                        {(isQtyChange || isExtra) && (
+                          <div style={{
+                            background: isQtyChange ? '#e0f2fe' : '#ecfdf5',
+                            border: `1px solid ${isQtyChange ? '#bae6fd' : '#bbf7d0'}`,
+                            borderRadius: '6px',
+                            padding: '10px 12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px'
+                          }}>
+                            {/* Product Selector Dropdown */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <label style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
+                                <ShoppingBag size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                                Product:
+                              </label>
+                              <select
+                                className="form-input"
+                                style={{ flex: '1 1 190px', padding: '4px 8px', fontSize: '0.813rem', fontWeight: '700' }}
+                                value={draft.target_product_id || item.product_id}
+                                onChange={(e) => handleDraftChange(key, 'target_product_id', Number(e.target.value))}
+                              >
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name} ({p.variant_label}) — ₹{p.selling_price} {p.id === item.product_id ? '(Normal Subscribed)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
 
-                                  <span className={`badge ${item.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.68rem' }}>
-                                    {item.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                                  </span>
-                                </div>
+                            {/* Quantity Selector */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
+                                {isQtyChange ? "Today's Qty:" : "Extra Qty (+):"}
+                              </span>
+                              <input
+                                type="number"
+                                min="1"
+                                max="50"
+                                className="form-input"
+                                style={{ width: '80px', padding: '4px 8px', fontWeight: '800', textAlign: 'center' }}
+                                value={isQtyChange ? draft.required_quantity : draft.additional_quantity}
+                                onChange={(e) => handleDraftChange(key, isQtyChange ? 'required_quantity' : 'additional_quantity', e.target.value)}
+                              />
 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                  <MapPin size={13} />
-                                  <span>{item.customer_address}</span>
-                                </div>
-
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                  <span>Phone: <strong>{item.customer_phone || 'N/A'}</strong></span>
-                                  <span>•</span>
-                                  <span>Route: <strong>{item.customer_route || 'General'}</strong></span>
-                                  <span>•</span>
-                                  <span>Agent: <strong>{item.delivery_boy_name || 'Unassigned'}</strong></span>
-                                </div>
-
-                                <div style={{ marginTop: '10px', padding: '6px 10px', background: '#f1f5f9', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                  <span style={{ fontWeight: '800', color: 'var(--primary-dark)', fontSize: '0.875rem' }}>
-                                    {item.product_name} ({item.variant_label})
-                                  </span>
-                                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                                    Normal: <strong>{item.normal_quantity} pkt</strong> (@ ₹{item.selling_price})
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Requirement Control Form */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                  <label style={{ fontSize: '0.78rem', fontWeight: '800', color: '#475569', minWidth: '130px' }}>
-                                    Today's Requirement:
-                                  </label>
-                                  <select
-                                    className="form-input"
-                                    style={{
-                                      flex: '1 1 180px',
-                                      fontWeight: '700',
-                                      color: isSkipped ? '#b91c1c' : isSpecial ? '#0369a1' : '#1e293b',
-                                      background: isSkipped ? '#fee2e2' : isSpecial ? '#e0f2fe' : 'white',
-                                      borderColor: isSkipped ? '#fca5a5' : isSpecial ? '#7dd3fc' : 'var(--border-color)'
-                                    }}
-                                    value={draft.requirement_type}
-                                    onChange={(e) => handleDraftChange(key, 'requirement_type', e.target.value)}
-                                  >
-                                    <option value="NORMAL">NORMAL (Deliver {item.normal_quantity} × {item.product_name})</option>
-                                    <option value="SKIP_DELIVERY">SKIP DELIVERY (Do not deliver today)</option>
-                                    <option value="CHANGE_QUANTITY">CHANGE QUANTITY / PRODUCT (Deliver different qty or product)</option>
-                                    <option value="ADD_EXTRA_QUANTITY">ADD EXTRA QUANTITY (Add extra)</option>
-                                  </select>
-                                </div>
-
-                                {/* Quantity & Product Adjustment Controls */}
-                                {(isQtyChange || isExtra) && (
-                                  <div style={{
-                                    background: isQtyChange ? '#e0f2fe' : '#ecfdf5',
-                                    border: `1px solid ${isQtyChange ? '#bae6fd' : '#bbf7d0'}`,
-                                    borderRadius: '6px',
-                                    padding: '10px 12px',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: '8px'
-                                  }}>
-                                    {/* Product Selector Dropdown */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                      <label style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
-                                        <ShoppingBag size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                                        Product:
-                                      </label>
-                                      <select
-                                        className="form-input"
-                                        style={{ flex: '1 1 190px', padding: '4px 8px', fontSize: '0.813rem', fontWeight: '700' }}
-                                        value={draft.target_product_id || item.product_id}
-                                        onChange={(e) => handleDraftChange(key, 'target_product_id', Number(e.target.value))}
-                                      >
-                                        {products.map((p) => (
-                                          <option key={p.id} value={p.id}>
-                                            {p.name} ({p.variant_label}) — ₹{p.selling_price} {p.id === item.product_id ? '(Normal Subscribed)' : ''}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-
-                                    {/* Quantity Selector */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                      <span style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
-                                        {isQtyChange ? "Today's Qty:" : "Extra Qty (+):"}
-                                      </span>
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        max="50"
-                                        className="form-input"
-                                        style={{ width: '80px', padding: '4px 8px', fontWeight: '800', textAlign: 'center' }}
-                                        value={isQtyChange ? draft.required_quantity : draft.additional_quantity}
-                                        onChange={(e) => handleDraftChange(key, isQtyChange ? 'required_quantity' : 'additional_quantity', e.target.value)}
-                                      />
-
-                                      <span style={{ fontSize: '0.78rem', fontWeight: '700', color: isQtyChange ? '#0369a1' : '#047857' }}>
-                                        {isQtyChange ? (
-                                          isProductSwitched ? (
-                                            `Delivering ${draft.required_quantity} pkt of ${targetProdObj.name} (${targetProdObj.variant_label})`
-                                          ) : (
-                                            `(Normal was ${item.normal_quantity} pkt)`
-                                          )
-                                        ) : (
-                                          `Total Today: ${Number(item.normal_quantity) + Number(draft.additional_quantity || 0)} pkt`
-                                        )}
-                                      </span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Reason / Note input with Quick Chips */}
-                                {isSpecial && (
-                                  <div>
-                                    <input
-                                      type="text"
-                                      className="form-input"
-                                      placeholder="Enter reason or note for Delivery Boy (e.g. Requested 500ml, Changed brand, Out of station)..."
-                                      value={draft.reason}
-                                      onChange={(e) => handleDraftChange(key, 'reason', e.target.value)}
-                                      style={{ fontSize: '0.813rem' }}
-                                    />
-
-                                    {/* Quick Suggestion Chips */}
-                                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
-                                      {quickReasons.map((qr) => (
-                                        <button
-                                          key={qr}
-                                          type="button"
-                                          onClick={() => handleDraftChange(key, 'reason', qr)}
-                                          style={{
-                                            border: '1px solid #cbd5e1',
-                                            background: '#f8fafc',
-                                            borderRadius: '4px',
-                                            padding: '2px 6px',
-                                            fontSize: '0.68rem',
-                                            color: '#475569',
-                                            cursor: 'pointer'
-                                          }}
-                                        >
-                                          + {qr}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Actions & Live Status */}
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '8px' }}>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  {item.requirement_type && item.requirement_type !== 'NORMAL' && (
-                                    <button
-                                      onClick={() => handleClearToNormal(item)}
-                                      className="btn btn-outline btn-sm"
-                                      disabled={statusInfo.saving}
-                                      title="Restore normal subscription"
-                                    >
-                                      <RotateCcw size={14} /> Clear
-                                    </button>
-                                  )}
-
-                                  <button
-                                    onClick={() => handleSaveRequirement(item)}
-                                    className="btn btn-primary btn-sm"
-                                    disabled={statusInfo.saving}
-                                    style={{ fontWeight: '700' }}
-                                  >
-                                    <Save size={14} />
-                                    {statusInfo.saving ? 'Saving...' : 'Save'}
-                                  </button>
-                                </div>
-
-                                {statusInfo.success && (
-                                  <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <CheckCircle2 size={14} /> {statusInfo.success}
-                                  </span>
-                                )}
-
-                                {statusInfo.error && (
-                                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)', fontWeight: '700' }}>
-                                    {statusInfo.error}
-                                  </span>
-                                )}
-
-                                {/* Requirement Status Indicator */}
-                                <div style={{ marginTop: '4px' }}>
-                                  {isSkipped ? (
-                                    <span className="badge badge-danger" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                      <XCircle size={12} /> SKIPPING TODAY
-                                    </span>
-                                  ) : isQtyChange ? (
-                                    <span className="badge badge-info" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                      <TrendingUp size={12} />
-                                      {isProductSwitched ? (
-                                        `SWITCH: ${targetProdObj.name} × ${draft.required_quantity}`
-                                      ) : (
-                                        `QTY: ${draft.required_quantity} (was ${item.normal_quantity})`
-                                      )}
-                                    </span>
-                                  ) : isExtra ? (
-                                    <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                      <PlusCircle size={12} /> EXTRA: +{draft.additional_quantity}
-                                    </span>
+                              <span style={{ fontSize: '0.78rem', fontWeight: '700', color: isQtyChange ? '#0369a1' : '#047857' }}>
+                                {isQtyChange ? (
+                                  isProductSwitched ? (
+                                    `Delivering ${draft.required_quantity} pkt of ${targetProdObj.name} (${targetProdObj.variant_label})`
                                   ) : (
-                                    <span className="badge badge-gray">NORMAL DELIVERY</span>
-                                  )}
-                                </div>
-                              </div>
+                                    `(Normal was ${item.normal_quantity} pkt)`
+                                  )
+                                ) : (
+                                  `Total Today: ${Number(item.normal_quantity) + Number(draft.additional_quantity || 0)} pkt`
+                                )}
+                              </span>
                             </div>
                           </div>
-                        );
-                      })
-                    )}
+                        )}
+
+                        {/* Reason / Note input with Quick Chips */}
+                        {isSpecial && (
+                          <div>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="Enter reason or note for Delivery Boy (e.g. Requested 500ml, Changed brand, Out of station)..."
+                              value={draft.reason}
+                              onChange={(e) => handleDraftChange(key, 'reason', e.target.value)}
+                              style={{ fontSize: '0.813rem' }}
+                            />
+
+                            {/* Quick Suggestion Chips */}
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+                              {quickReasons.map((qr) => (
+                                <button
+                                  key={qr}
+                                  type="button"
+                                  onClick={() => handleDraftChange(key, 'reason', qr)}
+                                  style={{
+                                    border: '1px solid #cbd5e1',
+                                    background: '#f8fafc',
+                                    borderRadius: '4px',
+                                    padding: '2px 6px',
+                                    fontSize: '0.68rem',
+                                    color: '#475569',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  + {qr}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions & Live Status */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          {item.requirement_type && item.requirement_type !== 'NORMAL' && (
+                            <button
+                              onClick={() => handleClearToNormal(item)}
+                              className="btn btn-outline btn-sm"
+                              disabled={statusInfo.saving}
+                              title="Restore normal subscription"
+                            >
+                              <RotateCcw size={14} /> Clear
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleSaveRequirement(item)}
+                            className="btn btn-primary btn-sm"
+                            disabled={statusInfo.saving}
+                            style={{ fontWeight: '700' }}
+                          >
+                            <Save size={14} />
+                            {statusInfo.saving ? 'Saving...' : 'Save'}
+                          </button>
+                        </div>
+
+                        {statusInfo.success && (
+                          <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={14} /> {statusInfo.success}
+                          </span>
+                        )}
+
+                        {statusInfo.error && (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)', fontWeight: '700' }}>
+                            {statusInfo.error}
+                          </span>
+                        )}
+
+                        {/* Requirement Status Indicator */}
+                        <div style={{ marginTop: '4px' }}>
+                          {isSkipped ? (
+                            <span className="badge badge-danger" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <XCircle size={12} /> SKIPPING TODAY
+                            </span>
+                          ) : isQtyChange ? (
+                            <span className="badge badge-info" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <TrendingUp size={12} />
+                              {isProductSwitched ? (
+                                `SWITCH: ${targetProdObj.name} × ${draft.required_quantity}`
+                              ) : (
+                                `QTY: ${draft.required_quantity} (was ${item.normal_quantity})`
+                              )}
+                            </span>
+                          ) : isExtra ? (
+                            <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <PlusCircle size={12} /> EXTRA: +{draft.additional_quantity}
+                            </span>
+                          ) : (
+                            <span className="badge badge-gray">NORMAL DELIVERY</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
