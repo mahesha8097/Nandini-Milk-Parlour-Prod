@@ -21,6 +21,7 @@ import ProductsPage from './pages/admin/ProductsPage';
 import ReportsPage from './pages/admin/ReportsPage';
 import AdminProfilePage from './pages/admin/AdminProfilePage';
 import SettingsPage from './pages/admin/SettingsPage';
+import ZonesPage from './pages/admin/ZonesPage';
 
 // Delivery Boy Pages
 import DeliveryBoyDashboard from './pages/delivery/DeliveryBoyDashboard';
@@ -150,8 +151,9 @@ function MainApplication() {
       case 'delivery-boys':
         return <DeliveryBoysPage initialOpenAdd={navParams.openAdd} />;
       case 'deliveries':
-      case 'zones':
         return <DeliveriesPage />;
+      case 'zones':
+        return <ZonesPage onNavigate={handleNavigate} />;
       case 'daily-requirements':
         return <DailyRequirementsPage />;
       case 'bills':
@@ -181,8 +183,9 @@ function MainApplication() {
       case 'dashboard':
         return <DeliveryBoyDashboard onNavigate={handleNavigate} />;
       case 'deliveries':
-      case 'zones':
         return <DeliveryBoyDeliveries />;
+      case 'zones':
+        return <ZonesPage onNavigate={handleNavigate} />;
       case 'customers':
         return <DeliveryBoyCustomers />;
       case 'history':
