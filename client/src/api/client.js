@@ -46,7 +46,22 @@ export async function apiRequest(endpoint, options = {}) {
 }
 
 export const api = {
-  get: (url) => apiRequest(url, { method: 'GET' }),
+  get: (url, options = {}) => {
+    let finalUrl = url;
+    if (options.params) {
+      const searchParams = new URLSearchParams();
+      for (const [key, val] of Object.entries(options.params)) {
+        if (val !== undefined && val !== null && val !== '') {
+          searchParams.append(key, val);
+        }
+      }
+      const qs = searchParams.toString();
+      if (qs) {
+        finalUrl += (finalUrl.includes('?') ? '&' : '?') + qs;
+      }
+    }
+    return apiRequest(finalUrl, { ...options, method: 'GET' });
+  },
   post: (url, body) => apiRequest(url, { method: 'POST', body: JSON.stringify(body) }),
   put: (url, body) => apiRequest(url, { method: 'PUT', body: JSON.stringify(body) }),
   patch: (url, body) => apiRequest(url, { method: 'PATCH', body: JSON.stringify(body) }),

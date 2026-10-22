@@ -204,6 +204,13 @@ router.get('/', verifyToken, async (req, res) => {
         c.customer_category,
         c.billing_type,
         c.delivery_boy_id,
+        c.zone_id,
+        c.flat_no,
+        c.serial_no as customer_serial_no,
+        z.name as zone_name,
+        z.address as zone_address,
+        z.route_order as zone_route_order,
+        z.image_url as zone_image_url,
         u.name as delivery_boy_name,
         s.id as subscription_id,
         s.quantity as normal_quantity,
@@ -232,6 +239,7 @@ router.get('/', verifyToken, async (req, res) => {
       FROM customers c
       JOIN subscriptions s ON c.id = s.customer_id AND s.is_active = 1
       JOIN products p ON s.product_id = p.id
+      LEFT JOIN zones z ON c.zone_id = z.id
       LEFT JOIN users u ON c.delivery_boy_id = u.id
       LEFT JOIN daily_delivery_requirements r 
         ON r.customer_id = c.id 
@@ -258,6 +266,13 @@ router.get('/', verifyToken, async (req, res) => {
         c.customer_category,
         c.billing_type,
         c.delivery_boy_id,
+        c.zone_id,
+        c.flat_no,
+        c.serial_no as customer_serial_no,
+        z.name as zone_name,
+        z.address as zone_address,
+        z.route_order as zone_route_order,
+        z.image_url as zone_image_url,
         u.name as delivery_boy_name,
         NULL as subscription_id,
         0 as normal_quantity,
@@ -286,6 +301,7 @@ router.get('/', verifyToken, async (req, res) => {
       FROM daily_delivery_requirements r
       JOIN customers c ON r.customer_id = c.id
       JOIN products p ON r.product_id = p.id
+      LEFT JOIN zones z ON c.zone_id = z.id
       LEFT JOIN users u ON c.delivery_boy_id = u.id
       LEFT JOIN products tp ON r.target_product_id = tp.id
       LEFT JOIN deliveries del
@@ -330,7 +346,7 @@ router.get('/', verifyToken, async (req, res) => {
       outerParams.push(sTerm, sTerm, sTerm, sTerm);
     }
 
-    outerQuery += ` ORDER BY q.customer_route ASC, q.customer_name ASC, q.product_name ASC`;
+    outerQuery += ` ORDER BY COALESCE(q.zone_route_order, 999) ASC, q.zone_name ASC, q.flat_no ASC, q.customer_serial_no ASC, q.customer_name ASC, q.product_name ASC`;
 
     const items = await db.prepare(outerQuery).all(...outerParams);
     res.json(items);
@@ -468,14 +484,14 @@ router.post('/bulk-order', requireAdmin, async (req, res) => {
             customer_id, product_id, target_product_id, subscription_id, delivery_date,
             requirement_type, normal_quantity, required_quantity,
             additional_quantity, effective_quantity, reason, status,
-            created_by, created_at, updated_at
+            agent_id, created_by, created_at, updated_at
           ) VALUES (
             ?, ?, ?, NULL, ?,
             'CHANGE_QUANTITY', 0, ?,
             0, ?, ?, 'ACTIVE',
-            ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+            ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
           )
-        `).run(customer.id, prodId, prodId, targetDate, qty, qty, reasonText, req.user.id);
+        `).run(customer.id, prodId, prodId, targetDate, qty, qty, reasonText, customer.agent_id || req.agentId || 1, req.user.id);
       }
 
       // 2. Upsert into deliveries table so it is immediately visible to the Delivery Boy
@@ -661,17 +677,20 @@ router.post('/', requireAdmin, async (req, res) => {
       );
       requirementId = existing.id;
     } else {
+      const customer = await db.prepare('SELECT id, agent_id FROM customers WHERE id = ?').get(customer_id);
+      const agentId = customer?.agent_id || req.agentId || 1;
+
       const insertStmt = db.prepare(`
         INSERT INTO daily_delivery_requirements (
           customer_id, product_id, target_product_id, subscription_id, delivery_date,
           requirement_type, normal_quantity, required_quantity,
           additional_quantity, effective_quantity, reason, status,
-          created_by, created_at, updated_at
+          agent_id, created_by, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?, 'ACTIVE',
-          ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+          ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
         )
       `);
 
@@ -687,6 +706,7 @@ router.post('/', requireAdmin, async (req, res) => {
         addQty,
         effQty,
         reason,
+        agentId,
         req.user.id
       );
       requirementId = info.lastInsertRowid;

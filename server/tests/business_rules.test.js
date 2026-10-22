@@ -837,14 +837,109 @@ console.log('\n[TEST 26] Temporary Skip and Multiple Edits Before Delivery');
     console.log('  ✓ Passed: Fixed delivery charge per packet (1 pkt=₹1, 2 pkts=₹2, 3 pkts=₹3) calculated correctly.');
 }
 
+async function test28() {
+  console.log('\n[TEST 28] Prepaid Advance Payment (₹500) with 1 Delivery (₹49) strictly leaves ₹451 Advance (No Double Deduction)');
+  const db = require('../config/db');
+  const { recalculateSingleBill, generateDeliveredMilkBill } = require('../services/billingService');
+
+  // Create temporary test customer
+  const testPhone = '8888800028';
+  db.prepare(`DELETE FROM deliveries WHERE customer_id IN (SELECT id FROM customers WHERE phone = ?)`).run(testPhone);
+  db.prepare(`DELETE FROM bills WHERE customer_id IN (SELECT id FROM customers WHERE phone = ?)`).run(testPhone);
+  db.prepare(`DELETE FROM payments WHERE customer_id IN (SELECT id FROM customers WHERE phone = ?)`).run(testPhone);
+  db.prepare(`DELETE FROM customer_ledger WHERE customer_id IN (SELECT id FROM customers WHERE phone = ?)`).run(testPhone);
+  db.prepare(`DELETE FROM customers WHERE phone = ?`).run(testPhone);
+
+  const custRes = db.prepare(`
+    INSERT INTO customers (name, phone, address, customer_category, billing_type, advance_balance, pending_balance, agent_id, created_at, updated_at)
+    VALUES ('Advance Test Customer', ?, 'Test Address', 'HOUSE', 'PREPAID', 0, 0, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
+  `).run(testPhone);
+  const testCustId = custRes.lastInsertRowid;
+
+  try {
+    // Record ₹500 advance payment
+    await recordPaymentTransaction({
+      customerId: testCustId,
+      amount: 500.00,
+      paymentDate: '2026-10-01',
+      paymentType: 'ADVANCE_PAYMENT',
+      paymentMethod: 'UPI'
+    });
+
+    let cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(testCustId);
+    assert.strictEqual(cust.advance_balance, 500.00, 'Advance balance must be ₹500.00 after payment');
+
+    const prod = db.prepare('SELECT * FROM products LIMIT 1').get();
+
+    // Record 1 delivery of ₹49 (₹46 product + ₹3 delivery charge)
+    db.prepare(`
+      INSERT INTO deliveries (
+        customer_id, delivery_date, product_id, product_name_snapshot, category_snapshot,
+        variant_snapshot, unit_volume_litres_snapshot, quantity, unit_price_snapshot,
+        total_product_amount, delivery_charge_snapshot, total_amount, status, created_at, updated_at
+      ) VALUES (
+        ?, '2026-10-02', ?, 'Toned Milk', 'Milk', '1 Litre', 1.0, 1, 46.0, 46.0, 3.0, 49.0, 'DELIVERED', datetime('now', 'localtime'), datetime('now', 'localtime')
+      )
+    `).run(testCustId, prod.id);
+
+    // Generate Delivered Milk Bill for month
+    const bill = await generateDeliveredMilkBill(cust, '2026-10', true);
+    assert.strictEqual(bill.gross_amount, 49.00, 'Bill gross must be ₹49.00');
+    assert.strictEqual(bill.advance_adjusted, 49.00, 'Advance adjusted must be ₹49.00');
+    assert.strictEqual(bill.net_payable, 0.00, 'Net payable must be ₹0.00');
+
+    cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(testCustId);
+    assert.strictEqual(cust.advance_balance, 451.00, 'Advance balance must be 500 - 49 = ₹451.00');
+    assert.strictEqual(cust.pending_balance, 0.00, 'Pending balance must be ₹0.00');
+
+    // Recalculate bill multiple times (Idempotency check: MUST NOT deduct ₹49 again!)
+    await recalculateSingleBill(bill.id, 'DELIVERIES');
+    await recalculateSingleBill(bill.id, 'DELIVERIES');
+    cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(testCustId);
+    assert.strictEqual(cust.advance_balance, 451.00, 'Advance balance must strictly stay at ₹451.00 after multiple recalculations');
+    assert.strictEqual(cust.pending_balance, 0.00, 'Pending balance must strictly stay at ₹0.00');
+
+    // Add 2nd delivery of ₹49
+    db.prepare(`
+      INSERT INTO deliveries (
+        customer_id, delivery_date, product_id, product_name_snapshot, category_snapshot,
+        variant_snapshot, unit_volume_litres_snapshot, quantity, unit_price_snapshot,
+        total_product_amount, delivery_charge_snapshot, total_amount, status, created_at, updated_at
+      ) VALUES (
+        ?, '2026-10-03', ?, 'Toned Milk', 'Milk', '1 Litre', 1.0, 1, 46.0, 46.0, 3.0, 49.0, 'DELIVERED', datetime('now', 'localtime'), datetime('now', 'localtime')
+      )
+    `).run(testCustId, prod.id);
+
+    // Recalculate with 2 deliveries (2 × 49 = 98)
+    const updatedBill = await recalculateSingleBill(bill.id, 'DELIVERIES');
+    assert.strictEqual(updatedBill.gross_amount, 98.00, 'Gross amount must be ₹98.00 for 2 deliveries');
+    assert.strictEqual(updatedBill.advance_adjusted, 98.00, 'Advance adjusted must be ₹98.00');
+    assert.strictEqual(updatedBill.net_payable, 0.00, 'Net payable must be ₹0.00');
+
+    cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(testCustId);
+    assert.strictEqual(cust.advance_balance, 402.00, 'Advance balance after 2 deliveries must be 500 - 98 = ₹402.00');
+    assert.strictEqual(cust.pending_balance, 0.00, 'Pending balance must be ₹0.00');
+
+    console.log('  ✓ Passed: ₹500 advance - 1 delivery (₹49) = ₹451 remaining, idempotent recalculations, 2 deliveries = ₹402 remaining.');
+  } finally {
+    // Clean up test customer
+    db.prepare('DELETE FROM deliveries WHERE customer_id = ?').run(testCustId);
+    db.prepare('DELETE FROM bills WHERE customer_id = ?').run(testCustId);
+    db.prepare('DELETE FROM payments WHERE customer_id = ?').run(testCustId);
+    db.prepare('DELETE FROM customer_ledger WHERE customer_id = ?').run(testCustId);
+    db.prepare('DELETE FROM customers WHERE id = ?').run(testCustId);
+  }
+}
+
 async function runAsyncTests() {
   await test14();
   await test15();
   await test16_17_18();
   await test24();
+  await test28();
 
   console.log('\n================================================================');
-  console.log(' ALL 27 COMPREHENSIVE BUSINESS RULE AUDIT TESTS PASSED! ✓');
+  console.log(' ALL 28 COMPREHENSIVE BUSINESS RULE AUDIT TESTS PASSED! ✓');
   console.log('================================================================\n');
 }
 
@@ -852,3 +947,4 @@ runAsyncTests().catch(err => {
   console.error('Async test runner failed:', err);
   process.exit(1);
 });
+

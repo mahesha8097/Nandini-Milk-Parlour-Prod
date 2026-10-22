@@ -4,6 +4,11 @@ const db = require('../config/db');
 const { requireAdmin, verifyToken } = require('../middleware/auth');
 const { calculateDeliveryChargesForCustomerDay } = require('../services/deliveryChargeService');
 const { getLocalDateString } = require('../utils/dateUtils');
+const {
+  checkCorrectionFinancialSafety,
+  correctDelivery,
+  getDeliveryCorrectionHistory
+} = require('../services/deliveryCorrectionService');
 
 /**
  * Ensures pending delivery items exist for a given date based on active customer subscriptions.
@@ -13,10 +18,14 @@ const { getLocalDateString } = require('../utils/dateUtils');
  * Ensures pending delivery items exist for a given date based on active customer subscriptions.
  * Bulk / Hotel customers are strictly excluded from automatic subscriptions (they are manual daily).
  */
-async function syncDeliveriesForDate(dateStr, deliveryBoyId = null) {
+async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = null) {
   // Find all active HOUSE customers (Bulk/Hotel customers do NOT use automatic subscriptions)
   let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE' AND customer_category != 'BULK_HOTEL'`;
   const params = [];
+  if (agentId) {
+    custQuery += ` AND agent_id = ?`;
+    params.push(agentId);
+  }
   if (deliveryBoyId) {
     custQuery += ` AND delivery_boy_id = ?`;
     params.push(deliveryBoyId);
@@ -43,19 +52,19 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null) {
       product_name_snapshot, category_snapshot, variant_snapshot,
       unit_volume_litres_snapshot, quantity, unit_price_snapshot,
       total_product_amount, delivery_charge_snapshot, total_amount,
-      status, notes, created_at, updated_at
+      status, notes, agent_id, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?,
       ?, ?, ?,
       ?, ?, ?,
       ?, ?, ?,
-      ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+      ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
     )
   `);
 
   const getRequirement = db.prepare(`
     SELECT * FROM daily_delivery_requirements
-    WHERE customer_id = ? AND product_id = ? AND delivery_date = ? AND status = 'ACTIVE'
+    WHERE customer_id = ? AND (product_id = ? OR target_product_id = ?) AND delivery_date = ? AND status = 'ACTIVE'
   `);
 
   for (const cust of customers) {
@@ -64,12 +73,21 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null) {
 
     // Group subscription items with daily requirements applied
     const items = await Promise.all(subs.map(async s => {
-      const reqRow = await getRequirement.get(cust.id, s.product_id, dateStr);
+      const reqRow = await getRequirement.get(cust.id, s.product_id, s.product_id, dateStr);
       let effQty = s.quantity;
       let isSkipped = false;
       let reqReason = '';
+      let isCustomTarget = false;
+      let targetProd = null;
 
       if (reqRow) {
+        if (reqRow.target_product_id && reqRow.target_product_id !== s.product_id) {
+          const tp = await db.prepare('SELECT * FROM products WHERE id = ?').get(reqRow.target_product_id);
+          if (tp) {
+            targetProd = tp;
+            isCustomTarget = true;
+          }
+        }
         if (reqRow.requirement_type === 'SKIP_DELIVERY') {
           effQty = 0;
           isSkipped = true;
@@ -83,20 +101,25 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null) {
         }
       }
 
+      const activeProduct = isCustomTarget ? targetProd : s;
+      const resolvedProductId = isCustomTarget ? targetProd.id : s.product_id;
+      const resolvedProductName = isCustomTarget ? targetProd.name : s.product_name;
+
       return {
         subscriptionId: s.id,
-        productId: s.product_id,
-        productName: s.product_name,
-        category: s.category,
-        variantLabel: s.variant_label,
-        unitVolumeLitres: s.unit_volume_litres,
+        productId: resolvedProductId,
+        productName: resolvedProductName,
+        category: activeProduct.category,
+        variantLabel: activeProduct.variant_label,
+        unitVolumeLitres: activeProduct.unit_volume_litres,
         quantity: effQty,
         normalQuantity: s.quantity,
-        sellingPrice: s.selling_price,
-        deliveryChargeType: s.delivery_charge_type,
-        fixedDeliveryCharge: s.fixed_delivery_charge,
+        sellingPrice: activeProduct.selling_price,
+        deliveryChargeType: activeProduct.delivery_charge_type,
+        fixedDeliveryCharge: activeProduct.fixed_delivery_charge,
         isSkipped,
-        reqReason
+        reqReason,
+        baseSubscriptionProductId: s.product_id
       };
     }));
 
@@ -106,6 +129,14 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null) {
     );
 
     for (const item of items) {
+      if (item.baseSubscriptionProductId && item.productId !== item.baseSubscriptionProductId) {
+        // If an old delivery with baseSubscriptionProductId was generated, remove it so target product takes its place
+        const oldBaseDel = await checkExisting.get(cust.id, item.baseSubscriptionProductId, dateStr);
+        if (oldBaseDel) {
+          await db.prepare('DELETE FROM deliveries WHERE id = ?').run(oldBaseDel.id);
+        }
+      }
+
       const exist = await checkExisting.get(cust.id, item.productId, dateStr);
       if (!exist) {
         if (item.isSkipped) {
@@ -124,7 +155,8 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null) {
             0, // ₹0 delivery charge
             0, // ₹0 total amount
             'SKIPPED',
-            item.reqReason || 'Customer Requirement: Skip Delivery'
+            item.reqReason || 'Customer Requirement: Skip Delivery',
+            cust.agent_id || agentId || 1
           );
         } else {
           const calcItem = calculated.find(c => c.productId === item.productId);
@@ -148,7 +180,8 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null) {
             deliveryCharge,
             totalAmount,
             'PENDING',
-            item.reqReason || ''
+            item.reqReason || '',
+            cust.agent_id || agentId || 1
           );
         }
       }
@@ -161,43 +194,50 @@ router.get('/', verifyToken, async (req, res) => {
   try {
     const { date, status, delivery_boy_id, customer_id, route } = req.query;
     const targetDate = date || getLocalDateString();
+    const agentId = req.agentId || 1;
 
     // Sync deliveries from active subscriptions for HOUSE customers
     const reqDboyId = req.user.role === 'DELIVERY_BOY' ? req.user.id : delivery_boy_id;
-    await syncDeliveriesForDate(targetDate, reqDboyId);
+    await syncDeliveriesForDate(targetDate, reqDboyId, agentId);
 
     let query = `
       SELECT d.*, 
              c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
              c.route as customer_route, c.customer_category, c.billing_type,
              c.serial_no as customer_serial_no, c.serial_no,
+             c.zone_id, c.flat_no,
+             z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order, z.image_url as zone_image_url,
              u.name as delivery_boy_name,
              p.image_url as product_image_url,
              s.quantity as subscription_quantity,
+             s.product_id as subscription_product_id,
              r.id as requirement_id,
              COALESCE(r.requirement_type, 'NORMAL') as requirement_type,
+             r.product_id as req_base_product_id,
+             r.target_product_id,
              r.normal_quantity as req_normal_quantity,
              r.required_quantity as req_required_quantity,
              r.additional_quantity as req_additional_quantity,
              r.reason as requirement_reason
       FROM deliveries d
       JOIN customers c ON d.customer_id = c.id
+      LEFT JOIN zones z ON c.zone_id = z.id
       LEFT JOIN products p ON d.product_id = p.id
       LEFT JOIN users u ON d.delivery_boy_id = u.id
+      LEFT JOIN daily_delivery_requirements r 
+        ON r.customer_id = d.customer_id 
+        AND (r.target_product_id = d.product_id OR r.product_id = d.product_id)
+        AND r.delivery_date = d.delivery_date 
+        AND r.status = 'ACTIVE'
       LEFT JOIN subscriptions s
         ON s.customer_id = d.customer_id
-        AND s.product_id = d.product_id
+        AND (s.product_id = d.product_id OR (r.product_id IS NOT NULL AND s.product_id = r.product_id))
         AND s.is_active = 1
         AND s.start_date <= d.delivery_date
         AND (s.end_date IS NULL OR s.end_date >= d.delivery_date)
-      LEFT JOIN daily_delivery_requirements r 
-        ON r.customer_id = d.customer_id 
-        AND r.product_id = d.product_id 
-        AND r.delivery_date = d.delivery_date 
-        AND r.status = 'ACTIVE'
-      WHERE d.delivery_date = ?
+      WHERE d.delivery_date = ? AND (d.agent_id = ? OR c.agent_id = ?)
     `;
-    const params = [targetDate];
+    const params = [targetDate, agentId, agentId];
 
     if (req.user.role === 'DELIVERY_BOY') {
       query += ` AND d.delivery_boy_id = ?`;
@@ -232,13 +272,16 @@ router.get('/', verifyToken, async (req, res) => {
       SELECT c.id as customer_id, c.name as customer_name, c.phone as customer_phone,
               c.address as customer_address, c.route as customer_route,
               c.serial_no as customer_serial_no, c.serial_no,
+              c.zone_id, c.flat_no,
+              z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order,
               c.customer_category, c.billing_type, c.delivery_boy_id,
               u.name as delivery_boy_name
       FROM customers c
+      LEFT JOIN zones z ON c.zone_id = z.id
       LEFT JOIN users u ON c.delivery_boy_id = u.id
-      WHERE c.status = 'ACTIVE' AND c.customer_category = 'BULK_HOTEL'
+      WHERE c.status = 'ACTIVE' AND c.customer_category = 'BULK_HOTEL' AND c.agent_id = ?
     `;
-    const bulkParams = [];
+    const bulkParams = [agentId];
 
     if (req.user.role === 'DELIVERY_BOY') {
       bulkCustQuery += ` AND c.delivery_boy_id = ?`;
@@ -289,7 +332,11 @@ router.get('/', verifyToken, async (req, res) => {
           customer_category: 'BULK_HOTEL',
           billing_type: bCust.billing_type,
           delivery_boy_name: bCust.delivery_boy_name,
-          requirement_type: 'NORMAL'
+          requirement_type: 'NORMAL',
+          zone_id: bCust.zone_id || null,
+          zone_name: bCust.zone_name || 'Bulk & Hotel Orders',
+          zone_address: bCust.zone_address || '',
+          flat_no: bCust.flat_no || ''
         });
       }
     }
@@ -348,13 +395,13 @@ router.post('/bulk-manage', verifyToken, async (req, res) => {
         product_name_snapshot, category_snapshot, variant_snapshot,
         unit_volume_litres_snapshot, quantity, unit_price_snapshot,
         total_product_amount, delivery_charge_snapshot, total_amount,
-        status, notes, created_at, updated_at
+        status, notes, agent_id, created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
         ?, 0, ?,
-        'PENDING', ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+        'PENDING', ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
       )
     `);
 
@@ -380,7 +427,8 @@ router.post('/bulk-manage', verifyToken, async (req, res) => {
         product.selling_price,
         totalProductAmount,
         totalProductAmount,
-        notes ? `Bulk: ${notes}` : 'Bulk Daily Order'
+        notes ? `Bulk: ${notes}` : 'Bulk Daily Order',
+        customer.agent_id || req.agentId || 1
       );
     }
 
@@ -455,6 +503,79 @@ router.post('/bulk-deliver', verifyToken, async (req, res) => {
   }
 });
 
+// Helper: Recalculates delivery charges and amounts for a single customer on a given day
+async function recalculateCustomerDayDeliveries(customerId, deliveryDate) {
+  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!customer) return;
+
+  const dayDeliveries = await db.prepare(`
+    SELECT * FROM deliveries WHERE customer_id = ? AND delivery_date = ?
+  `).all(customerId, deliveryDate);
+
+  const nonSkippedItems = [];
+  for (const d of dayDeliveries) {
+    if (d.status !== 'SKIPPED' && d.quantity > 0) {
+      const prod = await db.prepare('SELECT * FROM products WHERE id = ?').get(d.product_id);
+      nonSkippedItems.push({
+        deliveryId: d.id,
+        productId: d.product_id,
+        productName: d.product_name_snapshot,
+        category: d.category_snapshot,
+        variantLabel: d.variant_snapshot,
+        unitVolumeLitres: d.unit_volume_litres_snapshot,
+        quantity: d.quantity,
+        sellingPrice: d.unit_price_snapshot,
+        deliveryChargeType: prod ? prod.delivery_charge_type : 'MILK_RULE',
+        fixedDeliveryCharge: prod ? prod.fixed_delivery_charge : 0
+      });
+    }
+  }
+
+  const calculated = calculateDeliveryChargesForCustomerDay(customer.customer_category, nonSkippedItems);
+
+  for (const d of dayDeliveries) {
+    if (d.status === 'SKIPPED' || d.quantity === 0) {
+      await db.prepare(`
+        UPDATE deliveries
+        SET total_product_amount = 0,
+            delivery_charge_snapshot = 0,
+            total_amount = 0,
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(d.id);
+    } else {
+      const calc = calculated.find(c => c.deliveryId === d.id);
+      const delCharge = calc ? (calc.deliveryCharge || 0) : 0;
+      const productAmt = parseFloat((d.unit_price_snapshot * d.quantity).toFixed(2));
+      const totAmt = parseFloat((productAmt + delCharge).toFixed(2));
+
+      await db.prepare(`
+        UPDATE deliveries
+        SET total_product_amount = ?,
+            delivery_charge_snapshot = ?,
+            total_amount = ?,
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(productAmt, delCharge, totAmt, d.id);
+    }
+  }
+
+  // Refresh monthly bill if exists and unpaid
+  const billingMonth = deliveryDate.slice(0, 7);
+  const existingBill = await db.prepare(`
+    SELECT id, paid_amount FROM bills WHERE customer_id = ? AND billing_month = ?
+  `).get(customerId, billingMonth);
+
+  if (existingBill && !existingBill.paid_amount) {
+    try {
+      const { generateBillForCustomer } = require('../services/billingService');
+      await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
+    } catch (e) {
+      console.warn('Auto bill refresh on day recalculation notice:', e.message);
+    }
+  }
+}
+
 // Mark / Update delivery status (DELIVERED, SKIPPED, PENDING)
 router.put('/:id/status', verifyToken, async (req, res) => {
   try {
@@ -475,11 +596,22 @@ router.put('/:id/status', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to update this delivery' });
     }
 
+    // If delivery is currently DELIVERED and has a paid bill, protect financial history
+    if (delivery.status === 'DELIVERED' && status !== 'DELIVERED') {
+      const safety = await checkCorrectionFinancialSafety(deliveryId, req.user);
+      if (!safety.isSafe && safety.isLocked) {
+        return res.status(409).json({ error: safety.reason });
+      }
+    }
+
     await db.prepare(`
       UPDATE deliveries
       SET status = ?, notes = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(status, notes !== undefined ? notes : delivery.notes, deliveryId);
+
+    // Recalculate amounts and charges for this customer on this date
+    await recalculateCustomerDayDeliveries(delivery.customer_id, delivery.delivery_date);
 
     const updated = await db.prepare(`
       SELECT d.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
@@ -497,7 +629,7 @@ router.put('/:id/status', verifyToken, async (req, res) => {
     res.json(updated);
   } catch (err) {
     console.error('Update delivery status error:', err);
-    res.status(500).json({ error: 'Failed to update delivery status' });
+    res.status(500).json({ error: err.message || 'Failed to update delivery status' });
   }
 });
 
@@ -519,16 +651,25 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
       WHERE id = ?
     `);
 
+    const customerDaysToRecalc = new Map();
+
     for (const id of deliveryIds) {
+      const d = await db.prepare('SELECT id, customer_id, delivery_date, delivery_boy_id, status FROM deliveries WHERE id = ?').get(id);
+      if (!d) continue;
+
       // If delivery boy, verify assignment
-      if (req.user.role === 'DELIVERY_BOY') {
-        const d = await db.prepare('SELECT delivery_boy_id FROM deliveries WHERE id = ?').get(id);
-        if (d && d.delivery_boy_id === req.user.id) {
-          await updateStmt.run(status, notes || null, id);
-        }
-      } else {
-        await updateStmt.run(status, notes || null, id);
+      if (req.user.role === 'DELIVERY_BOY' && d.delivery_boy_id !== req.user.id) {
+        continue;
       }
+
+      await updateStmt.run(status, notes || null, id);
+      const key = `${d.customer_id}_${d.delivery_date}`;
+      customerDaysToRecalc.set(key, { customerId: d.customer_id, deliveryDate: d.delivery_date });
+    }
+
+    // Recalculate all affected customer days
+    for (const { customerId, deliveryDate } of customerDaysToRecalc.values()) {
+      await recalculateCustomerDayDeliveries(customerId, deliveryDate);
     }
 
     res.json({ message: `Updated ${deliveryIds.length} deliveries to ${status}` });
@@ -538,10 +679,57 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
   }
 });
 
+// Check financial safety before correcting a delivery
+router.get('/:id/safety', verifyToken, async (req, res) => {
+  try {
+    const result = await checkCorrectionFinancialSafety(req.params.id, req.user);
+    res.json(result);
+  } catch (err) {
+    console.error('Safety check error:', err);
+    res.status(500).json({ error: err.message || 'Failed to verify financial safety' });
+  }
+});
+
+// Correct an already completed delivery
+router.post('/:id/correct', verifyToken, async (req, res) => {
+  try {
+    const { corrected_quantity, status, reason } = req.body;
+    const result = await correctDelivery({
+      deliveryId: req.params.id,
+      correctedQuantity: corrected_quantity,
+      status,
+      reason,
+      user: req.user
+    });
+    res.json({
+      message: 'Delivery correction saved and verified successfully.',
+      ...result
+    });
+  } catch (err) {
+    console.error('Delivery correction error:', err);
+    const code = err.statusCode || 500;
+    res.status(code).json({
+      error: err.message || 'Failed to save delivery correction',
+      isLocked: Boolean(err.isLocked)
+    });
+  }
+});
+
+// Get correction history for a delivery
+router.get('/:id/corrections', verifyToken, async (req, res) => {
+  try {
+    const history = await getDeliveryCorrectionHistory(req.params.id);
+    res.json(history);
+  } catch (err) {
+    console.error('Correction history error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load correction history' });
+  }
+});
+
 // Temporary Delivery Change / Edit Quantity for House Customer (Does NOT modify permanent subscription)
 router.post('/temporary-change', verifyToken, async (req, res) => {
   try {
-    const { customer_id, product_id, delivery_date, quantity, reason } = req.body;
+    const { delivery_id, customer_id, product_id, target_product_id, delivery_date, quantity, reason } = req.body;
 
     if (!customer_id || !product_id) {
       return res.status(400).json({ error: 'Customer ID and Product ID are required.' });
@@ -563,34 +751,44 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized for this customer.' });
     }
 
-    const product = await db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found.' });
+    const baseProduct = await db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
+    if (!baseProduct) {
+      return res.status(404).json({ error: 'Base product not found.' });
     }
 
-    // Find permanent subscription quantity if exists
+    const effTargetProdId = target_product_id ? parseInt(target_product_id, 10) : baseProduct.id;
+    const targetProduct = effTargetProdId === baseProduct.id 
+      ? baseProduct 
+      : await db.prepare('SELECT * FROM products WHERE id = ?').get(effTargetProdId);
+
+    if (!targetProduct) {
+      return res.status(404).json({ error: 'Target product not found.' });
+    }
+
+    // Find permanent subscription for baseProduct if exists
     const sub = await db.prepare(`
       SELECT * FROM subscriptions 
       WHERE customer_id = ? AND product_id = ? AND is_active = 1
         AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)
-    `).get(customer.id, product.id, targetDate, targetDate);
+    `).get(customer.id, baseProduct.id, targetDate, targetDate);
 
     const normalQuantity = sub ? sub.quantity : qty;
     const reasonText = (reason || '').trim();
 
     // 1. Update / Upsert / Delete in daily_delivery_requirements
+    const existingReq = await db.prepare(`
+      SELECT id FROM daily_delivery_requirements 
+      WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
+    `).get(customer.id, baseProduct.id, targetDate);
+
     if (qty === 0) {
       // Temporary Skip
       const skipReason = reasonText ? `Temporary Skip: ${reasonText}` : 'Customer requested skip today';
-      const existingReq = await db.prepare(`
-        SELECT id FROM daily_delivery_requirements 
-        WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-      `).get(customer.id, product.id, targetDate);
-
       if (existingReq) {
         await db.prepare(`
           UPDATE daily_delivery_requirements
-          SET requirement_type = 'SKIP_DELIVERY',
+          SET target_product_id = ?,
+              requirement_type = 'SKIP_DELIVERY',
               normal_quantity = ?,
               required_quantity = 0,
               additional_quantity = 0,
@@ -600,7 +798,7 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
               created_by = ?,
               updated_at = datetime('now', 'localtime')
           WHERE id = ?
-        `).run(normalQuantity, skipReason, req.user.id, existingReq.id);
+        `).run(effTargetProdId, normalQuantity, skipReason, req.user.id, existingReq.id);
       } else {
         await db.prepare(`
           INSERT INTO daily_delivery_requirements (
@@ -615,28 +813,32 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
             ?, datetime('now', 'localtime'), datetime('now', 'localtime')
           )
         `).run(
-          customer.id, product.id, product.id, sub ? sub.id : null, targetDate,
+          customer.id, baseProduct.id, effTargetProdId, sub ? sub.id : null, targetDate,
           normalQuantity, skipReason, req.user.id
         );
       }
-    } else if (sub && qty === sub.quantity && !reasonText) {
-      // Reset to normal subscription if matches normal qty and no reason
+    } else if (effTargetProdId === baseProduct.id && sub && qty === sub.quantity && !reasonText) {
+      // Reverted to normal subscription (same product, same normal qty, no special note)
       await db.prepare(`
         DELETE FROM daily_delivery_requirements 
         WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-      `).run(customer.id, product.id, targetDate);
+      `).run(customer.id, baseProduct.id, targetDate);
     } else {
-      // Temporary Quantity Change
-      const changeReason = reasonText ? `Temporary Change: ${reasonText}` : 'Customer requested quantity change';
-      const existingReq = await db.prepare(`
-        SELECT id FROM daily_delivery_requirements 
-        WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-      `).get(customer.id, product.id, targetDate);
+      // Temporary Quantity Change or Product Swap
+      let changeReason = reasonText;
+      if (!changeReason) {
+        if (effTargetProdId !== baseProduct.id) {
+          changeReason = `Swapped to ${targetProduct.name} (${targetProduct.variant_label}) for today`;
+        } else {
+          changeReason = 'Customer requested quantity change';
+        }
+      }
 
       if (existingReq) {
         await db.prepare(`
           UPDATE daily_delivery_requirements
-          SET requirement_type = 'CHANGE_QUANTITY',
+          SET target_product_id = ?,
+              requirement_type = 'CHANGE_QUANTITY',
               normal_quantity = ?,
               required_quantity = ?,
               additional_quantity = 0,
@@ -646,7 +848,7 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
               created_by = ?,
               updated_at = datetime('now', 'localtime')
           WHERE id = ?
-        `).run(normalQuantity, qty, qty, changeReason, req.user.id, existingReq.id);
+        `).run(effTargetProdId, normalQuantity, qty, qty, changeReason, req.user.id, existingReq.id);
       } else {
         await db.prepare(`
           INSERT INTO daily_delivery_requirements (
@@ -661,201 +863,171 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
             ?, datetime('now', 'localtime'), datetime('now', 'localtime')
           )
         `).run(
-          customer.id, product.id, product.id, sub ? sub.id : null, targetDate,
+          customer.id, baseProduct.id, effTargetProdId, sub ? sub.id : null, targetDate,
           normalQuantity, qty, qty, changeReason, req.user.id
         );
       }
     }
 
-    // 2. Fetch all active subscription & ad-hoc delivery items for this customer on targetDate to calculate delivery charges correctly
-    const getActiveSubs = db.prepare(`
-      SELECT s.*, p.name as product_name, p.category, p.variant_label, p.unit_volume_litres,
-              p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge
-      FROM subscriptions s
-      JOIN products p ON s.product_id = p.id
-      WHERE s.customer_id = ? AND s.is_active = 1
-        AND s.start_date <= ?
-        AND (s.end_date IS NULL OR s.end_date >= ?)
-    `);
-    const subs = await getActiveSubs.all(customer.id, targetDate, targetDate);
-
-    // Collect daily items for calculating delivery charge
-    const dailyItems = [];
-    const handledProductIds = new Set();
-
-    for (const s of subs) {
-      handledProductIds.add(s.product_id);
-      let effQty = s.quantity;
-      let isSkip = false;
-      let itemReason = '';
-
-      if (s.product_id === product.id) {
-        if (qty === 0) {
-          effQty = 0;
-          isSkip = true;
-          itemReason = reasonText ? `Temporary Skip: ${reasonText}` : 'Customer requested skip today';
-        } else {
-          effQty = qty;
-          itemReason = reasonText ? `Temporary Change: ${reasonText}` : (qty !== s.quantity ? 'Temporary quantity change' : '');
-        }
-      } else {
-        const reqRow = await db.prepare(`
-          SELECT * FROM daily_delivery_requirements 
-          WHERE customer_id = ? AND product_id = ? AND delivery_date = ? AND status = 'ACTIVE'
-        `).get(customer.id, s.product_id, targetDate);
-        if (reqRow) {
-          if (reqRow.requirement_type === 'SKIP_DELIVERY') {
-            effQty = 0;
-            isSkip = true;
-            itemReason = reqRow.reason || 'Skip Delivery';
-          } else if (reqRow.requirement_type === 'CHANGE_QUANTITY') {
-            effQty = reqRow.required_quantity || s.quantity;
-            itemReason = reqRow.reason || '';
-          } else if (reqRow.requirement_type === 'ADD_EXTRA_QUANTITY') {
-            effQty = s.quantity + (reqRow.additional_quantity || 0);
-            itemReason = reqRow.reason || '';
-          }
-        }
-      }
-
-      dailyItems.push({
-        productId: s.product_id,
-        productName: s.product_name,
-        category: s.category,
-        variantLabel: s.variant_label,
-        unitVolumeLitres: s.unit_volume_litres,
-        quantity: effQty,
-        normalQuantity: s.quantity,
-        sellingPrice: s.selling_price,
-        deliveryChargeType: s.delivery_charge_type,
-        fixedDeliveryCharge: s.fixed_delivery_charge,
-        isSkipped: isSkip,
-        note: itemReason
-      });
+    // 2. Manage Delivery Row(s) in deliveries table
+    let targetDel = null;
+    if (delivery_id) {
+      targetDel = await db.prepare('SELECT * FROM deliveries WHERE id = ?').get(delivery_id);
+    }
+    if (!targetDel) {
+      targetDel = await db.prepare(`
+        SELECT * FROM deliveries 
+        WHERE customer_id = ? AND (product_id = ? OR product_id = ?) AND delivery_date = ?
+      `).get(customer.id, baseProduct.id, effTargetProdId, targetDate);
     }
 
-    // If targeted product was not part of subscriptions (e.g. adhoc), add it too
-    if (!handledProductIds.has(product.id)) {
-      dailyItems.push({
-        productId: product.id,
-        productName: product.name,
-        category: product.category,
-        variantLabel: product.variant_label,
-        unitVolumeLitres: product.unit_volume_litres,
-        quantity: qty,
-        normalQuantity: normalQuantity,
-        sellingPrice: product.selling_price,
-        deliveryChargeType: product.delivery_charge_type,
-        fixedDeliveryCharge: product.fixed_delivery_charge,
-        isSkipped: qty === 0,
-        note: reasonText
-      });
-    }
-
-    // Calculate delivery charges for non-skipped items
-    const calculatedCharges = calculateDeliveryChargesForCustomerDay(
-      customer.customer_category,
-      dailyItems.filter(it => it.quantity > 0)
-    );
-
-    // 3. Upsert / update deliveries table records
-    for (const item of dailyItems) {
-      const existingDel = await db.prepare(`
+    if (targetDel && effTargetProdId !== targetDel.product_id) {
+      // Swapping delivery to new product
+      const existingForNewProd = await db.prepare(`
         SELECT * FROM deliveries 
         WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-      `).get(customer.id, item.productId, targetDate);
+      `).get(customer.id, effTargetProdId, targetDate);
 
-      if (item.isSkipped || item.quantity === 0) {
-        if (existingDel) {
-          await db.prepare(`
-            UPDATE deliveries
-            SET quantity = ?,
-                total_product_amount = 0,
-                delivery_charge_snapshot = 0,
-                total_amount = 0,
-                status = 'SKIPPED',
-                notes = ?,
-                updated_at = datetime('now', 'localtime')
-            WHERE id = ?
-          `).run(
-            item.normalQuantity || 1,
-            item.note || 'Temporary Skip: Customer requested skip today',
-            existingDel.id
-          );
-        } else {
-          await db.prepare(`
-            INSERT INTO deliveries (
-              customer_id, delivery_boy_id, delivery_date, product_id,
-              product_name_snapshot, category_snapshot, variant_snapshot,
-              unit_volume_litres_snapshot, quantity, unit_price_snapshot,
-              total_product_amount, delivery_charge_snapshot, total_amount,
-              status, notes, created_at, updated_at
-            ) VALUES (
-              ?, ?, ?, ?,
-              ?, ?, ?,
-              ?, ?, ?,
-              0, 0, 0,
-              'SKIPPED', ?, datetime('now', 'localtime'), datetime('now', 'localtime')
-            )
-          `).run(
-            customer.id, customer.delivery_boy_id || null, targetDate, item.productId,
-            item.productName, item.category, item.variantLabel,
-            item.unitVolumeLitres, item.normalQuantity || 1, item.sellingPrice,
-            item.note || 'Temporary Skip: Customer requested skip today'
-          );
-        }
+      if (existingForNewProd) {
+        await db.prepare(`
+          UPDATE deliveries
+          SET quantity = ?,
+              unit_price_snapshot = ?,
+              status = ?,
+              notes = ?,
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(
+          qty === 0 ? normalQuantity : qty,
+          targetProduct.selling_price,
+          qty === 0 ? 'SKIPPED' : 'PENDING',
+          reasonText || `Product swapped to ${targetProduct.name}`,
+          existingForNewProd.id
+        );
+        await db.prepare('DELETE FROM deliveries WHERE id = ?').run(targetDel.id);
+        targetDel = existingForNewProd;
       } else {
-        const calcItem = calculatedCharges.find(c => c.productId === item.productId);
-        const totalProductAmount = parseFloat((item.sellingPrice * item.quantity).toFixed(2));
-        const delCharge = calcItem ? (calcItem.deliveryCharge || 0) : 0;
-        const totalAmount = parseFloat((totalProductAmount + delCharge).toFixed(2));
-        const currentStatus = existingDel ? (existingDel.status === 'SKIPPED' ? 'PENDING' : existingDel.status) : 'PENDING';
+        await db.prepare(`
+          UPDATE deliveries
+          SET product_id = ?,
+              product_name_snapshot = ?,
+              category_snapshot = ?,
+              variant_snapshot = ?,
+              unit_volume_litres_snapshot = ?,
+              quantity = ?,
+              unit_price_snapshot = ?,
+              status = ?,
+              notes = ?,
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(
+          targetProduct.id,
+          targetProduct.name,
+          targetProduct.category,
+          targetProduct.variant_label,
+          targetProduct.unit_volume_litres || 0,
+          qty === 0 ? normalQuantity : qty,
+          targetProduct.selling_price,
+          qty === 0 ? 'SKIPPED' : 'PENDING',
+          reasonText || `Product swapped to ${targetProduct.name}`,
+          targetDel.id
+        );
+      }
+    } else if (targetDel) {
+      // Same product, update quantity and status
+      await db.prepare(`
+        UPDATE deliveries
+        SET quantity = ?,
+            unit_price_snapshot = ?,
+            status = ?,
+            notes = ?,
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(
+        qty === 0 ? normalQuantity : qty,
+        targetProduct.selling_price,
+        qty === 0 ? 'SKIPPED' : (targetDel.status === 'SKIPPED' ? 'PENDING' : targetDel.status),
+        reasonText || (qty === 0 ? 'Temporary Skip: Customer requested skip today' : (qty !== normalQuantity ? 'Temporary quantity change' : '')),
+        targetDel.id
+      );
+    } else {
+      // Insert new delivery row if not present
+      await db.prepare(`
+        INSERT INTO deliveries (
+          customer_id, delivery_boy_id, delivery_date, product_id,
+          product_name_snapshot, category_snapshot, variant_snapshot,
+          unit_volume_litres_snapshot, quantity, unit_price_snapshot,
+          total_product_amount, delivery_charge_snapshot, total_amount,
+          status, notes, agent_id, created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?,
+          ?, ?, ?,
+          ?, ?, ?,
+          0, 0, 0,
+          ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `).run(
+        customer.id, customer.delivery_boy_id || null, targetDate, targetProduct.id,
+        targetProduct.name, targetProduct.category, targetProduct.variant_label,
+        targetProduct.unit_volume_litres || 0, qty === 0 ? normalQuantity : qty, targetProduct.selling_price,
+        qty === 0 ? 'SKIPPED' : 'PENDING',
+        reasonText || (qty === 0 ? 'Temporary Skip: Customer requested skip today' : ''),
+        customer.agent_id || req.agentId || 1
+      );
+    }
 
-        if (existingDel) {
-          await db.prepare(`
-            UPDATE deliveries
-            SET quantity = ?,
-                unit_price_snapshot = ?,
-                total_product_amount = ?,
-                delivery_charge_snapshot = ?,
-                total_amount = ?,
-                status = ?,
-                notes = ?,
-                updated_at = datetime('now', 'localtime')
-            WHERE id = ?
-          `).run(
-            item.quantity,
-            item.sellingPrice,
-            totalProductAmount,
-            delCharge,
-            totalAmount,
-            currentStatus,
-            item.note || '',
-            existingDel.id
-          );
-        } else {
-          await db.prepare(`
-            INSERT INTO deliveries (
-              customer_id, delivery_boy_id, delivery_date, product_id,
-              product_name_snapshot, category_snapshot, variant_snapshot,
-              unit_volume_litres_snapshot, quantity, unit_price_snapshot,
-              total_product_amount, delivery_charge_snapshot, total_amount,
-              status, notes, created_at, updated_at
-            ) VALUES (
-              ?, ?, ?, ?,
-              ?, ?, ?,
-              ?, ?, ?,
-              ?, ?, ?,
-              'PENDING', ?, datetime('now', 'localtime'), datetime('now', 'localtime')
-            )
-          `).run(
-            customer.id, customer.delivery_boy_id || null, targetDate, item.productId,
-            item.productName, item.category, item.variantLabel,
-            item.unitVolumeLitres, item.quantity, item.sellingPrice,
-            totalProductAmount, delCharge, totalAmount,
-            item.note || ''
-          );
-        }
+    // 3. Recalculate delivery charges & totals for all deliveries of this customer on targetDate
+    const dayDeliveries = await db.prepare(`
+      SELECT d.*, p.category, p.unit_volume_litres, p.delivery_charge_type, p.fixed_delivery_charge
+      FROM deliveries d
+      JOIN products p ON d.product_id = p.id
+      WHERE d.customer_id = ? AND d.delivery_date = ?
+    `).all(customer.id, targetDate);
+
+    const activeForCharges = dayDeliveries
+      .filter((d) => d.status !== 'SKIPPED' && d.quantity > 0)
+      .map((d) => ({
+        deliveryId: d.id,
+        productId: d.product_id,
+        productName: d.product_name_snapshot,
+        category: d.category,
+        variantLabel: d.variant_snapshot,
+        unitVolumeLitres: d.unit_volume_litres || 0,
+        quantity: d.quantity,
+        sellingPrice: d.unit_price_snapshot,
+        deliveryChargeType: d.delivery_charge_type,
+        fixedDeliveryCharge: d.fixed_delivery_charge
+      }));
+
+    const calculatedCharges = calculateDeliveryChargesForCustomerDay(
+      customer.customer_category,
+      activeForCharges
+    );
+
+    for (const d of dayDeliveries) {
+      if (d.status === 'SKIPPED' || d.quantity === 0) {
+        await db.prepare(`
+          UPDATE deliveries
+          SET total_product_amount = 0,
+              delivery_charge_snapshot = 0,
+              total_amount = 0,
+              status = 'SKIPPED',
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(d.id);
+      } else {
+        const cItem = calculatedCharges.find((c) => c.deliveryId === d.id || c.productId === d.product_id);
+        const delCharge = cItem ? (cItem.deliveryCharge || 0) : 0;
+        const totalProd = parseFloat((d.unit_price_snapshot * d.quantity).toFixed(2));
+        const totalAmt = parseFloat((totalProd + delCharge).toFixed(2));
+        await db.prepare(`
+          UPDATE deliveries
+          SET total_product_amount = ?,
+              delivery_charge_snapshot = ?,
+              total_amount = ?,
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(totalProd, delCharge, totalAmt, d.id);
       }
     }
 
@@ -878,6 +1050,7 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
              c.route as customer_route, c.customer_category, c.billing_type,
              u.name as delivery_boy_name,
              s.quantity as subscription_quantity,
+             s.product_id as subscription_product_id,
              r.id as requirement_id,
              COALESCE(r.requirement_type, 'NORMAL') as requirement_type,
              r.normal_quantity as req_normal_quantity,
@@ -886,17 +1059,26 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
       FROM deliveries d
       JOIN customers c ON d.customer_id = c.id
       LEFT JOIN users u ON d.delivery_boy_id = u.id
-      LEFT JOIN subscriptions s ON s.customer_id = d.customer_id AND s.product_id = d.product_id AND s.is_active = 1
       LEFT JOIN daily_delivery_requirements r 
         ON r.customer_id = d.customer_id 
-        AND r.product_id = d.product_id 
+        AND (r.target_product_id = d.product_id OR r.product_id = d.product_id)
         AND r.delivery_date = d.delivery_date 
         AND r.status = 'ACTIVE'
+      LEFT JOIN subscriptions s 
+        ON s.customer_id = d.customer_id 
+        AND (s.product_id = d.product_id OR (r.product_id IS NOT NULL AND s.product_id = r.product_id))
+        AND s.is_active = 1
       WHERE d.customer_id = ? AND d.product_id = ? AND d.delivery_date = ?
-    `).get(customer.id, product.id, targetDate);
+    `).get(customer.id, effTargetProdId, targetDate);
+
+    const toastMsg = qty === 0 
+      ? 'Delivery marked as skipped for today' 
+      : (effTargetProdId !== baseProduct.id 
+          ? `Product changed to ${targetProduct.name} (${qty} packet(s)) for today`
+          : `Today's quantity updated to ${qty} packet(s)`);
 
     res.json({
-      message: qty === 0 ? 'Delivery marked as skipped for today' : `Today's quantity updated to ${qty} packet(s)`,
+      message: toastMsg,
       delivery: updatedDelivery
     });
   } catch (err) {
@@ -1012,13 +1194,13 @@ router.post('/extra', verifyToken, async (req, res) => {
           product_name_snapshot, category_snapshot, variant_snapshot,
           unit_volume_litres_snapshot, quantity, unit_price_snapshot,
           total_product_amount, delivery_charge_snapshot, total_amount,
-          status, notes, created_at, updated_at
+          status, notes, agent_id, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?,
-          ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+          ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
         )
       `).run(
         customer.id,
@@ -1035,7 +1217,8 @@ router.post('/extra', verifyToken, async (req, res) => {
         deliveryCharge,
         totalAmount,
         status || 'DELIVERED',
-        notes ? `Extra product: ${notes}` : 'Extra product requested on delivery'
+        notes ? `Extra product: ${notes}` : 'Extra product requested on delivery',
+        customer.agent_id || req.agentId || 1
       );
       deliveryId = result.lastInsertRowid;
     }
@@ -1150,13 +1333,13 @@ router.post('/adhoc', verifyToken, async (req, res) => {
           product_name_snapshot, category_snapshot, variant_snapshot,
           unit_volume_litres_snapshot, quantity, unit_price_snapshot,
           total_product_amount, delivery_charge_snapshot, total_amount,
-          status, notes, created_at, updated_at
+          status, notes, agent_id, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?,
-          'DELIVERED', ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+          'DELIVERED', ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
         )
       `).run(
         customer.id,
@@ -1172,7 +1355,8 @@ router.post('/adhoc', verifyToken, async (req, res) => {
         totalProduct,
         charge,
         totalAmount,
-        notes || 'Ad-hoc delivery'
+        notes || 'Ad-hoc delivery',
+        customer.agent_id || req.agentId || 1
       );
       deliveryId = result.lastInsertRowid;
     }

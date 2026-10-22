@@ -13,15 +13,16 @@ router.get('/', requireAdmin, async (req, res) => {
   try {
     const { month, customer_id, status, billing_type } = req.query;
 
+    const agentId = req.agentId || 1;
     let query = `
       SELECT b.*, c.name as customer_name, c.phone as customer_phone,
              c.address as customer_address, c.customer_category, c.route,
              c.advance_balance as customer_advance_balance, c.pending_balance as customer_pending_balance
       FROM bills b
       JOIN customers c ON b.customer_id = c.id
-      WHERE 1=1
+      WHERE (b.agent_id = ? OR c.agent_id = ?)
     `;
-    const params = [];
+    const params = [agentId, agentId];
 
     if (month) {
       query += ` AND b.billing_month = ?`;
@@ -59,7 +60,7 @@ router.get('/advance-preview', requireAdmin, async (req, res) => {
     const { month } = req.query;
     const targetMonth = month || new Date().toISOString().slice(0, 7);
     const { calculateAdvanceProjectionForMonth } = require('../services/billingService');
-    const result = await calculateAdvanceProjectionForMonth(targetMonth);
+    const result = await calculateAdvanceProjectionForMonth(targetMonth, req.agentId || 1);
     res.json(result);
   } catch (err) {
     console.error('Advance preview error:', err);
@@ -75,7 +76,8 @@ router.post('/generate-advance-monthly', requireAdmin, async (req, res) => {
     const { runMonthlyBillGeneration } = require('../services/billingService');
     const result = await runMonthlyBillGeneration(targetMonth, {
       forceRegenerate: Boolean(forceRegenerate),
-      billingBasis: 'SUBSCRIPTION'
+      billingBasis: 'SUBSCRIPTION',
+      agentId: req.agentId || 1
     });
     res.json({
       message: `Advance monthly bills generated for ${targetMonth}`,
@@ -103,7 +105,11 @@ router.get('/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Bill not found' });
     }
 
-    const businessProfile = await db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
+    const agentId = bill.agent_id || req.agentId || 1;
+    let businessProfile = await db.prepare('SELECT * FROM business_profile WHERE agent_id = ?').get(agentId);
+    if (!businessProfile) {
+      businessProfile = await db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
+    }
     let parsedItems = [];
     try {
       parsedItems = JSON.parse(bill.items_json || '[]');
@@ -131,7 +137,8 @@ router.post('/generate-monthly', requireAdmin, async (req, res) => {
     const { runMonthlyBillGeneration } = require('../services/billingService');
     const result = await runMonthlyBillGeneration(targetMonth, {
       forceRegenerate: Boolean(forceRegenerate),
-      billingBasis: billingBasis || 'AUTO'
+      billingBasis: billingBasis || 'AUTO',
+      agentId: req.agentId || 1
     });
     res.json({
       message: `Monthly bill generation completed for ${targetMonth}`,
@@ -176,10 +183,10 @@ router.post('/generate-single', requireAdmin, async (req, res) => {
 });
 
 // Recalculate / Regenerate an existing bill with latest subscriptions/deliveries (Admin only)
-router.post('/:id/regenerate', requireAdmin, async (req, res) => {
+const handleBillRegenerate = async (req, res) => {
   try {
     const billId = req.params.id;
-    const { billingBasis } = req.body;
+    const { billingBasis } = req.body || {};
     const { recalculateSingleBill } = require('../services/billingService');
     const updatedBill = await recalculateSingleBill(billId, billingBasis || 'AUTO');
     res.json({
@@ -190,7 +197,9 @@ router.post('/:id/regenerate', requireAdmin, async (req, res) => {
     console.error('Regenerate bill error:', err);
     res.status(500).json({ error: err.message || 'Failed to regenerate bill' });
   }
-});
+};
+router.post('/:id/regenerate', requireAdmin, handleBillRegenerate);
+router.put('/:id/regenerate', requireAdmin, handleBillRegenerate);
 
 // Cancel a bill (Admin only)
 router.post('/:id/cancel', requireAdmin, async (req, res) => {

@@ -8,13 +8,14 @@ router.get('/', requireAdmin, async (req, res) => {
   try {
     const { category, startDate, endDate } = req.query;
 
+    const agentId = req.agentId || 1;
     let query = `
       SELECT e.*, u.name as created_by_name
       FROM expenses e
       LEFT JOIN users u ON e.created_by_user_id = u.id
-      WHERE 1=1
+      WHERE e.agent_id = ?
     `;
-    const params = [];
+    const params = [agentId];
 
     if (category) {
       query += ` AND e.category = ?`;
@@ -55,11 +56,12 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Valid positive amount is required' });
     }
 
+    const agentId = req.agentId || 1;
     const stmt = db.prepare(`
       INSERT INTO expenses (
         category, amount, expense_date, payment_method, recipient_name,
-        description, notes, created_at, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), ?)
+        description, notes, agent_id, created_at, created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), ?)
     `);
 
     const result = await stmt.run(
@@ -70,6 +72,7 @@ router.post('/', requireAdmin, async (req, res) => {
       recipient_name ? recipient_name.trim() : '',
       description ? description.trim() : '',
       notes ? notes.trim() : '',
+      agentId,
       req.user.id
     );
 
@@ -85,12 +88,13 @@ router.post('/', requireAdmin, async (req, res) => {
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const expenseId = req.params.id;
-    const existing = await db.prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId);
+    const agentId = req.agentId || 1;
+    const existing = await db.prepare('SELECT * FROM expenses WHERE id = ? AND agent_id = ?').get(expenseId, agentId);
     if (!existing) {
       return res.status(404).json({ error: 'Expense record not found' });
     }
 
-    await db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
+    await db.prepare('DELETE FROM expenses WHERE id = ? AND agent_id = ?').run(expenseId, agentId);
     res.json({ message: 'Expense deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete expense' });

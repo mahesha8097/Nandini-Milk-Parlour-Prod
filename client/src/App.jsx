@@ -79,6 +79,7 @@ function MainApplication() {
       case 'delivery-boys':
         return <DeliveryBoysPage initialOpenAdd={navParams.openAdd} />;
       case 'deliveries':
+      case 'zones':
         return <DeliveriesPage />;
       case 'daily-requirements':
         return <DailyRequirementsPage />;
@@ -109,6 +110,7 @@ function MainApplication() {
       case 'dashboard':
         return <DeliveryBoyDashboard onNavigate={handleNavigate} />;
       case 'deliveries':
+      case 'zones':
         return <DeliveryBoyDeliveries />;
       case 'customers':
         return <DeliveryBoyCustomers />;

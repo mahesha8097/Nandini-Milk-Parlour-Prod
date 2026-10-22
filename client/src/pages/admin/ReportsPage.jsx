@@ -164,34 +164,88 @@ export default function ReportsPage() {
           description="Try selecting a different date range or category."
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                {Object.keys(rows[0]).map((key) => (
-                  <th key={key} style={{ textTransform: 'capitalize' }}>
-                    {key.replace(/_/g, ' ')}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, idx) => (
-                <tr key={idx}>
-                  {Object.values(row).map((val, vIdx) => (
-                    <td key={vIdx}>
-                      {typeof val === 'number' ? (
-                        val % 1 !== 0 ? `₹${val.toFixed(2)}` : val
-                      ) : (
-                        val || '-'
-                      )}
-                    </td>
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  {Object.keys(rows[0]).map((key) => (
+                    <th key={key} style={{ textTransform: 'capitalize' }}>
+                      {key.replace(/_/g, ' ')}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.map((row, idx) => (
+                  <tr key={idx}>
+                    {Object.values(row).map((val, vIdx) => (
+                      <td key={vIdx}>
+                        {typeof val === 'number' ? (
+                          val % 1 !== 0 ? `₹${val.toFixed(2)}` : val
+                        ) : (
+                          val || '-'
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Report Cards */}
+          <div className="mobile-only mobile-card-list">
+            {rows.map((row, idx) => {
+              const entries = Object.entries(row);
+              const [firstKey, firstVal] = entries[0] || ['', ''];
+              const remainingEntries = entries.slice(1);
+
+              return (
+                <div key={idx} className="mobile-data-card">
+                  <div className="mobile-card-header" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+                    <div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>
+                        {firstKey.replace(/_/g, ' ')}
+                      </span>
+                      <h3 className="mobile-card-title" style={{ marginTop: '2px' }}>
+                        {typeof firstVal === 'number' && firstVal % 1 !== 0 ? `₹${firstVal.toFixed(2)}` : (firstVal || '-')}
+                      </h3>
+                    </div>
+                    <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>
+                      #{idx + 1}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {remainingEntries.map(([k, val], vIdx) => {
+                      const isAmount = typeof val === 'number' && (val % 1 !== 0 || k.toLowerCase().includes('amount') || k.toLowerCase().includes('price') || k.toLowerCase().includes('total') || k.toLowerCase().includes('balance'));
+                      return (
+                        <div key={vIdx} className="mobile-card-row">
+                          <span className="mobile-card-row-label">{k.replace(/_/g, ' ')}</span>
+                          <span
+                            className="mobile-card-row-value"
+                            style={{
+                              color: isAmount ? 'var(--primary-dark)' : 'var(--text-primary)',
+                              fontSize: isAmount ? '0.9rem' : '0.813rem'
+                            }}
+                          >
+                            {typeof val === 'number' ? (
+                              val % 1 !== 0 ? `₹${val.toFixed(2)}` : isAmount ? `₹${val}` : val
+                            ) : (
+                              val || '-'
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

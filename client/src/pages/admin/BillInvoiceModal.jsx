@@ -56,6 +56,26 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
 
   if (!isOpen) return null;
 
+  const bill = data?.bill || {};
+  const profile = data?.businessProfile || {};
+  const items = data?.items || [];
+
+  // Summary calculations
+  const grossAmount = bill.gross_amount || 0;
+  const advanceAdjusted = bill.advance_adjusted || 0;
+  const paidAmount = bill.paid_amount || 0;
+  const totalReceived = bill.status === 'ADVANCE_PAID'
+    ? advanceAdjusted
+    : parseFloat(((advanceAdjusted || 0) + (paidAmount || 0)).toFixed(2));
+  const netPayable = bill.net_payable !== undefined ? bill.net_payable : Math.max(0, grossAmount - advanceAdjusted);
+  const previousDue = bill.previous_due || 0;
+  
+  // Advance balance breakdown
+  const remainingAdvance = bill.customer_advance_balance !== undefined ? Number(bill.customer_advance_balance) : 0;
+  const totalAdvancePaid = parseFloat((remainingAdvance + advanceAdjusted).toFixed(2));
+  const hasAdvance = totalAdvancePaid > 0 || advanceAdjusted > 0 || bill.billing_type === 'PREPAID';
+  const currentPending = bill.customer_pending_balance !== undefined ? Number(bill.customer_pending_balance) : (previousDue + netPayable);
+
   const handlePrint = () => {
     const printElement = document.getElementById('printable-invoice-content');
     if (!printElement) {
@@ -157,12 +177,39 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
 
     try {
       setCapturing(true);
+
+      const scrollParent = invoiceElement.closest('.invoice-scroll-container');
+      const prevScrollLeft = scrollParent ? scrollParent.scrollLeft : 0;
+      if (scrollParent) scrollParent.scrollLeft = 0;
+
       const canvas = await html2canvas(invoiceElement, {
         scale: 2,
+        width: 800,
+        windowWidth: 1200,
+        scrollX: 0,
+        scrollY: 0,
         useCORS: true,
         allowTaint: true,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById('printable-invoice-content');
+          if (el) {
+            el.style.width = '800px';
+            el.style.minWidth = '800px';
+            el.style.maxWidth = '800px';
+            el.style.boxSizing = 'border-box';
+            el.style.margin = '0 auto';
+            el.style.transform = 'none';
+          }
+          const sc = clonedDoc.querySelector('.invoice-scroll-container');
+          if (sc) {
+            sc.scrollLeft = 0;
+            sc.style.overflow = 'visible';
+          }
+        }
       });
+
+      if (scrollParent) scrollParent.scrollLeft = prevScrollLeft;
 
       const fileName = `Invoice_${bill.bill_number || 'bill'}.png`;
       const dataUrl = canvas.toDataURL('image/png');
@@ -226,12 +273,39 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
 
     try {
       setCapturing(true);
+
+      const scrollParent = invoiceElement.closest('.invoice-scroll-container');
+      const prevScrollLeft = scrollParent ? scrollParent.scrollLeft : 0;
+      if (scrollParent) scrollParent.scrollLeft = 0;
+
       const canvas = await html2canvas(invoiceElement, {
         scale: 2,
+        width: 800,
+        windowWidth: 1200,
+        scrollX: 0,
+        scrollY: 0,
         useCORS: true,
         allowTaint: true,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById('printable-invoice-content');
+          if (el) {
+            el.style.width = '800px';
+            el.style.minWidth = '800px';
+            el.style.maxWidth = '800px';
+            el.style.boxSizing = 'border-box';
+            el.style.margin = '0 auto';
+            el.style.transform = 'none';
+          }
+          const sc = clonedDoc.querySelector('.invoice-scroll-container');
+          if (sc) {
+            sc.scrollLeft = 0;
+            sc.style.overflow = 'visible';
+          }
+        }
       });
+
+      if (scrollParent) scrollParent.scrollLeft = prevScrollLeft;
 
       canvas.toBlob(async (blob) => {
         if (!blob) {
@@ -293,30 +367,12 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
     }
   };
 
-  const bill = data?.bill || {};
-  const profile = data?.businessProfile || {};
-  const items = data?.items || [];
-
-  // Summary calculations
-  const grossAmount = bill.gross_amount || 0;
-  const advanceAdjusted = bill.advance_adjusted || 0;
-  const paidAmount = bill.paid_amount || 0;
-  const totalReceived = Math.max(advanceAdjusted, paidAmount);
-  const netPayable = bill.net_payable !== undefined ? bill.net_payable : Math.max(0, grossAmount - advanceAdjusted);
-  const previousDue = bill.previous_due || 0;
-  
-  // Advance balance breakdown
-  const remainingAdvance = bill.customer_advance_balance !== undefined ? Number(bill.customer_advance_balance) : 0;
-  const totalAdvancePaid = parseFloat((remainingAdvance + advanceAdjusted).toFixed(2));
-  const hasAdvance = totalAdvancePaid > 0 || advanceAdjusted > 0 || bill.billing_type === 'PREPAID';
-  const currentPending = bill.customer_pending_balance !== undefined ? Number(bill.customer_pending_balance) : (previousDue + netPayable);
-
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       title={`Invoice - ${bill.bill_number || ''}`}
-      maxWidth="780px"
+      maxWidth="860px"
     >
       {loading ? (
         <div style={{ padding: '32px', textAlign: 'center' }}>Loading invoice...</div>
@@ -374,15 +430,21 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
           </div>
 
           {/* Single-Sheet Professional Invoice Sheet */}
-          <div id="printable-invoice-content" className="invoice-sheet" style={{
-            background: 'white',
-            border: '1px solid #cbd5e1',
-            borderRadius: 'var(--radius-md)',
-            padding: '24px 28px',
-            color: '#1e293b',
-            fontSize: '0.813rem',
-            lineHeight: '1.4'
-          }}>
+          <div className="invoice-scroll-container" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: '16px' }}>
+            <div id="printable-invoice-content" className="invoice-sheet" style={{
+              width: '800px',
+              minWidth: '800px',
+              maxWidth: '800px',
+              background: 'white',
+              border: '1px solid #cbd5e1',
+              borderRadius: 'var(--radius-md)',
+              padding: '24px 28px',
+              color: '#1e293b',
+              fontSize: '0.813rem',
+              lineHeight: '1.4',
+              boxSizing: 'border-box',
+              margin: '0 auto'
+            }}>
             {/* Top Heading */}
             <div style={{ textAlign: 'center', marginBottom: '12px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
               <span style={{ fontSize: '1.15rem', fontWeight: '800', letterSpacing: '0.12em', color: '#0054a6', textTransform: 'uppercase' }}>
@@ -474,8 +536,8 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
             </div>
 
             {/* Product Item Table (NO GST, Includes MRP & Effective PRICE) */}
-            <div style={{ marginBottom: '14px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+            <div style={{ marginBottom: '14px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+              <table style={{ width: '100%', minWidth: '500px', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9', borderTop: '1px solid #cbd5e1', borderBottom: '2px solid #cbd5e1' }}>
                     <th style={{ padding: '6px 8px', textAlign: 'center', width: '36px' }}>#</th>
@@ -661,7 +723,8 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
             </div>
           </div>
         </div>
-      )}
-    </Modal>
+      </div>
+    )}
+  </Modal>
   );
 }

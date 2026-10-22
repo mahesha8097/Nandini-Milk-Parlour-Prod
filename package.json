@@ -8,7 +8,7 @@
     "server": "node server/index.js",
     "client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
-    "test": "node server/tests/business_rules.test.js",
+    "test": "node server/tests/business_rules.test.js && node server/tests/agent_deliveries_correction.test.js && node server/tests/multi_tenant_agent_isolation.test.js",
     "test:supabase": "node server/scripts/test-supabase.js",
     "db:init": "node server/scripts/init-supabase-db.js",
     "db:migrate": "node server/scripts/migrate-sqlite-to-supabase.js",

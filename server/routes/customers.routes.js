@@ -9,12 +9,14 @@ router.get('/', verifyToken, async (req, res) => {
     const { search, category, billing_type, status, delivery_boy_id, route } = req.query;
 
     let query = `
-      SELECT c.*, u.name as delivery_boy_name, u.phone as delivery_boy_phone
+      SELECT c.*, z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order,
+             u.name as delivery_boy_name, u.phone as delivery_boy_phone
       FROM customers c
+      LEFT JOIN zones z ON c.zone_id = z.id
       LEFT JOIN users u ON c.delivery_boy_id = u.id
-      WHERE 1=1
+      WHERE c.agent_id = ?
     `;
-    const params = [];
+    const params = [req.agentId || 1];
 
     // Delivery boy can only view assigned customers
     if (req.user.role === 'DELIVERY_BOY') {
@@ -58,7 +60,7 @@ router.get('/', verifyToken, async (req, res) => {
     const enrichedCustomers = await Promise.all((customers || []).map(async (c) => {
       const subs = await db.prepare(`
         SELECT s.*, p.name as product_name, p.variant_label, p.category, p.unit_volume_litres,
-               p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge
+               p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge, p.image_url
         FROM subscriptions s
         JOIN products p ON s.product_id = p.id
         WHERE s.customer_id = ? AND s.is_active = 1
@@ -90,8 +92,10 @@ router.get('/:id', verifyToken, async (req, res) => {
     }
 
     const customer = await db.prepare(`
-      SELECT c.*, u.name as delivery_boy_name, u.phone as delivery_boy_phone
+      SELECT c.*, z.name as zone_name, z.address as zone_address, z.route_order as zone_route_order,
+             u.name as delivery_boy_name, u.phone as delivery_boy_phone
       FROM customers c
+      LEFT JOIN zones z ON c.zone_id = z.id
       LEFT JOIN users u ON c.delivery_boy_id = u.id
       WHERE c.id = ?
     `).get(customerId);
@@ -103,7 +107,7 @@ router.get('/:id', verifyToken, async (req, res) => {
     // Subscriptions
     const subscriptions = await db.prepare(`
       SELECT s.*, p.name as product_name, p.category, p.variant_label, p.unit_volume_litres,
-             p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge
+             p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge, p.image_url
       FROM subscriptions s
       JOIN products p ON s.product_id = p.id
       WHERE s.customer_id = ?
@@ -172,7 +176,9 @@ router.post('/', requireAdmin, async (req, res) => {
       status,
       notes,
       initial_advance,
-      serial_no
+      serial_no,
+      zone_id,
+      flat_no
     } = req.body;
 
     if (!name || !phone || !address || !customer_category || !billing_type) {
@@ -180,11 +186,12 @@ router.post('/', requireAdmin, async (req, res) => {
     }
 
     const initAdvance = parseFloat(initial_advance || 0);
+    const agentId = req.agentId || 1;
 
     let assignedSerial = serial_no !== undefined && serial_no !== '' && serial_no !== null ? parseInt(serial_no) || 0 : 0;
     if (!assignedSerial && delivery_boy_id) {
       try {
-        const maxRow = await db.prepare('SELECT COALESCE(MAX(serial_no), 0) + 1 as next_seq FROM customers WHERE delivery_boy_id = ?').get(delivery_boy_id);
+        const maxRow = await db.prepare('SELECT COALESCE(MAX(serial_no), 0) + 1 as next_seq FROM customers WHERE delivery_boy_id = ? AND agent_id = ?').get(delivery_boy_id, agentId);
         assignedSerial = maxRow ? maxRow.next_seq : 1;
       } catch (seqErr) {
         assignedSerial = 0;
@@ -195,23 +202,29 @@ router.post('/', requireAdmin, async (req, res) => {
     try {
       const stmt = db.prepare(`
         INSERT INTO customers (
-          serial_no, name, phone, address, customer_category, billing_type, delivery_boy_id,
-          route, status, notes, advance_balance, pending_balance, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, datetime('now', 'localtime'), datetime('now', 'localtime'))
+          serial_no, name, phone, address, flat_no, zone_id, customer_category, billing_type, delivery_boy_id,
+          route, status, notes, advance_balance, pending_balance, agent_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
       `);
+
+      const parsedZoneId = zone_id ? parseInt(zone_id, 10) || null : null;
+      const cleanFlatNo = flat_no ? flat_no.trim() : null;
 
       const result = await stmt.run(
         assignedSerial,
         name.trim(),
         phone.trim(),
         address.trim(),
+        cleanFlatNo,
+        parsedZoneId,
         customer_category,
         billing_type,
         delivery_boy_id || null,
         route || '',
         status || 'ACTIVE',
         notes || '',
-        initAdvance
+        initAdvance,
+        agentId
       );
 
       newCustomerId = result.lastInsertRowid;
@@ -300,12 +313,16 @@ router.put('/:id', requireAdmin, async (req, res) => {
       notes,
       advance_balance,
       initial_advance,
-      serial_no
+      serial_no,
+      zone_id,
+      flat_no
     } = req.body;
 
-    const targetAdvance = advance_balance !== undefined
+    const targetAdvance = (advance_balance !== undefined && advance_balance !== null && advance_balance !== '')
       ? parseFloat(advance_balance)
-      : (initial_advance !== undefined ? parseFloat(initial_advance) : existing.advance_balance);
+      : (initial_advance !== undefined && initial_advance !== null && initial_advance !== ''
+          ? parseFloat(initial_advance)
+          : existing.advance_balance);
 
     const oldAdvance = parseFloat(existing.advance_balance || 0);
     const newAdvance = isNaN(targetAdvance) ? oldAdvance : targetAdvance;
@@ -314,15 +331,25 @@ router.put('/:id', requireAdmin, async (req, res) => {
       ? (serial_no === '' || serial_no === null ? 0 : parseInt(serial_no) || 0)
       : (existing.serial_no || 0);
 
+    const newZoneId = zone_id !== undefined
+      ? (zone_id ? parseInt(zone_id, 10) || null : null)
+      : (existing.zone_id || null);
+
+    const newFlatNo = flat_no !== undefined
+      ? (flat_no ? flat_no.trim() : null)
+      : (existing.flat_no || null);
+
     await db.prepare(`
       UPDATE customers
-      SET name = ?, phone = ?, address = ?, customer_category = ?, billing_type = ?,
+      SET name = ?, phone = ?, address = ?, flat_no = ?, zone_id = ?, customer_category = ?, billing_type = ?,
           delivery_boy_id = ?, route = ?, status = ?, notes = ?, advance_balance = ?, serial_no = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
       (name || existing.name).trim(),
       (phone || existing.phone).trim(),
       (address || existing.address).trim(),
+      newFlatNo,
+      newZoneId,
       customer_category || existing.customer_category,
       billing_type || existing.billing_type,
       delivery_boy_id !== undefined ? delivery_boy_id : existing.delivery_boy_id,
@@ -460,7 +487,7 @@ router.post('/:id/subscriptions', requireAdmin, async (req, res) => {
       );
 
       const newSub = await db.prepare(`
-        SELECT s.*, p.name as product_name, p.category, p.variant_label, p.selling_price
+        SELECT s.*, p.name as product_name, p.category, p.variant_label, p.selling_price, p.image_url
         FROM subscriptions s
         JOIN products p ON s.product_id = p.id
         WHERE s.id = ?
@@ -485,7 +512,7 @@ router.post('/:id/subscriptions', requireAdmin, async (req, res) => {
 router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) => {
   try {
     const { customerId, subId } = req.params;
-    const { quantity, frequency, custom_days, start_date, end_date, is_active } = req.body;
+    const { product_id, quantity, frequency, custom_days, start_date, end_date, is_active } = req.body;
 
     const existing = await db.prepare('SELECT * FROM subscriptions WHERE id = ? AND customer_id = ?').get(subId, customerId);
     if (!existing) {
@@ -494,10 +521,11 @@ router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) =
 
     await db.prepare(`
       UPDATE subscriptions
-      SET quantity = ?, frequency = ?, custom_days = ?, start_date = ?,
+      SET product_id = ?, quantity = ?, frequency = ?, custom_days = ?, start_date = ?,
           end_date = ?, is_active = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
+      product_id ? parseInt(product_id) : existing.product_id,
       quantity !== undefined ? parseInt(quantity) : existing.quantity,
       frequency || existing.frequency,
       custom_days ? JSON.stringify(custom_days) : existing.custom_days,
@@ -508,7 +536,7 @@ router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) =
     );
 
     const updated = await db.prepare(`
-      SELECT s.*, p.name as product_name, p.category, p.variant_label, p.selling_price
+      SELECT s.*, p.name as product_name, p.category, p.variant_label, p.selling_price, p.image_url
       FROM subscriptions s
       JOIN products p ON s.product_id = p.id
       WHERE s.id = ?
@@ -521,14 +549,26 @@ router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) =
   }
 });
 
-// Delete Subscription
-router.delete('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) => {
+// Generate or recalculate bill for specific customer
+router.post('/:customerId/bills/generate', requireAdmin, async (req, res) => {
   try {
-    const { customerId, subId } = req.params;
-    await db.prepare('DELETE FROM subscriptions WHERE id = ? AND customer_id = ?').run(subId, customerId);
-    res.json({ message: 'Subscription removed' });
+    const { customerId } = req.params;
+    const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const targetMonth = req.body.billing_month || req.body.month || new Date().toISOString().slice(0, 7);
+    const { generateBillForCustomer } = require('../services/billingService');
+    const bill = await generateBillForCustomer(customer, targetMonth, {
+      billingBasis: req.body.billingBasis || 'AUTO',
+      forceRegenerate: req.body.forceRegenerate !== undefined ? Boolean(req.body.forceRegenerate) : true
+    });
+
+    res.json({ message: 'Bill generated successfully', bill });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete subscription' });
+    console.error('Customer bill generate error:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate bill' });
   }
 });
 

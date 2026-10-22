@@ -23,6 +23,70 @@ async function generateBillNumber(billingMonth) {
 }
 
 /**
+ * Idempotently records or updates a bill in customer_ledger.
+ * Prevents duplicate ledger entries when a bill is recalculated or regenerated.
+ */
+async function upsertBillLedgerEntry({
+  customerId,
+  billId,
+  transactionDate,
+  grossAmount,
+  advanceToAdjust,
+  advanceBalanceAfter,
+  pendingBalanceAfter,
+  description
+}) {
+  const ledgerRef = `BILL-${billId}`;
+  const existingRows = await db.prepare(`
+    SELECT id FROM customer_ledger 
+    WHERE customer_id = ? AND reference_id = ? AND transaction_type = 'BILL_GENERATED'
+    ORDER BY id ASC
+  `).all(customerId, ledgerRef);
+
+  if (existingRows && existingRows.length > 0) {
+    const keepId = existingRows[0].id;
+    await db.prepare(`
+      UPDATE customer_ledger
+      SET transaction_date = ?, debit = ?, credit = ?,
+          advance_balance_after = ?, pending_balance_after = ?,
+          description = ?, created_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(
+      transactionDate,
+      grossAmount,
+      advanceToAdjust,
+      advanceBalanceAfter,
+      pendingBalanceAfter,
+      description,
+      keepId
+    );
+
+    // Clean up any extra duplicate rows for this bill
+    if (existingRows.length > 1) {
+      for (let i = 1; i < existingRows.length; i++) {
+        await db.prepare('DELETE FROM customer_ledger WHERE id = ?').run(existingRows[i].id);
+      }
+    }
+  } else {
+    await db.prepare(`
+      INSERT INTO customer_ledger (
+        customer_id, transaction_date, transaction_type, reference_id, debit, credit,
+        advance_balance_after, pending_balance_after, description, created_at
+      ) VALUES (?, ?, 'BILL_GENERATED', ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+    `).run(
+      customerId,
+      transactionDate,
+      ledgerRef,
+      grossAmount,
+      advanceToAdjust,
+      advanceBalanceAfter,
+      pendingBalanceAfter,
+      description
+    );
+  }
+}
+
+/**
  * Generates an Advance / Expected bill for a Prepaid Customer for a specified month (YYYY-MM).
  * Based on customer's active subscriptions in that month, strictly respecting start_date and end_date.
  */
@@ -150,8 +214,20 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
 
   // If regenerating existing bill, restore previous balances before reapplying
   if (existing && forceRegenerate) {
-    currentAdvance = parseFloat((currentAdvance + (existing.advance_adjusted || 0)).toFixed(2));
-    currentPending = Math.max(0, parseFloat((currentPending - (existing.net_payable || 0)).toFixed(2)));
+    const prevAdvanceAdjusted = Number(existing.advance_adjusted || 0);
+    let prevCashPaid = Number(existing.paid_amount || 0);
+    if (existing.status === 'ADVANCE_PAID' || Number(existing.net_payable || 0) === 0) {
+      prevCashPaid = 0;
+    }
+
+    const prevNetPayable = Number(existing.net_payable || 0);
+    const prevUnpaidPending = Math.max(0, prevNetPayable - prevCashPaid);
+
+    // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
+    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
+
+    // Restore pending balance: subtract only the portion that was unpaid and sitting in pending_balance
+    currentPending = Math.max(0, parseFloat((currentPending - prevUnpaidPending).toFixed(2)));
   }
 
   let advanceToAdjust = 0;
@@ -162,12 +238,12 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   }
 
   const netPayable = parseFloat((grossAmount - advanceToAdjust).toFixed(2));
-  const paidAmount = advanceToAdjust;
+  const paidAmount = 0;
   
   let billStatus = 'GENERATED';
   if (netPayable === 0) {
-    billStatus = 'ADVANCE_PAID';
-  } else if (paidAmount > 0) {
+    billStatus = advanceToAdjust > 0 ? 'ADVANCE_PAID' : 'PAID';
+  } else if (advanceToAdjust > 0) {
     billStatus = 'PARTIALLY_PAID';
   } else {
     billStatus = 'PENDING';
@@ -199,12 +275,12 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
         bill_number, customer_id, billing_month, billing_type, bill_date, due_date,
         total_deliveries_count, product_subtotal, delivery_charges_total, gross_amount,
         previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
-        items_json, notes, created_at, updated_at
+        items_json, notes, agent_id, created_at, updated_at
       ) VALUES (
         ?, ?, ?, 'PREPAID', ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, 'FINALIZED',
-        ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+        ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
       )
     `);
 
@@ -212,7 +288,8 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       billNumber, customer.id, billingMonth, billDate, dueDate,
       daysInMonth, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(activeBreakdowns), 'Automatic Monthly Advance Bill (Effective Dates Applied)'
+      JSON.stringify(activeBreakdowns), 'Automatic Monthly Advance Bill (Effective Dates Applied)',
+      customer.agent_id || 1
     );
     billId = info.lastInsertRowid;
   }
@@ -227,22 +304,17 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     WHERE id = ?
   `).run(newAdvance, newPending, customer.id);
 
-  // Record in Customer Ledger
-  await db.prepare(`
-    INSERT INTO customer_ledger (
-      customer_id, transaction_date, transaction_type, reference_id, debit, credit,
-      advance_balance_after, pending_balance_after, description, created_at
-    ) VALUES (?, ?, 'BILL_GENERATED', ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-  `).run(
-    customer.id,
-    billDate,
-    `BILL-${billId}`,
+  // Record or update in Customer Ledger (idempotent - no duplicate entries)
+  await upsertBillLedgerEntry({
+    customerId: customer.id,
+    billId,
+    transactionDate: billDate,
     grossAmount,
     advanceToAdjust,
-    newAdvance,
-    newPending,
-    `${existing && forceRegenerate ? 'Recalculated' : 'Monthly'} Advance Bill for ${billingMonth} (Gross: ₹${grossAmount}, Advance Used: ₹${advanceToAdjust}, Payable: ₹${netPayable})`
-  );
+    advanceBalanceAfter: newAdvance,
+    pendingBalanceAfter: newPending,
+    description: `${existing && forceRegenerate ? 'Recalculated' : 'Monthly'} Advance Bill for ${billingMonth} (Gross: ₹${grossAmount}, Advance Used: ₹${advanceToAdjust}, Payable: ₹${netPayable})`
+  });
 
   return await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
 }
@@ -325,8 +397,20 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
 
   // If regenerating existing bill, restore previous balances before reapplying
   if (existing && forceRegenerate) {
-    currentAdvance = parseFloat((currentAdvance + (existing.advance_adjusted || 0)).toFixed(2));
-    currentPending = Math.max(0, parseFloat((currentPending - (existing.net_payable || 0)).toFixed(2)));
+    const prevAdvanceAdjusted = Number(existing.advance_adjusted || 0);
+    let prevCashPaid = Number(existing.paid_amount || 0);
+    if (existing.status === 'ADVANCE_PAID' || Number(existing.net_payable || 0) === 0) {
+      prevCashPaid = 0;
+    }
+
+    const prevNetPayable = Number(existing.net_payable || 0);
+    const prevUnpaidPending = Math.max(0, prevNetPayable - prevCashPaid);
+
+    // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
+    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
+
+    // Restore pending balance: subtract only the portion that was unpaid and sitting in pending_balance
+    currentPending = Math.max(0, parseFloat((currentPending - prevUnpaidPending).toFixed(2)));
   }
 
   let advanceToAdjust = 0;
@@ -337,12 +421,12 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
   }
 
   const netPayable = parseFloat((grossAmount - advanceToAdjust).toFixed(2));
-  const paidAmount = advanceToAdjust;
+  const paidAmount = 0;
 
   let billStatus = 'GENERATED';
   if (netPayable === 0) {
     billStatus = advanceToAdjust > 0 ? 'ADVANCE_PAID' : 'PAID';
-  } else if (paidAmount > 0) {
+  } else if (advanceToAdjust > 0) {
     billStatus = 'PARTIALLY_PAID';
   } else {
     billStatus = 'PENDING';
@@ -376,18 +460,19 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
         bill_number, customer_id, billing_month, billing_type, bill_date, due_date,
         total_deliveries_count, product_subtotal, delivery_charges_total, gross_amount,
         previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
-        items_json, notes, created_at, updated_at
+        items_json, notes, agent_id, created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, 'FINALIZED',
-        ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+        ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
       )
     `).run(
       billNumber, customer.id, billingMonth, billingType, billDate, dueDate,
       deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(groupedItems), `Delivered Milk Bill for ${deliveries.length} items (Deducted from Advance: ₹${advanceToAdjust})`
+      JSON.stringify(groupedItems), `Delivered Milk Bill for ${deliveries.length} items (Deducted from Advance: ₹${advanceToAdjust})`,
+      customer.agent_id || 1
     );
     billId = info.lastInsertRowid;
   }
@@ -402,22 +487,17 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
     WHERE id = ?
   `).run(newAdvance, newPending, customer.id);
 
-  // Record in Customer Ledger
-  await db.prepare(`
-    INSERT INTO customer_ledger (
-      customer_id, transaction_date, transaction_type, reference_id, debit, credit,
-      advance_balance_after, pending_balance_after, description, created_at
-    ) VALUES (?, ?, 'BILL_GENERATED', ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-  `).run(
-    customer.id,
-    billDate,
-    `BILL-${billId}`,
+  // Record or update in Customer Ledger (idempotent - no duplicate entries)
+  await upsertBillLedgerEntry({
+    customerId: customer.id,
+    billId,
+    transactionDate: billDate,
     grossAmount,
     advanceToAdjust,
-    newAdvance,
-    newPending,
-    `Delivered Milk Bill for ${billingMonth} (${deliveries.length} deliveries, Gross: ₹${grossAmount}, Advance Deducted: ₹${advanceToAdjust}, Remaining Advance: ₹${newAdvance}, Payable: ₹${netPayable})`
-  );
+    advanceBalanceAfter: newAdvance,
+    pendingBalanceAfter: newPending,
+    description: `Delivered Milk Bill for ${billingMonth} (${deliveries.length} deliveries, Gross: ₹${grossAmount}, Advance Deducted: ₹${advanceToAdjust}, Remaining Advance: ₹${newAdvance}, Payable: ₹${netPayable})`
+  });
 
   return await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
 }
@@ -465,9 +545,16 @@ async function generateBillForCustomer(customer, billingMonth, { billingBasis = 
 async function runMonthlyBillGeneration(targetMonth, options = {}) {
   const forceRegenerate = typeof options === 'boolean' ? options : Boolean(options.forceRegenerate);
   const billingBasis = typeof options === 'object' && options.billingBasis ? options.billingBasis : 'AUTO';
+  const agentId = typeof options === 'object' && options.agentId ? options.agentId : null;
   const currentMonthStr = targetMonth || new Date().toISOString().slice(0, 7); // YYYY-MM
   
-  const customers = await db.prepare(`SELECT * FROM customers WHERE status = 'ACTIVE'`).all();
+  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE'`;
+  const custParams = [];
+  if (agentId) {
+    custQuery += ` AND agent_id = ?`;
+    custParams.push(agentId);
+  }
+  const customers = await db.prepare(custQuery).all(...custParams);
   const results = {
     billingMonth: currentMonthStr,
     prepaidBillsGenerated: 0,
@@ -541,13 +628,13 @@ async function recordPaymentTransaction({
   const insertPayment = db.prepare(`
     INSERT INTO payments (
       receipt_number, customer_id, bill_id, payment_type, amount, payment_date,
-      payment_method, reference_number, notes, created_at, recorded_by_user_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), ?)
+      payment_method, reference_number, notes, agent_id, created_at, recorded_by_user_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), ?)
   `);
 
   const pResult = await insertPayment.run(
     receiptNumber, customerId, billId, paymentType, numAmount, paymentDate,
-    paymentMethod, referenceNumber, notes, recordedByUserId
+    paymentMethod, referenceNumber, notes, customer.agent_id || 1, recordedByUserId
   );
   const paymentId = pResult.lastInsertRowid;
 
@@ -637,16 +724,20 @@ async function recordPaymentTransaction({
  * Does not write to DB - used for interactive calculation and preview before generating bills.
  * Keeps calculation rules 100% identical.
  */
-async function calculateAdvanceProjectionForMonth(billingMonth) {
+async function calculateAdvanceProjectionForMonth(billingMonth, agentId = null) {
   const daysInMonth = getDaysInMonth(billingMonth);
   const monthStart = `${billingMonth}-01`;
   const monthEnd = `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
 
-  const customers = await db.prepare(`
-    SELECT * FROM customers 
-    WHERE status = 'ACTIVE'
-    ORDER BY name ASC
-  `).all();
+  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE'`;
+  const custParams = [];
+  if (agentId) {
+    custQuery += ` AND agent_id = ?`;
+    custParams.push(agentId);
+  }
+  custQuery += ` ORDER BY name ASC`;
+
+  const customers = await db.prepare(custQuery).all(...custParams);
 
   const projections = [];
   let totalProjectedGross = 0;

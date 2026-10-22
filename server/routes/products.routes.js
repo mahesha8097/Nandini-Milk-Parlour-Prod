@@ -74,12 +74,16 @@ router.post('/upload-image', requireAdmin, handleUpload(upload.single('image')),
 router.get('/', verifyToken, async (req, res) => {
   try {
     const { includeInactive } = req.query;
-    let query = 'SELECT * FROM products';
+    const agentId = req.agentId || 1;
+    let query = 'SELECT * FROM products WHERE agent_id = ?';
     if (includeInactive !== 'true') {
-      query += ' WHERE is_active = 1';
+      query += ' AND is_active = 1';
     }
     query += ' ORDER BY category ASC, name ASC, variant_label ASC';
-    const products = await db.prepare(query).all();
+    let products = await db.prepare(query).all(agentId);
+    if ((!products || products.length === 0) && agentId !== 1) {
+      products = await db.prepare(query).all(1);
+    }
     res.json(products);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch products' });
@@ -127,13 +131,14 @@ router.post('/', requireAdmin, async (req, res) => {
     const chargeType = delivery_charge_type || (category === 'Milk' ? 'MILK_RULE' : 'NONE');
     const fixedCharge = parseFloat(fixed_delivery_charge || 0);
     const active = is_active === undefined ? 1 : (is_active ? 1 : 0);
+    const agentId = req.agentId || 1;
 
     const stmt = db.prepare(`
       INSERT INTO products (
         name, category, variant_label, unit_volume_litres, selling_price,
         delivery_charge_type, fixed_delivery_charge, is_active, image_url,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        agent_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
     `);
 
     const result = await stmt.run(
@@ -145,7 +150,8 @@ router.post('/', requireAdmin, async (req, res) => {
       chargeType,
       fixedCharge,
       active,
-      image_url || null
+      image_url || null,
+      agentId
     );
 
     const newProductId = result.lastInsertRowid;

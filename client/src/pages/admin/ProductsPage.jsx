@@ -316,119 +316,227 @@ export default function ProductsPage({ initialOpenAdd = false }) {
           }
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Category</th>
-                <th>Variant / Vol</th>
-                <th>Selling Price</th>
-                <th>Delivery Charge Rule</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {p.image_url ? (
-                        <div style={{
-                          width: '40px',
-                          height: '40px',
-                          borderRadius: '6px',
-                          background: '#f1f5f9',
-                          border: '1px solid #cbd5e1',
-                          overflow: 'hidden',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0
-                        }}>
-                          <img
-                            src={p.image_url}
-                            alt={p.name}
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          />
-                        </div>
-                      ) : (
-                        <div style={{
-                          width: '40px',
-                          height: '40px',
-                          borderRadius: '6px',
-                          background: '#e8f1fb',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          color: 'var(--primary)'
-                        }}>
-                          <ShoppingBag size={18} />
-                        </div>
-                      )}
-                      <div>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{p.name}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="badge badge-indigo">{p.category}</span>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '600' }}>{p.variant_label}</span>
-                    {p.unit_volume_litres > 0 && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '6px' }}>
-                        ({p.unit_volume_litres} L)
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '800', fontSize: '1rem', color: 'var(--primary)' }}>
-                      ₹{p.selling_price?.toFixed(2)}
-                    </span>
-                  </td>
-                  <td>
-                    {p.delivery_charge_type === 'MILK_RULE' ? (
-                      <span className="badge badge-info">Milk Volume Rule (₹2 / ₹3 per L)</span>
-                    ) : p.delivery_charge_type === 'FIXED_PER_UNIT' ? (
-                      <span className="badge badge-warning">Fixed ₹{p.fixed_delivery_charge} / unit</span>
-                    ) : (
-                      <span className="badge badge-gray">No Delivery Charge</span>
-                    )}
-                  </td>
-                  <td>
-                    <span className={`badge ${p.is_active ? 'badge-success' : 'badge-danger'}`}>
-                      {p.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        onClick={() => handleOpenEdit(p)}
-                        className="btn btn-outline btn-sm"
-                        style={{ padding: '6px 10px' }}
-                        title="Edit Product"
-                      >
-                        <Edit2 size={15} />
-                      </button>
-                      <button
-                        onClick={() => handleToggleStatus(p.id)}
-                        className="btn btn-outline btn-sm"
-                        style={{ padding: '6px 10px', color: p.is_active ? 'var(--accent-red)' : '#16a34a' }}
-                        title={p.is_active ? 'Deactivate' : 'Activate'}
-                      >
-                        {p.is_active ? <XCircle size={15} /> : <CheckCircle2 size={15} />}
-                      </button>
-                    </div>
-                  </td>
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Variant / Vol</th>
+                  <th>Selling Price</th>
+                  <th>Delivery Charge Rule</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {products.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {p.image_url ? (
+                          <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '6px',
+                            background: '#f1f5f9',
+                            border: '1px solid #cbd5e1',
+                            overflow: 'hidden',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}>
+                            <img
+                              src={p.image_url}
+                              alt={p.name}
+                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          </div>
+                        ) : (
+                          <div style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '6px',
+                            background: '#e8f1fb',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            color: 'var(--primary)'
+                          }}>
+                            <ShoppingBag size={18} />
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{p.name}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="badge badge-indigo">{p.category}</span>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '600' }}>{p.variant_label}</span>
+                      {p.unit_volume_litres > 0 && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                          ({p.unit_volume_litres} L)
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '800', fontSize: '1rem', color: 'var(--primary)' }}>
+                        ₹{p.selling_price?.toFixed(2)}
+                      </span>
+                    </td>
+                    <td>
+                      {p.delivery_charge_type === 'MILK_RULE' ? (
+                        <span className="badge badge-info">Milk Volume Rule (₹2 / ₹3 per L)</span>
+                      ) : p.delivery_charge_type === 'FIXED_PER_UNIT' ? (
+                        <span className="badge badge-warning">Fixed ₹{p.fixed_delivery_charge} / unit</span>
+                      ) : (
+                        <span className="badge badge-gray">No Delivery Charge</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`badge ${p.is_active ? 'badge-success' : 'badge-danger'}`}>
+                        {p.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => handleOpenEdit(p)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px' }}
+                          title="Edit Product"
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleToggleStatus(p.id)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px', color: p.is_active ? 'var(--accent-red)' : '#16a34a' }}
+                          title={p.is_active ? 'Deactivate' : 'Activate'}
+                        >
+                          {p.is_active ? <XCircle size={15} /> : <CheckCircle2 size={15} />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Product Cards */}
+          <div className="mobile-only mobile-card-list">
+            {products.map((p) => (
+              <div key={p.id} className="mobile-data-card" onClick={() => handleOpenEdit(p)} style={{ cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {p.image_url ? (
+                    <div style={{
+                      width: '52px',
+                      height: '52px',
+                      borderRadius: '10px',
+                      background: '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      overflow: 'hidden',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <img
+                        src={p.image_url}
+                        alt={p.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{
+                      width: '52px',
+                      height: '52px',
+                      borderRadius: '10px',
+                      background: '#e8f1fb',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      color: 'var(--primary)'
+                    }}>
+                      <ShoppingBag size={22} />
+                    </div>
+                  )}
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                      <h3 className="mobile-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.name}
+                      </h3>
+                      <span className={`badge ${p.is_active ? 'badge-success' : 'badge-danger'}`} style={{ flexShrink: 0 }}>
+                        {p.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                      <span className="badge badge-indigo" style={{ fontSize: '0.72rem' }}>{p.category}</span>
+                      <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                        {p.variant_label} {p.unit_volume_litres > 0 && `(${p.unit_volume_litres} L)`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', marginTop: '4px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Current Price</div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: '800', color: 'var(--primary-dark)' }}>
+                      ₹{p.selling_price?.toFixed(2)}
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Delivery Policy</div>
+                    <div style={{ marginTop: '2px' }}>
+                      {p.delivery_charge_type === 'MILK_RULE' ? (
+                        <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>Milk Rule</span>
+                      ) : p.delivery_charge_type === 'FIXED_PER_UNIT' ? (
+                        <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>Fixed ₹{p.fixed_delivery_charge}</span>
+                      ) : (
+                        <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>No Charge</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mobile-card-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(p)}
+                    className="btn btn-outline btn-sm"
+                    style={{ flex: 1, minHeight: '38px', fontSize: '0.82rem', fontWeight: '700' }}
+                  >
+                    <Edit2 size={14} /> Edit Product
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleStatus(p.id)}
+                    className="btn btn-outline btn-sm"
+                    style={{ minHeight: '38px', padding: '6px 14px', color: p.is_active ? 'var(--accent-red)' : '#16a34a', borderColor: p.is_active ? '#fca5a5' : '#86efac' }}
+                  >
+                    {p.is_active ? 'Deactivate' : 'Activate'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Add / Edit Product Modal */}

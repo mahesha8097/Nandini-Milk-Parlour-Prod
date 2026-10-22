@@ -156,65 +156,128 @@ export default function DeliveryBoysPage({ initialOpenAdd = false }) {
           }
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Agent Name</th>
-                <th>Username</th>
-                <th>Phone</th>
-                <th>Assigned Route</th>
-                <th>Assigned Customers</th>
-                <th>Delivered Records</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deliveryBoys.map((dboy) => (
-                <tr key={dboy.id}>
-                  <td>
-                    <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{dboy.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{dboy.email || 'No email provided'}</div>
-                  </td>
-                  <td>
-                    <span style={{ fontFamily: 'monospace', fontWeight: '700', color: 'var(--primary)' }}>
-                      {dboy.username}
-                    </span>
-                  </td>
-                  <td>{dboy.phone || 'N/A'}</td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Route size={14} color="var(--text-muted)" />
-                      <span style={{ fontWeight: '600' }}>{dboy.assigned_route || 'All Routes'}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="badge badge-info">{dboy.assigned_customers_count || 0} Customers</span>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '700' }}>{dboy.total_deliveries_count || 0}</span>
-                  </td>
-                  <td>
-                    <span className={`badge ${dboy.is_active ? 'badge-success' : 'badge-danger'}`}>
-                      {dboy.is_active ? 'Active' : 'Deactivated'}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      onClick={() => handleOpenEdit(dboy)}
-                      className="btn btn-outline btn-sm"
-                      style={{ padding: '6px 10px' }}
-                      title="Edit Agent & Credentials"
-                    >
-                      <Edit2 size={15} />
-                    </button>
-                  </td>
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Agent Name</th>
+                  <th>Username</th>
+                  <th>Phone</th>
+                  <th>Assigned Route</th>
+                  <th>Assigned Customers</th>
+                  <th>Delivered Records</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {deliveryBoys.map((dboy) => (
+                  <tr key={dboy.id}>
+                    <td>
+                      <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{dboy.name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{dboy.email || 'No email provided'}</div>
+                    </td>
+                    <td>
+                      <span style={{ fontFamily: 'monospace', fontWeight: '700', color: 'var(--primary)' }}>
+                        {dboy.username}
+                      </span>
+                    </td>
+                    <td>{dboy.phone || 'N/A'}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Route size={14} color="var(--text-muted)" />
+                        <span style={{ fontWeight: '600' }}>{dboy.assigned_route || 'All Routes'}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className="badge badge-info">{dboy.assigned_customers_count || 0} Customers</span>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '700' }}>{dboy.total_deliveries_count || 0}</span>
+                    </td>
+                    <td>
+                      <span className={`badge ${dboy.is_active ? 'badge-success' : 'badge-danger'}`}>
+                        {dboy.is_active ? 'Active' : 'Deactivated'}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => handleOpenEdit(dboy)}
+                        className="btn btn-outline btn-sm"
+                        style={{ padding: '6px 10px' }}
+                        title="Edit Agent & Credentials"
+                      >
+                        <Edit2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Delivery Boy Cards */}
+          <div className="mobile-only mobile-card-list">
+            {deliveryBoys.map((dboy) => (
+              <div key={dboy.id} className="mobile-data-card">
+                <div className="mobile-card-header">
+                  <div>
+                    <h3 className="mobile-card-title">{dboy.name}</h3>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: '700', fontFamily: 'monospace', marginTop: '2px' }}>
+                      @{dboy.username}
+                    </div>
+                  </div>
+                  <span className={`badge ${dboy.is_active ? 'badge-success' : 'badge-danger'}`}>
+                    {dboy.is_active ? 'Active' : 'Deactivated'}
+                  </span>
+                </div>
+
+                <div className="mobile-card-row">
+                  <span className="mobile-card-row-label">Phone</span>
+                  {dboy.phone ? (
+                    <a
+                      href={`tel:${dboy.phone}`}
+                      style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Phone size={13} /> {dboy.phone}
+                    </a>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>N/A</span>
+                  )}
+                </div>
+
+                <div className="mobile-card-row">
+                  <span className="mobile-card-row-label">Assigned Route</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                    <Route size={14} color="var(--primary)" />
+                    <span>{dboy.assigned_route || 'All Routes'}</span>
+                  </div>
+                </div>
+
+                <div className="mobile-card-row">
+                  <span className="mobile-card-row-label">Customers / Records</span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <span className="badge badge-info">{dboy.assigned_customers_count || 0} Customers</span>
+                    <span className="badge badge-gray">{dboy.total_deliveries_count || 0} Delivered</span>
+                  </div>
+                </div>
+
+                <div className="mobile-card-actions">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(dboy)}
+                    className="btn btn-outline btn-sm"
+                    style={{ flex: 1, minHeight: '38px', fontSize: '0.82rem', fontWeight: '700' }}
+                  >
+                    <Edit2 size={14} /> Edit Agent & Credentials
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Add / Edit Modal */}

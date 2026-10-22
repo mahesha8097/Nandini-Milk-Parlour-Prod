@@ -78,6 +78,10 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     setIsModalOpen(true);
   };
 
+  const handleRefresh = async () => {
+    await Promise.all([fetchPayments(), fetchCustomers()]);
+  };
+
   const handleSavePayment = async (e) => {
     e.preventDefault();
     if (!formData.customer_id || !formData.amount || !formData.payment_date) {
@@ -96,7 +100,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
       setFormError('');
       await api.post('/payments', formData);
       setIsModalOpen(false);
-      fetchPayments();
+      await Promise.all([fetchPayments(), fetchCustomers()]);
     } catch (err) {
       setFormError(err.message || 'Failed to record payment.');
     } finally {
@@ -115,7 +119,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
           <p className="page-subtitle">Record Advance and Postpaid bill collections with ledger updates</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={fetchPayments} className="btn btn-outline btn-sm">
+          <button onClick={handleRefresh} className="btn btn-outline btn-sm">
             <RefreshCw size={16} /> Refresh
           </button>
           <button onClick={handleOpenAdd} className="btn btn-primary btn-sm">
@@ -140,60 +144,115 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
           }
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Receipt #</th>
-                <th>Date</th>
-                <th>Customer</th>
-                <th>Category</th>
-                <th>Payment Type</th>
-                <th>Method & Ref</th>
-                <th>Amount</th>
-                <th>Recorded By</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <span style={{ fontWeight: '700', color: 'var(--primary)' }}>{p.receipt_number}</span>
-                  </td>
-                  <td>{p.payment_date}</td>
-                  <td>
-                    <div style={{ fontWeight: '700' }}>{p.customer_name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.customer_phone}</div>
-                  </td>
-                  <td>
-                    <span className={`badge ${p.customer_category === 'HOUSE' ? 'badge-info' : 'badge-indigo'}`}>
-                      {p.customer_category === 'HOUSE' ? 'House' : 'Bulk'}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`badge ${p.payment_type === 'ADVANCE_PAYMENT' ? 'badge-success' : 'badge-gray'}`}>
-                      {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Postpaid Settle'}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: '600' }}>{p.payment_method}</div>
-                    {p.reference_number && (
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ref: {p.reference_number}</div>
-                    )}
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '800', fontSize: '1rem', color: '#16a34a' }}>
-                      ₹{p.amount?.toFixed(2)}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>{p.recorded_by_name || 'Admin'}</span>
-                  </td>
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Receipt #</th>
+                  <th>Date</th>
+                  <th>Customer</th>
+                  <th>Category</th>
+                  <th>Payment Type</th>
+                  <th>Method & Ref</th>
+                  <th>Amount</th>
+                  <th>Recorded By</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <span style={{ fontWeight: '700', color: 'var(--primary)' }}>{p.receipt_number}</span>
+                    </td>
+                    <td>{p.payment_date}</td>
+                    <td>
+                      <div style={{ fontWeight: '700' }}>{p.customer_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.customer_phone}</div>
+                    </td>
+                    <td>
+                      <span className={`badge ${p.customer_category === 'HOUSE' ? 'badge-info' : 'badge-indigo'}`}>
+                        {p.customer_category === 'HOUSE' ? 'House' : 'Bulk'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`badge ${p.payment_type === 'ADVANCE_PAYMENT' ? 'badge-success' : 'badge-gray'}`}>
+                        {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Postpaid Settle'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: '600' }}>{p.payment_method}</div>
+                      {p.reference_number && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ref: {p.reference_number}</div>
+                      )}
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '800', fontSize: '1rem', color: '#16a34a' }}>
+                        ₹{p.amount?.toFixed(2)}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>{p.recorded_by_name || 'Admin'}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Payment Cards */}
+          <div className="mobile-only mobile-card-list">
+            {payments.map((p) => (
+              <div key={p.id} className="mobile-data-card">
+                <div className="mobile-card-header">
+                  <div>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'monospace' }}>
+                      {p.receipt_number}
+                    </span>
+                    <h3 className="mobile-card-title" style={{ marginTop: '2px' }}>{p.customer_name}</h3>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Date: {p.payment_date}</div>
+                  </div>
+                  <span className={`badge ${p.customer_category === 'HOUSE' ? 'badge-info' : 'badge-indigo'}`}>
+                    {p.customer_category === 'HOUSE' ? 'House' : 'Bulk'}
+                  </span>
+                </div>
+
+                <div className="mobile-card-row">
+                  <span className="mobile-card-row-label">Payment Type</span>
+                  <span className={`badge ${p.payment_type === 'ADVANCE_PAYMENT' ? 'badge-success' : 'badge-gray'}`}>
+                    {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Postpaid Settle'}
+                  </span>
+                </div>
+
+                <div className="mobile-card-row">
+                  <span className="mobile-card-row-label">Method & Reference</span>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{p.payment_method}</span>
+                    {p.reference_number && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Ref: {p.reference_number}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0', marginTop: '2px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.68rem', color: '#166534', fontWeight: '700', textTransform: 'uppercase' }}>Amount Received</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#15803d' }}>
+                      ₹{p.amount?.toFixed(2)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Recorded By</div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                      {p.recorded_by_name || 'Admin'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Record Payment Modal */}

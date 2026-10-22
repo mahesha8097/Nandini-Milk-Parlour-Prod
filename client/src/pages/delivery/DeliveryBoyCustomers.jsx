@@ -1,20 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import EmptyState from '../../components/common/EmptyState';
-import { Users, Phone, MapPin, Search, RefreshCw, Calendar } from 'lucide-react';
+import Modal from '../../components/common/Modal';
+import CustomerSubscriptionsManager from '../../components/subscription/CustomerSubscriptionsManager';
+import { Users, Phone, MapPin, Search, RefreshCw, Calendar, Edit3 } from 'lucide-react';
 
 export default function DeliveryBoyCustomers() {
   const [customers, setCustomers] = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [selectedCustomerForSub, setSelectedCustomerForSub] = useState(null);
 
   const fetchCustomers = async () => {
     try {
       setLoading(true);
       setError('');
-      const res = await api.get('/customers');
-      setCustomers(res);
+      const [cRes, pRes] = await Promise.all([
+        api.get('/customers'),
+        api.get('/products').catch(() => [])
+      ]);
+      setCustomers(cRes || []);
+      setProducts(pRes || []);
     } catch (err) {
       setError(err.message || 'Unable to load assigned customers.');
     } finally {
@@ -98,23 +106,67 @@ export default function DeliveryBoyCustomers() {
               </div>
 
               {/* Subscriptions badge summary */}
-              {c.subscriptions && c.subscriptions.length > 0 ? (
-                <div style={{ background: '#f8fafc', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-                  <div style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '4px' }}>DAILY SUBSCRIPTIONS:</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {c.subscriptions.map((s) => (
-                      <span key={s.id} className="badge badge-info">
-                        {s.product_name} ({s.variant_label}) × {s.quantity}
-                      </span>
-                    ))}
+              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '0.7rem', fontWeight: '800', color: '#64748b', marginBottom: '4px', textTransform: 'uppercase' }}>
+                    Daily Subscriptions:
                   </div>
+                  {c.subscriptions && c.subscriptions.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {c.subscriptions.map((s) => (
+                        <span key={s.id} className="badge badge-info" style={{ fontSize: '0.74rem' }}>
+                          {s.product_name} ({s.variant_label}) × {s.quantity}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>No active recurring subscription</div>
+                  )}
                 </div>
-              ) : (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No active recurring subscription</div>
-              )}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomerForSub(c)}
+                  className="btn btn-outline btn-sm"
+                  style={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    borderColor: '#16a34a',
+                    color: '#15803d',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '4px 10px'
+                  }}
+                >
+                  <Edit3 size={13} /> Manage Subscriptions
+                </button>
+              </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Subscription Management Modal for Delivery Boy */}
+      {selectedCustomerForSub && (
+        <Modal
+          isOpen={Boolean(selectedCustomerForSub)}
+          onClose={() => setSelectedCustomerForSub(null)}
+          title={`Daily Products — ${selectedCustomerForSub.name}`}
+          maxWidth="560px"
+        >
+          <CustomerSubscriptionsManager
+            customerId={selectedCustomerForSub.id}
+            customerName={selectedCustomerForSub.name}
+            subscriptions={selectedCustomerForSub.subscriptions || []}
+            products={products}
+            onRefresh={async () => {
+              await fetchCustomers();
+              const refreshed = customers.find(c => c.id === selectedCustomerForSub.id);
+              if (refreshed) setSelectedCustomerForSub(refreshed);
+            }}
+          />
+        </Modal>
       )}
     </div>
   );

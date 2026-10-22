@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
@@ -25,7 +25,13 @@ import {
   Plus,
   Minus,
   Building2,
-  Package
+  Package,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Home,
+  Layers
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
@@ -43,6 +49,7 @@ export default function DailyRequirementsPage() {
     extraQuantity: 0
   });
   const [deliveryBoys, setDeliveryBoys] = useState([]);
+  const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saveStatus, setSaveStatus] = useState({}); // { [rowKey]: { saving: boolean, success: string, error: string } }
@@ -55,6 +62,8 @@ export default function DailyRequirementsPage() {
   const [selectedDeliveryBoy, setSelectedDeliveryBoy] = useState('');
   const [selectedRoute, setSelectedRoute] = useState('');
   const [selectedReqFilter, setSelectedReqFilter] = useState('ALL'); // 'ALL' | 'SPECIAL' | 'NORMAL' | 'SKIP_DELIVERY' | 'CHANGE_QUANTITY' | 'ADD_EXTRA_QUANTITY'
+  const [selectedZoneFilter, setSelectedZoneFilter] = useState('ALL'); // 'ALL' | zoneId | 'BULK' | 'UNASSIGNED'
+  const [collapsedZones, setCollapsedZones] = useState({}); // { [zoneKey]: boolean }
 
   // Bulk Order Modal State
   const [allCustomers, setAllCustomers] = useState([]);
@@ -70,18 +79,19 @@ export default function DailyRequirementsPage() {
   const [bulkError, setBulkError] = useState('');
   const [bulkSuccess, setBulkSuccess] = useState('');
 
-  // Load initial data (Delivery boys, products, customers, and requirements)
+  // Load initial data (Delivery boys, products, customers, zones, and requirements)
   const fetchData = async () => {
     try {
       setLoading(true);
       setError('');
 
-      const [reqRes, sumRes, dboyRes, prodRes, custRes] = await Promise.all([
+      const [reqRes, sumRes, dboyRes, prodRes, custRes, zoneRes] = await Promise.all([
         api.get(`/daily-requirements?date=${selectedDate}`),
         api.get(`/daily-requirements/summary?date=${selectedDate}`),
-        api.get('/delivery-boys'),
-        api.get('/products'),
-        api.get('/customers')
+        api.get('/delivery-boys').catch(() => []),
+        api.get('/products').catch(() => []),
+        api.get('/customers').catch(() => []),
+        api.get('/zones').catch(() => [])
       ]);
 
       setItems(reqRes || []);
@@ -89,6 +99,7 @@ export default function DailyRequirementsPage() {
       setDeliveryBoys(dboyRes || []);
       setProducts(prodRes || []);
       setAllCustomers(custRes || []);
+      setZones(zoneRes || []);
 
       // Initialize local drafts from existing saved values
       const initialDrafts = {};
@@ -364,33 +375,186 @@ export default function DailyRequirementsPage() {
   // Unique routes from items
   const availableRoutes = Array.from(new Set(items.map((it) => it.customer_route).filter(Boolean)));
 
-  // Filter items based on user search & filter selections
-  const filteredItems = items.filter((it) => {
-    const key = `${it.customer_id}_${it.product_id}`;
-    const draft = drafts[key] || {};
-    const effectiveType = draft.requirement_type || it.requirement_type || 'NORMAL';
+  // Accordion collapse helpers
+  const toggleZoneCollapse = (zoneKey) => {
+    setCollapsedZones((prev) => ({ ...prev, [zoneKey]: !prev[zoneKey] }));
+  };
 
-    const matchesSearch =
-      it.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-      it.customer_phone?.includes(search) ||
-      it.customer_address?.toLowerCase().includes(search.toLowerCase()) ||
-      it.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-      it.target_product_name?.toLowerCase().includes(search.toLowerCase());
+  const expandAllZones = () => setCollapsedZones({});
+  
+  const collapseAllZones = () => {
+    const allKeys = {};
+    zoneGroups.forEach((g) => { allKeys[g.key] = true; });
+    setCollapsedZones(allKeys);
+  };
 
-    const matchesDboy = !selectedDeliveryBoy || String(it.delivery_boy_id) === String(selectedDeliveryBoy);
-    const matchesRoute = !selectedRoute || it.customer_route === selectedRoute;
+  // Group items by Apartment / Villa Zone
+  const zoneGroups = useMemo(() => {
+    const map = new Map();
 
-    let matchesType = true;
-    if (selectedReqFilter === 'SPECIAL') {
-      matchesType = effectiveType !== 'NORMAL';
-    } else if (selectedReqFilter === 'NORMAL') {
-      matchesType = effectiveType === 'NORMAL';
-    } else if (selectedReqFilter !== 'ALL') {
-      matchesType = effectiveType === selectedReqFilter;
+    // 1. Initialize known database zones
+    for (const z of zones) {
+      map.set(`zone_${z.id}`, {
+        key: `zone_${z.id}`,
+        id: z.id,
+        name: z.name,
+        address: z.address || 'Bangalore',
+        route_order: z.route_order || 0,
+        type: 'ZONE',
+        items: []
+      });
     }
 
-    return matchesSearch && matchesDboy && matchesRoute && matchesType;
-  });
+    // Special groups
+    const unassignedGroup = {
+      key: 'unassigned',
+      id: null,
+      name: 'Independent Houses / Unassigned',
+      address: 'General Route Area',
+      route_order: 999,
+      type: 'UNASSIGNED',
+      items: []
+    };
+
+    const bulkGroup = {
+      key: 'bulk',
+      id: 'bulk',
+      name: 'Bulk & Commercial Daily Accounts',
+      address: 'Hotels, Restaurants & Commercial Accounts',
+      route_order: 1000,
+      type: 'BULK',
+      items: []
+    };
+
+    // 2. Filter items and place into appropriate zone group
+    for (const it of items) {
+      const key = `${it.customer_id}_${it.product_id}`;
+      const draft = drafts[key] || {};
+      const effectiveType = draft.requirement_type || it.requirement_type || 'NORMAL';
+
+      const matchesSearch =
+        it.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
+        it.customer_phone?.includes(search) ||
+        it.customer_address?.toLowerCase().includes(search.toLowerCase()) ||
+        it.flat_no?.toLowerCase().includes(search.toLowerCase()) ||
+        it.zone_name?.toLowerCase().includes(search.toLowerCase()) ||
+        it.product_name?.toLowerCase().includes(search.toLowerCase()) ||
+        it.target_product_name?.toLowerCase().includes(search.toLowerCase());
+
+      const matchesDboy = !selectedDeliveryBoy || String(it.delivery_boy_id) === String(selectedDeliveryBoy);
+      const matchesRoute = !selectedRoute || it.customer_route === selectedRoute;
+
+      let matchesType = true;
+      if (selectedReqFilter === 'SPECIAL') {
+        matchesType = effectiveType !== 'NORMAL';
+      } else if (selectedReqFilter === 'NORMAL') {
+        matchesType = effectiveType === 'NORMAL';
+      } else if (selectedReqFilter !== 'ALL') {
+        matchesType = effectiveType === selectedReqFilter;
+      }
+
+      if (!matchesSearch || !matchesDboy || !matchesRoute || !matchesType) {
+        continue;
+      }
+
+      // Filter by selectedZoneFilter
+      if (selectedZoneFilter !== 'ALL') {
+        if (selectedZoneFilter === 'BULK') {
+          if (it.customer_category !== 'BULK_HOTEL') continue;
+        } else if (selectedZoneFilter === 'UNASSIGNED') {
+          if (it.customer_category === 'BULK_HOTEL' || it.zone_id) continue;
+        } else {
+          if (String(it.zone_id) !== String(selectedZoneFilter)) continue;
+        }
+      }
+
+      // Distribute item into zone group
+      if (it.customer_category === 'BULK_HOTEL') {
+        bulkGroup.items.push(it);
+      } else if (it.zone_id && map.has(`zone_${it.zone_id}`)) {
+        map.get(`zone_${it.zone_id}`).items.push(it);
+      } else if (it.zone_name) {
+        let found = false;
+        for (const [k, zObj] of map.entries()) {
+          if (zObj.name.toLowerCase() === it.zone_name.toLowerCase()) {
+            zObj.items.push(it);
+            found = true;
+            break;
+          }
+        }
+        if (!found) unassignedGroup.items.push(it);
+      } else {
+        unassignedGroup.items.push(it);
+      }
+    }
+
+    const allGroups = Array.from(map.values());
+    if (unassignedGroup.items.length > 0 || selectedZoneFilter === 'UNASSIGNED') {
+      allGroups.push(unassignedGroup);
+    }
+    if (bulkGroup.items.length > 0 || selectedZoneFilter === 'BULK') {
+      allGroups.push(bulkGroup);
+    }
+
+    // Sort zones by route_order
+    allGroups.sort((a, b) => (a.route_order || 0) - (b.route_order || 0));
+
+    return allGroups.map((g) => {
+      const custSet = new Set(g.items.map((it) => it.customer_id));
+      let specialCount = 0;
+      let skipCount = 0;
+      let qtyChangeCount = 0;
+      let extraCount = 0;
+
+      for (const it of g.items) {
+        const k = `${it.customer_id}_${it.product_id}`;
+        const dr = drafts[k] || {};
+        const eff = dr.requirement_type || it.requirement_type || 'NORMAL';
+        if (eff !== 'NORMAL') specialCount++;
+        if (eff === 'SKIP_DELIVERY') skipCount++;
+        if (eff === 'CHANGE_QUANTITY') qtyChangeCount++;
+        if (eff === 'ADD_EXTRA_QUANTITY') extraCount++;
+      }
+
+      // Sort items within zone by flat number / serial number
+      const sortedItems = [...g.items].sort((a, b) => {
+        if (a.customer_serial_no && b.customer_serial_no && a.customer_serial_no !== b.customer_serial_no) {
+          return a.customer_serial_no - b.customer_serial_no;
+        }
+        if (a.flat_no && b.flat_no) {
+          return a.flat_no.localeCompare(b.flat_no, undefined, { numeric: true });
+        }
+        return (a.customer_name || '').localeCompare(b.customer_name || '');
+      });
+
+      return {
+        ...g,
+        items: sortedItems,
+        totalCustomers: custSet.size,
+        totalItems: sortedItems.length,
+        specialCount,
+        skipCount,
+        qtyChangeCount,
+        extraCount
+      };
+    });
+  }, [zones, items, drafts, search, selectedDeliveryBoy, selectedRoute, selectedReqFilter, selectedZoneFilter]);
+
+  // Visible groups with items, or the explicitly selected zone
+  const visibleZoneGroups = useMemo(() => {
+    if (selectedZoneFilter !== 'ALL') {
+      return zoneGroups.filter((g) => {
+        if (selectedZoneFilter === 'BULK') return g.type === 'BULK';
+        if (selectedZoneFilter === 'UNASSIGNED') return g.type === 'UNASSIGNED';
+        return String(g.id) === String(selectedZoneFilter);
+      });
+    }
+    return zoneGroups.filter((g) => g.items.length > 0);
+  }, [zoneGroups, selectedZoneFilter]);
+
+  const totalMatchingItems = useMemo(() => {
+    return visibleZoneGroups.reduce((acc, g) => acc + g.items.length, 0);
+  }, [visibleZoneGroups]);
 
   return (
     <div className="page-wrapper">
@@ -411,9 +575,10 @@ export default function DailyRequirementsPage() {
           <button
             onClick={() => handleStepDay(-1)}
             className="btn btn-outline btn-sm"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
             title="Previous Day"
           >
-            ← Prev
+            <ChevronLeft size={16} /> Prev
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'white', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '6px 12px' }}>
@@ -438,10 +603,10 @@ export default function DailyRequirementsPage() {
           <button
             onClick={() => handleStepDay(1)}
             className="btn btn-outline btn-sm"
-            style={{ fontWeight: '700', color: 'var(--primary)' }}
+            style={{ fontWeight: '700', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
             title="Next Day"
           >
-            Next Day →
+            Next Day <ChevronRight size={16} />
           </button>
 
           <button
@@ -450,7 +615,7 @@ export default function DailyRequirementsPage() {
             style={{ fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 6px rgba(245,158,11,0.25)' }}
             title="Create bulk orders for hotels/restaurants by clicking products"
           >
-            <ShoppingBag size={16} /> + Bulk Order Requirement
+            <ShoppingBag size={16} /> Bulk Order Requirement
           </button>
 
           <button onClick={fetchData} className="btn btn-outline btn-sm" title="Refresh requirements">
@@ -586,10 +751,137 @@ export default function DailyRequirementsPage() {
               <option value="ADD_EXTRA_QUANTITY">Extra Quantity ({summary.extraQuantity || 0})</option>
             </select>
           </div>
+
+          {/* Zone Filter Dropdown */}
+          <div>
+            <select
+              className="form-input"
+              value={selectedZoneFilter}
+              onChange={(e) => setSelectedZoneFilter(e.target.value)}
+              style={{ fontWeight: '700', color: '#1e293b' }}
+            >
+              <option value="ALL">🏢 All Zones ({zones.length + 2})</option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name} {z.address ? `(${z.address})` : ''}
+                </option>
+              ))}
+              <option value="BULK">🍽️ Bulk & Commercial Accounts</option>
+              <option value="UNASSIGNED">🏠 Independent Houses / Unassigned</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Customer Delivery Requirements List */}
+      {/* Zone Quick Switcher Tabs & Controls */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflowX: 'auto', paddingBottom: '4px', maxWidth: '100%' }}>
+          <button
+            type="button"
+            onClick={() => setSelectedZoneFilter('ALL')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '999px',
+              fontSize: '0.8rem',
+              fontWeight: '800',
+              border: selectedZoneFilter === 'ALL' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+              background: selectedZoneFilter === 'ALL' ? '#eff6ff' : 'white',
+              color: selectedZoneFilter === 'ALL' ? '#1d4ed8' : '#475569',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Layers size={14} /> All Zones ({zoneGroups.filter((g) => g.items.length > 0).length})
+          </button>
+
+          {zoneGroups.filter((g) => g.items.length > 0).map((g) => {
+            const isSelected = selectedZoneFilter === (g.id ? String(g.id) : g.type === 'BULK' ? 'BULK' : 'UNASSIGNED');
+            return (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => setSelectedZoneFilter(isSelected ? 'ALL' : (g.id ? String(g.id) : g.type === 'BULK' ? 'BULK' : 'UNASSIGNED'))}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '999px',
+                  fontSize: '0.8rem',
+                  fontWeight: '800',
+                  border: isSelected ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                  background: isSelected ? '#eff6ff' : 'white',
+                  color: isSelected ? '#1d4ed8' : '#475569',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {g.type === 'BULK' ? <ShoppingBag size={13} color="#d97706" /> : g.type === 'UNASSIGNED' ? <Home size={13} color="#64748b" /> : <Building2 size={13} color="#2563eb" />}
+                <span>{g.name}</span>
+                <span style={{
+                  background: isSelected ? '#2563eb' : '#f1f5f9',
+                  color: isSelected ? 'white' : '#64748b',
+                  padding: '1px 6px',
+                  borderRadius: '999px',
+                  fontSize: '0.7rem'
+                }}>
+                  {g.totalCustomers}
+                </span>
+                {g.specialCount > 0 && (
+                  <span style={{
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    background: '#f59e0b',
+                    display: 'inline-block'
+                  }} title={`${g.specialCount} special requirements`} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Expand / Collapse All Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={expandAllZones}
+            style={{
+              padding: '5px 12px',
+              fontSize: '0.78rem',
+              fontWeight: '700',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              background: 'white',
+              color: '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Expand All
+          </button>
+          <button
+            type="button"
+            onClick={collapseAllZones}
+            style={{
+              padding: '5px 12px',
+              fontSize: '0.78rem',
+              fontWeight: '700',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              background: 'white',
+              color: '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Collapse All
+          </button>
+        </div>
+      </div>
+
+      {/* Customer Delivery Requirements by Zone */}
       {loading ? (
         <div style={{ padding: '60px', textAlign: 'center' }}>
           <RefreshCw size={28} className="spin" color="var(--primary)" />
@@ -601,273 +893,424 @@ export default function DailyRequirementsPage() {
         <div className="card" style={{ color: 'var(--accent-red)', padding: '24px', textAlign: 'center' }}>
           {error}
         </div>
-      ) : filteredItems.length === 0 ? (
+      ) : visibleZoneGroups.length === 0 || totalMatchingItems === 0 ? (
         <EmptyState
           icon={ClipboardList}
           title={`No customers found for ${selectedDate}`}
           description={
-            search || selectedReqFilter !== 'ALL'
-              ? 'No customers match your active search and filter criteria.'
+            search || selectedReqFilter !== 'ALL' || selectedZoneFilter !== 'ALL'
+              ? 'No customer requirements match your active search and filter criteria.'
               : 'No active subscriptions scheduled for this date.'
           }
         />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {filteredItems.map((item) => {
-            const key = `${item.customer_id}_${item.product_id}`;
-            const draft = drafts[key] || {
-              requirement_type: item.requirement_type || 'NORMAL',
-              target_product_id: item.product_id,
-              required_quantity: item.normal_quantity,
-              additional_quantity: 1,
-              reason: item.reason || ''
-            };
-            const statusInfo = saveStatus[key] || {};
-            const isSpecial = draft.requirement_type !== 'NORMAL';
-            const isSkipped = draft.requirement_type === 'SKIP_DELIVERY';
-            const isQtyChange = draft.requirement_type === 'CHANGE_QUANTITY';
-            const isExtra = draft.requirement_type === 'ADD_EXTRA_QUANTITY';
-
-            const isProductSwitched = draft.target_product_id && Number(draft.target_product_id) !== Number(item.product_id);
-            const targetProdObj = products.find((p) => p.id === Number(draft.target_product_id)) || item;
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {visibleZoneGroups.map((group) => {
+            const isCollapsed = Boolean(collapsedZones[group.key]);
 
             return (
               <div
-                key={key}
-                className="card"
+                key={group.key}
                 style={{
-                  padding: '18px 20px',
-                  borderLeft: `5px solid ${
-                    isSkipped
-                      ? '#ef4444'
-                      : isQtyChange
-                      ? '#0284c7'
-                      : isExtra
-                      ? '#10b981'
-                      : '#cbd5e1'
-                  }`,
-                  background: isSkipped ? '#fef2f2' : isSpecial ? '#f8fafc' : 'white',
-                  boxShadow: isSpecial ? '0 4px 12px rgba(0,0,0,0.06)' : 'var(--shadow-sm)'
+                  background: 'white',
+                  borderRadius: '16px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
+                  overflow: 'hidden'
                 }}
               >
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', alignItems: 'flex-start' }}>
-                  {/* Customer & Product Info */}
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>
-                        {item.customer_name}
-                      </h3>
-                      <span className={`badge ${item.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.7rem' }}>
-                        {item.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                      </span>
+                {/* Zone Section Header Banner */}
+                <div
+                  onClick={() => toggleZoneCollapse(group.key)}
+                  style={{
+                    padding: '14px 20px',
+                    background: isCollapsed ? '#ffffff' : '#f8fafc',
+                    borderBottom: isCollapsed ? 'none' : '1px solid #e2e8f0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {/* Zone Badge / Thumbnail */}
+                    <div style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '10px',
+                      background: group.type === 'BULK' ? '#fef3c7' : group.type === 'UNASSIGNED' ? '#f1f5f9' : '#eff6ff',
+                      color: group.type === 'BULK' ? '#d97706' : group.type === 'UNASSIGNED' ? '#64748b' : '#2563eb',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      {group.type === 'BULK' ? <ShoppingBag size={22} /> : group.type === 'UNASSIGNED' ? <Home size={22} /> : <Building2 size={22} />}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      <MapPin size={13} />
-                      <span>{item.customer_address}</span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      <span>Route: <strong>{item.customer_route || 'General'}</strong></span>
-                      <span>•</span>
-                      <span>Agent: <strong>{item.delivery_boy_name || 'Unassigned'}</strong></span>
-                    </div>
-
-                    <div style={{ marginTop: '10px', padding: '6px 10px', background: '#f1f5f9', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: '800', color: 'var(--primary-dark)', fontSize: '0.875rem' }}>
-                        {item.product_name} ({item.variant_label})
-                      </span>
-                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                        Normal: <strong>{item.normal_quantity} pkt</strong> (@ ₹{item.selling_price})
-                      </span>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        {group.type === 'ZONE' && (
+                          <span style={{
+                            background: '#2563eb',
+                            color: 'white',
+                            fontSize: '0.72rem',
+                            fontWeight: '900',
+                            padding: '2px 8px',
+                            borderRadius: '999px'
+                          }}>
+                            Route #{group.route_order || 1}
+                          </span>
+                        )}
+                        <h2 style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
+                          {group.name}
+                        </h2>
+                      </div>
+                      {group.address && (
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <MapPin size={13} color="#94a3b8" />
+                          <span>{group.address}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Requirement Control Form */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                      <label style={{ fontSize: '0.78rem', fontWeight: '800', color: '#475569', minWidth: '130px' }}>
-                        Today's Requirement:
-                      </label>
-                      <select
-                        className="form-input"
-                        style={{
-                          flex: '1 1 180px',
-                          fontWeight: '700',
-                          color: isSkipped ? '#b91c1c' : isSpecial ? '#0369a1' : '#1e293b',
-                          background: isSkipped ? '#fee2e2' : isSpecial ? '#e0f2fe' : 'white',
-                          borderColor: isSkipped ? '#fca5a5' : isSpecial ? '#7dd3fc' : 'var(--border-color)'
-                        }}
-                        value={draft.requirement_type}
-                        onChange={(e) => handleDraftChange(key, 'requirement_type', e.target.value)}
-                      >
-                        <option value="NORMAL">NORMAL (Deliver {item.normal_quantity} × {item.product_name})</option>
-                        <option value="SKIP_DELIVERY">SKIP DELIVERY (Do not deliver today)</option>
-                        <option value="CHANGE_QUANTITY">CHANGE QUANTITY / PRODUCT (Deliver different qty or product)</option>
-                        <option value="ADD_EXTRA_QUANTITY">ADD EXTRA QUANTITY (Add extra)</option>
-                      </select>
-                    </div>
+                  {/* Right Zone Statistics & Collapse Arrow */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{
+                      background: '#f1f5f9',
+                      color: '#334155',
+                      fontSize: '0.8rem',
+                      fontWeight: '800',
+                      padding: '4px 12px',
+                      borderRadius: '8px'
+                    }}>
+                      {group.totalCustomers} Customer{group.totalCustomers !== 1 ? 's' : ''} • {group.totalItems} Scheduled
+                    </span>
 
-                    {/* Quantity & Product Adjustment Controls */}
-                    {(isQtyChange || isExtra) && (
-                      <div style={{
-                        background: isQtyChange ? '#e0f2fe' : '#ecfdf5',
-                        border: `1px solid ${isQtyChange ? '#bae6fd' : '#bbf7d0'}`,
-                        borderRadius: '6px',
-                        padding: '10px 12px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px'
+                    {group.specialCount > 0 && (
+                      <span style={{
+                        background: '#fef3c7',
+                        color: '#b45309',
+                        border: '1px solid #fde68a',
+                        fontSize: '0.76rem',
+                        fontWeight: '800',
+                        padding: '3px 10px',
+                        borderRadius: '8px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px'
                       }}>
-                        {/* Product Selector Dropdown */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                          <label style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
-                            <ShoppingBag size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                            Product:
-                          </label>
-                          <select
-                            className="form-input"
-                            style={{ flex: '1 1 190px', padding: '4px 8px', fontSize: '0.813rem', fontWeight: '700' }}
-                            value={draft.target_product_id || item.product_id}
-                            onChange={(e) => handleDraftChange(key, 'target_product_id', Number(e.target.value))}
-                          >
-                            {products.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name} ({p.variant_label}) — ₹{p.selling_price} {p.id === item.product_id ? '(Normal Subscribed)' : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Quantity Selector */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
-                            {isQtyChange ? "Today's Qty:" : "Extra Qty (+):"}
-                          </span>
-                          <input
-                            type="number"
-                            min="1"
-                            max="50"
-                            className="form-input"
-                            style={{ width: '80px', padding: '4px 8px', fontWeight: '800', textAlign: 'center' }}
-                            value={isQtyChange ? draft.required_quantity : draft.additional_quantity}
-                            onChange={(e) => handleDraftChange(key, isQtyChange ? 'required_quantity' : 'additional_quantity', e.target.value)}
-                          />
-
-                          <span style={{ fontSize: '0.78rem', fontWeight: '700', color: isQtyChange ? '#0369a1' : '#047857' }}>
-                            {isQtyChange ? (
-                              isProductSwitched ? (
-                                `Delivering ${draft.required_quantity} pkt of ${targetProdObj.name} (${targetProdObj.variant_label})`
-                              ) : (
-                                `(Normal was ${item.normal_quantity} pkt)`
-                              )
-                            ) : (
-                              `Total Today: ${Number(item.normal_quantity) + Number(draft.additional_quantity || 0)} pkt`
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Reason / Note input with Quick Chips */}
-                    {isSpecial && (
-                      <div>
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="Enter reason or note for Delivery Boy (e.g. Requested 500ml, Changed brand, Out of station)..."
-                          value={draft.reason}
-                          onChange={(e) => handleDraftChange(key, 'reason', e.target.value)}
-                          style={{ fontSize: '0.813rem' }}
-                        />
-
-                        {/* Quick Suggestion Chips */}
-                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
-                          {quickReasons.map((qr) => (
-                            <button
-                              key={qr}
-                              type="button"
-                              onClick={() => handleDraftChange(key, 'reason', qr)}
-                              style={{
-                                border: '1px solid #cbd5e1',
-                                background: '#f8fafc',
-                                borderRadius: '4px',
-                                padding: '2px 6px',
-                                fontSize: '0.68rem',
-                                color: '#475569',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              + {qr}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions & Live Status */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '8px' }}>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      {item.requirement_type && item.requirement_type !== 'NORMAL' && (
-                        <button
-                          onClick={() => handleClearToNormal(item)}
-                          className="btn btn-outline btn-sm"
-                          disabled={statusInfo.saving}
-                          title="Restore normal subscription"
-                        >
-                          <RotateCcw size={14} /> Clear
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => handleSaveRequirement(item)}
-                        className="btn btn-primary btn-sm"
-                        disabled={statusInfo.saving}
-                        style={{ fontWeight: '700' }}
-                      >
-                        <Save size={14} />
-                        {statusInfo.saving ? 'Saving...' : 'Save'}
-                      </button>
-                    </div>
-
-                    {statusInfo.success && (
-                      <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <CheckCircle2 size={14} /> {statusInfo.success}
+                        <Sparkles size={13} color="#d97706" />
+                        {group.specialCount} Special Change{group.specialCount !== 1 ? 's' : ''}
                       </span>
                     )}
 
-                    {statusInfo.error && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)', fontWeight: '700' }}>
-                        {statusInfo.error}
-                      </span>
-                    )}
-
-                    {/* Requirement Status Indicator */}
-                    <div style={{ marginTop: '4px' }}>
-                      {isSkipped ? (
-                        <span className="badge badge-danger" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <XCircle size={12} /> SKIPPING TODAY
-                        </span>
-                      ) : isQtyChange ? (
-                        <span className="badge badge-info" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <TrendingUp size={12} />
-                          {isProductSwitched ? (
-                            `SWITCH: ${targetProdObj.name} × ${draft.required_quantity}`
-                          ) : (
-                            `QTY: ${draft.required_quantity} (was ${item.normal_quantity})`
-                          )}
-                        </span>
-                      ) : isExtra ? (
-                        <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <PlusCircle size={12} /> EXTRA: +{draft.additional_quantity}
-                        </span>
-                      ) : (
-                        <span className="badge badge-gray">NORMAL DELIVERY</span>
-                      )}
+                    <div style={{
+                      width: '30px',
+                      height: '30px',
+                      borderRadius: '6px',
+                      background: '#f1f5f9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#64748b'
+                    }}>
+                      {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
                     </div>
                   </div>
                 </div>
+
+                {/* Respected Customers inside this Zone */}
+                {!isCollapsed && (
+                  <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px', background: '#f8fafc' }}>
+                    {group.items.length === 0 ? (
+                      <div style={{ padding: '24px', textAlign: 'center', background: 'white', borderRadius: '10px', color: '#64748b', border: '1px dashed #cbd5e1' }}>
+                        No deliveries scheduled for <strong>{group.name}</strong> on {selectedDate}.
+                      </div>
+                    ) : (
+                      group.items.map((item) => {
+                        const key = `${item.customer_id}_${item.product_id}`;
+                        const draft = drafts[key] || {
+                          requirement_type: item.requirement_type || 'NORMAL',
+                          target_product_id: item.product_id,
+                          required_quantity: item.normal_quantity,
+                          additional_quantity: 1,
+                          reason: item.reason || ''
+                        };
+                        const statusInfo = saveStatus[key] || {};
+                        const isSpecial = draft.requirement_type !== 'NORMAL';
+                        const isSkipped = draft.requirement_type === 'SKIP_DELIVERY';
+                        const isQtyChange = draft.requirement_type === 'CHANGE_QUANTITY';
+                        const isExtra = draft.requirement_type === 'ADD_EXTRA_QUANTITY';
+
+                        const isProductSwitched = draft.target_product_id && Number(draft.target_product_id) !== Number(item.product_id);
+                        const targetProdObj = products.find((p) => p.id === Number(draft.target_product_id)) || item;
+
+                        return (
+                          <div
+                            key={key}
+                            style={{
+                              padding: '16px 18px',
+                              borderRadius: '12px',
+                              border: isSpecial ? '1.5px solid #93c5fd' : '1px solid #e2e8f0',
+                              borderLeft: `5px solid ${
+                                isSkipped
+                                  ? '#ef4444'
+                                  : isQtyChange
+                                  ? '#0284c7'
+                                  : isExtra
+                                  ? '#10b981'
+                                  : '#3b82f6'
+                              }`,
+                              background: isSkipped ? '#fef2f2' : isSpecial ? '#ffffff' : 'white',
+                              boxShadow: isSpecial ? '0 4px 12px rgba(37,99,235,0.06)' : '0 1px 3px rgba(0,0,0,0.02)'
+                            }}
+                          >
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', alignItems: 'flex-start' }}>
+                              {/* Customer & Product Info with Flat Number */}
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                                  {/* Flat / Villa Number Chip */}
+                                  <span style={{
+                                    background: '#0054a6',
+                                    color: 'white',
+                                    fontWeight: '900',
+                                    fontSize: '0.78rem',
+                                    padding: '2px 8px',
+                                    borderRadius: '6px',
+                                    letterSpacing: '-0.01em'
+                                  }}>
+                                    {item.flat_no ? (item.flat_no.toLowerCase().includes('villa') ? item.flat_no : `Flat ${item.flat_no}`) : `Stop #${item.customer_serial_no || item.customer_id}`}
+                                  </span>
+
+                                  <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>
+                                    {item.customer_name}
+                                  </h3>
+
+                                  <span className={`badge ${item.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.68rem' }}>
+                                    {item.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                                  </span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                  <MapPin size={13} />
+                                  <span>{item.customer_address}</span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                  <span>Phone: <strong>{item.customer_phone || 'N/A'}</strong></span>
+                                  <span>•</span>
+                                  <span>Route: <strong>{item.customer_route || 'General'}</strong></span>
+                                  <span>•</span>
+                                  <span>Agent: <strong>{item.delivery_boy_name || 'Unassigned'}</strong></span>
+                                </div>
+
+                                <div style={{ marginTop: '10px', padding: '6px 10px', background: '#f1f5f9', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: '800', color: 'var(--primary-dark)', fontSize: '0.875rem' }}>
+                                    {item.product_name} ({item.variant_label})
+                                  </span>
+                                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                    Normal: <strong>{item.normal_quantity} pkt</strong> (@ ₹{item.selling_price})
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Requirement Control Form */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                  <label style={{ fontSize: '0.78rem', fontWeight: '800', color: '#475569', minWidth: '130px' }}>
+                                    Today's Requirement:
+                                  </label>
+                                  <select
+                                    className="form-input"
+                                    style={{
+                                      flex: '1 1 180px',
+                                      fontWeight: '700',
+                                      color: isSkipped ? '#b91c1c' : isSpecial ? '#0369a1' : '#1e293b',
+                                      background: isSkipped ? '#fee2e2' : isSpecial ? '#e0f2fe' : 'white',
+                                      borderColor: isSkipped ? '#fca5a5' : isSpecial ? '#7dd3fc' : 'var(--border-color)'
+                                    }}
+                                    value={draft.requirement_type}
+                                    onChange={(e) => handleDraftChange(key, 'requirement_type', e.target.value)}
+                                  >
+                                    <option value="NORMAL">NORMAL (Deliver {item.normal_quantity} × {item.product_name})</option>
+                                    <option value="SKIP_DELIVERY">SKIP DELIVERY (Do not deliver today)</option>
+                                    <option value="CHANGE_QUANTITY">CHANGE QUANTITY / PRODUCT (Deliver different qty or product)</option>
+                                    <option value="ADD_EXTRA_QUANTITY">ADD EXTRA QUANTITY (Add extra)</option>
+                                  </select>
+                                </div>
+
+                                {/* Quantity & Product Adjustment Controls */}
+                                {(isQtyChange || isExtra) && (
+                                  <div style={{
+                                    background: isQtyChange ? '#e0f2fe' : '#ecfdf5',
+                                    border: `1px solid ${isQtyChange ? '#bae6fd' : '#bbf7d0'}`,
+                                    borderRadius: '6px',
+                                    padding: '10px 12px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '8px'
+                                  }}>
+                                    {/* Product Selector Dropdown */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                      <label style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
+                                        <ShoppingBag size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                                        Product:
+                                      </label>
+                                      <select
+                                        className="form-input"
+                                        style={{ flex: '1 1 190px', padding: '4px 8px', fontSize: '0.813rem', fontWeight: '700' }}
+                                        value={draft.target_product_id || item.product_id}
+                                        onChange={(e) => handleDraftChange(key, 'target_product_id', Number(e.target.value))}
+                                      >
+                                        {products.map((p) => (
+                                          <option key={p.id} value={p.id}>
+                                            {p.name} ({p.variant_label}) — ₹{p.selling_price} {p.id === item.product_id ? '(Normal Subscribed)' : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+
+                                    {/* Quantity Selector */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                      <span style={{ fontSize: '0.78rem', fontWeight: '800', color: isQtyChange ? '#0369a1' : '#065f46', minWidth: '90px' }}>
+                                        {isQtyChange ? "Today's Qty:" : "Extra Qty (+):"}
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max="50"
+                                        className="form-input"
+                                        style={{ width: '80px', padding: '4px 8px', fontWeight: '800', textAlign: 'center' }}
+                                        value={isQtyChange ? draft.required_quantity : draft.additional_quantity}
+                                        onChange={(e) => handleDraftChange(key, isQtyChange ? 'required_quantity' : 'additional_quantity', e.target.value)}
+                                      />
+
+                                      <span style={{ fontSize: '0.78rem', fontWeight: '700', color: isQtyChange ? '#0369a1' : '#047857' }}>
+                                        {isQtyChange ? (
+                                          isProductSwitched ? (
+                                            `Delivering ${draft.required_quantity} pkt of ${targetProdObj.name} (${targetProdObj.variant_label})`
+                                          ) : (
+                                            `(Normal was ${item.normal_quantity} pkt)`
+                                          )
+                                        ) : (
+                                          `Total Today: ${Number(item.normal_quantity) + Number(draft.additional_quantity || 0)} pkt`
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Reason / Note input with Quick Chips */}
+                                {isSpecial && (
+                                  <div>
+                                    <input
+                                      type="text"
+                                      className="form-input"
+                                      placeholder="Enter reason or note for Delivery Boy (e.g. Requested 500ml, Changed brand, Out of station)..."
+                                      value={draft.reason}
+                                      onChange={(e) => handleDraftChange(key, 'reason', e.target.value)}
+                                      style={{ fontSize: '0.813rem' }}
+                                    />
+
+                                    {/* Quick Suggestion Chips */}
+                                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+                                      {quickReasons.map((qr) => (
+                                        <button
+                                          key={qr}
+                                          type="button"
+                                          onClick={() => handleDraftChange(key, 'reason', qr)}
+                                          style={{
+                                            border: '1px solid #cbd5e1',
+                                            background: '#f8fafc',
+                                            borderRadius: '4px',
+                                            padding: '2px 6px',
+                                            fontSize: '0.68rem',
+                                            color: '#475569',
+                                            cursor: 'pointer'
+                                          }}
+                                        >
+                                          + {qr}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Actions & Live Status */}
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '8px' }}>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  {item.requirement_type && item.requirement_type !== 'NORMAL' && (
+                                    <button
+                                      onClick={() => handleClearToNormal(item)}
+                                      className="btn btn-outline btn-sm"
+                                      disabled={statusInfo.saving}
+                                      title="Restore normal subscription"
+                                    >
+                                      <RotateCcw size={14} /> Clear
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={() => handleSaveRequirement(item)}
+                                    className="btn btn-primary btn-sm"
+                                    disabled={statusInfo.saving}
+                                    style={{ fontWeight: '700' }}
+                                  >
+                                    <Save size={14} />
+                                    {statusInfo.saving ? 'Saving...' : 'Save'}
+                                  </button>
+                                </div>
+
+                                {statusInfo.success && (
+                                  <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <CheckCircle2 size={14} /> {statusInfo.success}
+                                  </span>
+                                )}
+
+                                {statusInfo.error && (
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)', fontWeight: '700' }}>
+                                    {statusInfo.error}
+                                  </span>
+                                )}
+
+                                {/* Requirement Status Indicator */}
+                                <div style={{ marginTop: '4px' }}>
+                                  {isSkipped ? (
+                                    <span className="badge badge-danger" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <XCircle size={12} /> SKIPPING TODAY
+                                    </span>
+                                  ) : isQtyChange ? (
+                                    <span className="badge badge-info" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <TrendingUp size={12} />
+                                      {isProductSwitched ? (
+                                        `SWITCH: ${targetProdObj.name} × ${draft.required_quantity}`
+                                      ) : (
+                                        `QTY: ${draft.required_quantity} (was ${item.normal_quantity})`
+                                      )}
+                                    </span>
+                                  ) : isExtra ? (
+                                    <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <PlusCircle size={12} /> EXTRA: +{draft.additional_quantity}
+                                    </span>
+                                  ) : (
+                                    <span className="badge badge-gray">NORMAL DELIVERY</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

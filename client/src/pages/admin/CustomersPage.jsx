@@ -22,6 +22,7 @@ import {
 export default function CustomersPage({ initialOpenAdd = false }) {
   const [customers, setCustomers] = useState([]);
   const [deliveryBoys, setDeliveryBoys] = useState([]);
+  const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -30,9 +31,16 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   const [categoryFilter, setCategoryFilter] = useState(''); // '' | 'HOUSE' | 'BULK_HOTEL'
   const [billingFilter, setBillingFilter] = useState(''); // '' | 'PREPAID' | 'POSTPAID'
   const [deliveryBoyFilter, setDeliveryBoyFilter] = useState(''); // '' | dboyId
+  const [zoneFilter, setZoneFilter] = useState(''); // '' | 'UNASSIGNED' | zoneId
 
   // Selected for profile modal
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+  const [profileInitialTab, setProfileInitialTab] = useState('overview');
+
+  const handleOpenProfile = (customerId, tab = 'overview') => {
+    setProfileInitialTab(tab);
+    setSelectedCustomerId(customerId);
+  };
 
   // Add / Edit Modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState(initialOpenAdd);
@@ -41,6 +49,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
     name: '',
     phone: '',
     address: '',
+    flat_no: '',
+    zone_id: '',
     customer_category: 'HOUSE',
     billing_type: 'PREPAID',
     delivery_boy_id: '',
@@ -51,6 +61,13 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Create Zone modal on-the-fly state
+  const [isCreateZoneModalOpen, setIsCreateZoneModalOpen] = useState(false);
+  const [newZoneName, setNewZoneName] = useState('');
+  const [newZoneAddress, setNewZoneAddress] = useState('');
+  const [newZoneRouteOrder, setNewZoneRouteOrder] = useState('');
+  const [creatingZone, setCreatingZone] = useState(false);
 
   const fetchCustomers = async () => {
     try {
@@ -80,9 +97,19 @@ export default function CustomersPage({ initialOpenAdd = false }) {
     }
   };
 
+  const fetchZones = async () => {
+    try {
+      const res = await api.get('/zones');
+      setZones(res || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     fetchCustomers();
     fetchDeliveryBoys();
+    fetchZones();
   }, [categoryFilter, billingFilter, deliveryBoyFilter]);
 
   const handleSearchSubmit = (e) => {
@@ -125,6 +152,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       name: '',
       phone: '',
       address: '',
+      flat_no: '',
+      zone_id: zoneFilter && zoneFilter !== 'UNASSIGNED' ? zoneFilter : '',
       customer_category: 'HOUSE',
       billing_type: 'PREPAID',
       delivery_boy_id: deliveryBoyFilter || '',
@@ -145,6 +174,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       name: customer.name,
       phone: customer.phone,
       address: customer.address,
+      flat_no: customer.flat_no || '',
+      zone_id: customer.zone_id || '',
       customer_category: customer.customer_category,
       billing_type: customer.billing_type,
       delivery_boy_id: customer.delivery_boy_id || '',
@@ -156,6 +187,29 @@ export default function CustomersPage({ initialOpenAdd = false }) {
     });
     setFormError('');
     setIsAddModalOpen(true);
+  };
+
+  const handleCreateZoneFromCustomerModal = async (e) => {
+    e.preventDefault();
+    if (!newZoneName.trim()) return;
+    try {
+      setCreatingZone(true);
+      const created = await api.post('/zones', {
+        name: newZoneName.trim(),
+        address: newZoneAddress.trim(),
+        route_order: parseInt(newZoneRouteOrder) || 0
+      });
+      await fetchZones();
+      setFormData(prev => ({ ...prev, zone_id: created.id }));
+      setIsCreateZoneModalOpen(false);
+      setNewZoneName('');
+      setNewZoneAddress('');
+      setNewZoneRouteOrder('');
+    } catch (err) {
+      alert(err.message || 'Failed to create zone');
+    } finally {
+      setCreatingZone(false);
+    }
   };
 
   const handleSaveCustomer = async (e) => {
@@ -170,7 +224,9 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       setFormError('');
 
       if (editingCustomer) {
-        await api.put(`/customers/${editingCustomer.id}`, formData);
+        // Protect ledger balance: do not overwrite advance_balance during normal profile edits
+        const { advance_balance, initial_advance, ...updatePayload } = formData;
+        await api.put(`/customers/${editingCustomer.id}`, updatePayload);
       } else {
         await api.post('/customers', formData);
       }
@@ -238,6 +294,19 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           </form>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={zoneFilter}
+              onChange={(e) => setZoneFilter(e.target.value)}
+            >
+              <option value="">All Zones</option>
+              <option value="UNASSIGNED">Unassigned Zone</option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>{z.name}</option>
+              ))}
+            </select>
+
             <select
               className="form-select"
               style={{ width: 'auto', fontSize: '0.813rem' }}
@@ -312,155 +381,331 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           }
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th style={{ width: '80px', textAlign: 'center' }}>S.No / Drop #</th>
-                <th>Customer Name</th>
-                <th>Category</th>
-                <th>Billing</th>
-                <th>Phone & Route</th>
-                <th>Delivery Boy</th>
-                <th>Advance Balance</th>
-                <th>Pending Amount</th>
-                <th>Active Subscriptions</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map((c) => (
-                <tr key={c.id}>
-                  <td style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <input
-                        type="number"
-                        min="1"
-                        className="form-input"
-                        style={{
-                          width: '56px',
-                          padding: '3px 4px',
-                          textAlign: 'center',
-                          fontWeight: '800',
-                          fontSize: '0.85rem',
-                          color: c.serial_no > 0 ? '#0054a6' : 'var(--text-muted)',
-                          borderColor: c.serial_no > 0 ? '#93c5fd' : 'var(--border-color)',
-                          background: c.serial_no > 0 ? '#f0f9ff' : '#ffffff',
-                          borderRadius: '6px'
-                        }}
-                        defaultValue={c.serial_no || ''}
-                        key={`${c.id}-${c.serial_no}`}
-                        onBlur={(e) => {
-                          const val = e.target.value.trim();
-                          if (val !== String(c.serial_no || '')) {
-                            handleQuickSerialUpdate(c.id, val);
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.currentTarget.blur();
-                          }
-                        }}
-                        title="Delivery drop order number. Click to edit."
-                      />
-                    </div>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {c.serial_no > 0 && (
-                        <span
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '80px', textAlign: 'center' }}>S.No / Drop #</th>
+                  <th>Customer Name</th>
+                  <th>Category</th>
+                  <th>Billing</th>
+                  <th>Phone & Route</th>
+                  <th>Delivery Boy</th>
+                  <th>Advance Balance</th>
+                  <th>Pending Amount</th>
+                  <th>Active Subscriptions</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers
+                  .filter(c => {
+                    if (!zoneFilter) return true;
+                    if (zoneFilter === 'UNASSIGNED') return !c.zone_id;
+                    return String(c.zone_id) === String(zoneFilter);
+                  })
+                  .map((c) => (
+                  <tr key={c.id}>
+                    <td style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input"
                           style={{
-                            background: '#0054a6',
-                            color: '#ffffff',
+                            width: '56px',
+                            padding: '3px 4px',
+                            textAlign: 'center',
                             fontWeight: '800',
-                            fontSize: '0.7rem',
-                            padding: '1px 6px',
-                            borderRadius: '4px'
+                            fontSize: '0.85rem',
+                            color: c.serial_no > 0 ? '#0054a6' : 'var(--text-muted)',
+                            borderColor: c.serial_no > 0 ? '#93c5fd' : 'var(--border-color)',
+                            background: c.serial_no > 0 ? '#f0f9ff' : '#ffffff',
+                            borderRadius: '6px'
                           }}
+                          defaultValue={c.serial_no || ''}
+                          key={`${c.id}-${c.serial_no}`}
+                          onBlur={(e) => {
+                            const val = e.target.value.trim();
+                            if (val !== String(c.serial_no || '')) {
+                              handleQuickSerialUpdate(c.id, val);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          title="Delivery drop order number. Click to edit."
+                        />
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        {c.serial_no > 0 && (
+                          <span
+                            style={{
+                              background: '#0054a6',
+                              color: '#ffffff',
+                              fontWeight: '800',
+                              fontSize: '0.7rem',
+                              padding: '1px 6px',
+                              borderRadius: '4px'
+                            }}
+                          >
+                            #{c.serial_no}
+                          </span>
+                        )}
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{c.name}</div>
+                        {c.flat_no && (
+                          <span style={{
+                            background: '#eff6ff',
+                            color: '#1d4ed8',
+                            border: '1px solid #bfdbfe',
+                            borderRadius: '4px',
+                            padding: '1px 6px',
+                            fontSize: '0.72rem',
+                            fontWeight: '800'
+                          }}>
+                            Flat {c.flat_no}
+                          </span>
+                        )}
+                        {c.zone_name && (
+                          <span style={{
+                            background: '#f8fafc',
+                            color: '#475569',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '4px',
+                            padding: '1px 6px',
+                            fontSize: '0.72rem',
+                            fontWeight: '600'
+                          }}>
+                            🏢 {c.zone_name}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.address}</div>
+                    </td>
+                    <td>
+                      <span className={`badge ${c.customer_category === 'HOUSE' ? 'badge-info' : 'badge-indigo'}`}>
+                        {c.customer_category === 'HOUSE' ? <Home size={12} /> : <Building2 size={12} />}
+                        {c.customer_category === 'HOUSE' ? 'House' : 'Bulk / Hotel'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`badge ${c.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
+                        {c.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: '600' }}>{c.phone}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Route: {c.route || 'N/A'}</div>
+                    </td>
+                    <td>
+                      <div style={{ fontSize: '0.813rem', color: c.delivery_boy_name ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        {c.delivery_boy_name || 'Unassigned'}
+                      </div>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '800', color: '#16a34a' }}>
+                        ₹{c.advance_balance?.toFixed(2) || '0.00'}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>
+                        ₹{c.pending_balance?.toFixed(2) || '0.00'}
+                      </span>
+                    </td>
+                    <td>
+                      {c.subscriptions && c.subscriptions.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          {c.subscriptions.map((s) => (
+                            <span key={s.id} style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--primary)' }}>
+                              • {s.product_name} ({s.variant_label}) × {s.quantity}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No subscriptions</span>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => handleOpenProfile(c.id, 'overview')}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px' }}
+                          title="View Full Profile"
                         >
+                          <Eye size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleOpenEdit(c)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px' }}
+                          title="Edit Customer"
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCustomer(c)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                          title={`Delete Customer: ${c.name}`}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Customer Card List */}
+          <div className="mobile-only mobile-card-list">
+            {customers
+              .filter(c => {
+                if (!zoneFilter) return true;
+                if (zoneFilter === 'UNASSIGNED') return !c.zone_id;
+                return String(c.zone_id) === String(zoneFilter);
+              })
+              .map((c) => (
+                <div
+                  key={c.id}
+                  className="mobile-data-card"
+                  onClick={() => handleOpenProfile(c.id, 'overview')}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="mobile-card-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      {c.serial_no > 0 && (
+                        <span style={{
+                          background: '#0054a6',
+                          color: '#ffffff',
+                          fontWeight: '800',
+                          fontSize: '0.72rem',
+                          padding: '2px 7px',
+                          borderRadius: '6px'
+                        }}>
                           #{c.serial_no}
                         </span>
                       )}
-                      <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{c.name}</div>
+                      <span className="mobile-card-title">{c.name}</span>
+                      {c.flat_no && (
+                        <span style={{
+                          background: '#eff6ff',
+                          color: '#1d4ed8',
+                          border: '1px solid #bfdbfe',
+                          borderRadius: '6px',
+                          padding: '2px 7px',
+                          fontSize: '0.72rem',
+                          fontWeight: '800'
+                        }}>
+                          Flat {c.flat_no}
+                        </span>
+                      )}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{c.address}</div>
-                  </td>
-                  <td>
-                    <span className={`badge ${c.customer_category === 'HOUSE' ? 'badge-info' : 'badge-indigo'}`}>
-                      {c.customer_category === 'HOUSE' ? <Home size={12} /> : <Building2 size={12} />}
-                      {c.customer_category === 'HOUSE' ? 'House' : 'Bulk / Hotel'}
+                    <span className={`badge ${c.customer_category === 'HOUSE' ? 'badge-info' : 'badge-indigo'}`} style={{ flexShrink: 0 }}>
+                      {c.customer_category === 'HOUSE' ? <Home size={11} /> : <Building2 size={11} />}
+                      {c.customer_category === 'HOUSE' ? 'House' : 'Bulk'}
                     </span>
-                  </td>
-                  <td>
+                  </div>
+
+                  {c.zone_name && (
+                    <div style={{ fontSize: '0.78rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>🏢 {c.zone_name}</span>
+                      {c.route && <span>• Route: {c.route}</span>}
+                    </div>
+                  )}
+
+                  {c.address && (
+                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <MapPin size={12} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.address}</span>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
                     <span className={`badge ${c.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
                       {c.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
                     </span>
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: '600' }}>{c.phone}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Route: {c.route || 'N/A'}</div>
-                  </td>
-                  <td>
-                    <div style={{ fontSize: '0.813rem', color: c.delivery_boy_name ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                      {c.delivery_boy_name || 'Unassigned'}
-                    </div>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '800', color: '#16a34a' }}>
-                      ₹{c.advance_balance?.toFixed(2) || '0.00'}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>
-                      ₹{c.pending_balance?.toFixed(2) || '0.00'}
-                    </span>
-                  </td>
-                  <td>
-                    {c.subscriptions && c.subscriptions.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        {c.subscriptions.map((s) => (
-                          <span key={s.id} style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--primary)' }}>
-                            • {s.product_name} ({s.variant_label}) × {s.quantity}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No subscriptions</span>
+
+                    {c.phone && (
+                      <a
+                        href={`tel:${c.phone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: '600', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Phone size={12} /> {c.phone}
+                      </a>
                     )}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        onClick={() => setSelectedCustomerId(c.id)}
-                        className="btn btn-outline btn-sm"
-                        style={{ padding: '6px 10px' }}
-                        title="View Full Profile"
-                      >
-                        <Eye size={15} />
-                      </button>
-                      <button
-                        onClick={() => handleOpenEdit(c)}
-                        className="btn btn-outline btn-sm"
-                        style={{ padding: '6px 10px' }}
-                        title="Edit Customer"
-                      >
-                        <Edit2 size={15} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCustomer(c)}
-                        className="btn btn-outline btn-sm"
-                        style={{ padding: '6px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
-                        title={`Delete Customer: ${c.name}`}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '2px' }}>
+                    <div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Balance</div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
                     </div>
-                  </td>
-                </tr>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Pending Amount</div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{c.pending_balance?.toFixed(2) || '0.00'}</div>
+                    </div>
+                  </div>
+
+                  {c.subscriptions && c.subscriptions.length > 0 && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--primary-dark)', background: '#eff6ff', padding: '6px 10px', borderRadius: '6px' }}>
+                      <strong>Subscribed:</strong> {c.subscriptions.map(s => `${s.product_name} (${s.quantity})`).join(', ')}
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="mobile-card-actions" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProfile(c.id, 'overview')}
+                      className="btn btn-primary btn-sm"
+                      style={{ flex: '1 1 120px', minHeight: '38px', fontSize: '0.8rem' }}
+                    >
+                      <Eye size={14} /> View Details
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProfile(c.id, 'subscriptions')}
+                      className="btn btn-outline btn-sm"
+                      style={{ flex: '1 1 110px', minHeight: '38px', fontSize: '0.8rem', color: '#166534', borderColor: '#bbf7d0', background: '#f0fdf4' }}
+                    >
+                      Subscriptions ({c.subscriptions?.length || 0})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(c)}
+                      className="btn btn-outline btn-sm"
+                      style={{ minHeight: '38px', padding: '6px 12px' }}
+                      title="Edit Customer"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCustomer(c)}
+                      className="btn btn-outline btn-sm"
+                      style={{ minHeight: '38px', padding: '6px 12px', color: '#dc2626', borderColor: '#fca5a5' }}
+                      title="Delete Customer"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+          </div>
+        </>
       )}
 
       {/* Customer Profile Full Modal */}
@@ -468,8 +713,10 @@ export default function CustomersPage({ initialOpenAdd = false }) {
         <CustomerProfileModal
           customerId={selectedCustomerId}
           isOpen={Boolean(selectedCustomerId)}
+          initialTab={profileInitialTab}
           onClose={() => setSelectedCustomerId(null)}
           onRefreshList={fetchCustomers}
+          onEditCustomer={(cust) => handleOpenEdit(cust)}
         />
       )}
 
@@ -519,6 +766,55 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 placeholder="e.g. 5th Cross / Sector A"
                 value={formData.route}
                 onChange={(e) => setFormData({ ...formData, route: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {/* Apartment / Villa Community Zone & Flat No */}
+          <div className="form-row">
+            <div className="form-group" style={{ flex: 1.5 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label className="form-label" style={{ marginBottom: 0 }}>Apartment / Villa Zone</label>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateZoneModalOpen(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563eb',
+                    fontSize: '0.75rem',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                >
+                  <PlusCircle size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '3px' }} />
+                  New Zone
+                </button>
+              </div>
+              <select
+                className="form-select"
+                style={{ marginTop: '4px' }}
+                value={formData.zone_id || ''}
+                onChange={(e) => setFormData({ ...formData, zone_id: e.target.value })}
+              >
+                <option value="">-- No Zone (Unassigned / Independent) --</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.name} {z.address ? `(${z.address})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group" style={{ flex: 1 }}>
+              <label className="form-label">Flat / House / Villa No.</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. A-102, Villa 36"
+                value={formData.flat_no || ''}
+                onChange={(e) => setFormData({ ...formData, flat_no: e.target.value })}
               />
             </div>
           </div>
@@ -578,20 +874,44 @@ export default function CustomersPage({ initialOpenAdd = false }) {
 
             <div className="form-group">
               <label className="form-label">
-                {editingCustomer ? 'Advance Balance (₹)' : 'Opening Advance Balance (₹)'}
+                {editingCustomer ? 'Current Advance Balance' : 'Opening Advance Balance (₹)'}
               </label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                className="form-input"
-                placeholder="0.00"
-                value={formData.advance_balance !== undefined ? formData.advance_balance : (formData.initial_advance ?? 0)}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value) || 0;
-                  setFormData({ ...formData, advance_balance: val, initial_advance: val });
-                }}
-              />
+              {editingCustomer ? (
+                <div style={{
+                  padding: '8px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  background: '#f8fafc',
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <span style={{ fontWeight: '800', color: '#16a34a', fontSize: '1rem' }}>
+                    ₹{(formData.advance_balance ?? 0).toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Managed via Payments & Bills
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    className="form-input"
+                    placeholder="0.00"
+                    value={formData.initial_advance ?? 0}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setFormData({ ...formData, initial_advance: val, advance_balance: val });
+                    }}
+                  />
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.3' }}>
+                    💡 For fresh payments (Cash/UPI), keep this <strong>0.00</strong> and record under <strong>Payment Collections</strong> to get an official Receipt #. Use this only for old carried-over balances.
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -631,6 +951,66 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? 'Saving...' : editingCustomer ? 'Update Customer' : 'Save Customer'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Create New Zone On-the-Fly Modal */}
+      <Modal
+        isOpen={isCreateZoneModalOpen}
+        onClose={() => setIsCreateZoneModalOpen(false)}
+        title="Create New Apartment / Villa Zone"
+      >
+        <form onSubmit={handleCreateZoneFromCustomerModal}>
+          <div className="form-group">
+            <label className="form-label">Apartment / Community Name *</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Prestige Lakeside or Chaitanya Apartments"
+              value={newZoneName}
+              onChange={(e) => setNewZoneName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Address / Landmark</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Varthur Main Road, Bangalore"
+              value={newZoneAddress}
+              onChange={(e) => setNewZoneAddress(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Route Sequence Order</label>
+            <input
+              type="number"
+              className="form-input"
+              placeholder="e.g. 1, 2, 3..."
+              value={newZoneRouteOrder}
+              onChange={(e) => setNewZoneRouteOrder(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+            <button
+              type="button"
+              onClick={() => setIsCreateZoneModalOpen(false)}
+              className="btn btn-outline btn-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              disabled={creatingZone}
+            >
+              {creatingZone ? 'Saving...' : 'Create Zone'}
             </button>
           </div>
         </form>

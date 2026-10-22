@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Lock, User, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight, ShieldCheck, UserPlus } from 'lucide-react';
 
 export default function Login({ onGoToRegister }) {
   const { login, hasAdmin } = useAuth();
@@ -42,15 +42,46 @@ export default function Login({ onGoToRegister }) {
         background: 'white',
         borderRadius: 'var(--radius-lg)',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        position: 'relative'
       }}>
         {/* Top Header with Nandini Branding */}
         <div style={{
           background: 'var(--primary-gradient)',
-          padding: '36px 32px',
+          padding: '36px 32px 30px',
           textAlign: 'center',
-          color: 'white'
+          color: 'white',
+          position: 'relative'
         }}>
+          {/* Registration Icon Button in Header for New Agents */}
+          <button
+            type="button"
+            onClick={onGoToRegister}
+            title="Register New Agent / Parlour Workspace"
+            style={{
+              position: 'absolute',
+              top: '16px',
+              right: '16px',
+              background: 'rgba(255, 255, 255, 0.18)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255, 255, 255, 0.4)',
+              color: 'white',
+              padding: '6px 12px',
+              borderRadius: '20px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '0.75rem',
+              fontWeight: '700',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
+            }}
+          >
+            <UserPlus size={15} />
+            <span>New Agent</span>
+          </button>
+
           <div style={{
             width: '90px',
             height: '64px',
@@ -160,21 +191,85 @@ export default function Login({ onGoToRegister }) {
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ width: '100%', marginTop: '24px', padding: '12px', fontSize: '1rem' }}
+              style={{ width: '100%', marginTop: '24px', padding: '12px', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               disabled={loading}
             >
-              {loading ? 'Authenticating...' : 'Sign In'}
+              <span>{loading ? 'Authenticating...' : 'Sign In'}</span>
               <ArrowRight size={18} />
             </button>
           </form>
 
+          {/* New Agent Registration Section */}
           <div style={{
-            marginTop: '24px',
+            marginTop: '22px',
+            paddingTop: '18px',
+            borderTop: '1px dashed var(--border-color)',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '0.75rem',
+              fontWeight: '700',
+              color: 'var(--text-secondary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              marginBottom: '10px'
+            }}>
+              <span>Are You A New Parlour Agent?</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onGoToRegister}
+              style={{
+                width: '100%',
+                padding: '11px 16px',
+                background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
+                border: '1.5px solid #10b981',
+                borderRadius: 'var(--radius-md)',
+                color: '#047857',
+                fontWeight: '700',
+                fontSize: '0.875rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 4px rgba(16, 185, 129, 0.08)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#d1fae5';
+                e.currentTarget.style.borderColor = '#059669';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)';
+                e.currentTarget.style.borderColor = '#10b981';
+              }}
+            >
+              <UserPlus size={18} />
+              <span>Register New Agent / Parlour</span>
+            </button>
+
+            <p style={{
+              fontSize: '0.72rem',
+              color: 'var(--text-muted)',
+              marginTop: '6px',
+              lineHeight: '1.3'
+            }}>
+              Creates a private, completely isolated parlour portal for your customers & orders
+            </p>
+          </div>
+
+          <div style={{
+            marginTop: '18px',
             textAlign: 'center',
             fontSize: '0.75rem',
             color: 'var(--text-muted)',
             borderTop: '1px solid var(--border-color)',
-            paddingTop: '16px'
+            paddingTop: '14px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
               <ShieldCheck size={14} color="var(--secondary)" />

@@ -14,6 +14,7 @@ router.get('/', requireAdmin, async (req, res) => {
     const sDate = startDate || `${currentMonth}-01`;
     const eDate = endDate || today;
 
+    const agentId = req.agentId || 1;
     let data = [];
     let title = 'Report';
 
@@ -28,10 +29,10 @@ router.get('/', requireAdmin, async (req, res) => {
                  SUM(CASE WHEN status = 'DELIVERED' THEN delivery_charge_snapshot ELSE 0 END) as delivery_charges,
                  SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as total_sales
           FROM deliveries
-          WHERE delivery_date >= ? AND delivery_date <= ?
+          WHERE delivery_date >= ? AND delivery_date <= ? AND agent_id = ?
           GROUP BY delivery_date
           ORDER BY delivery_date DESC
-        `).all(sDate, eDate);
+        `).all(sDate, eDate, agentId);
         break;
 
       case 'MONTHLY_SALES':
@@ -42,9 +43,10 @@ router.get('/', requireAdmin, async (req, res) => {
                  SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END) as completed_deliveries,
                  SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as total_revenue
           FROM deliveries
+          WHERE agent_id = ?
           GROUP BY SUBSTR(delivery_date, 1, 7)
           ORDER BY month DESC
-        `).all();
+        `).all(agentId);
         break;
 
       case 'PRODUCT_SALES':
@@ -59,10 +61,10 @@ router.get('/', requireAdmin, async (req, res) => {
                  SUM(delivery_charge_snapshot) as delivery_charges_collected,
                  SUM(total_amount) as total_revenue
           FROM deliveries
-          WHERE delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED'
+          WHERE delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED' AND agent_id = ?
           GROUP BY product_id, product_name_snapshot, variant_snapshot
           ORDER BY total_revenue DESC
-        `).all(sDate, eDate);
+        `).all(sDate, eDate, agentId);
         break;
 
       case 'CUSTOMER_SALES':
@@ -78,10 +80,11 @@ router.get('/', requireAdmin, async (req, res) => {
                  c.advance_balance,
                  c.pending_balance
           FROM customers c
-          LEFT JOIN deliveries d ON c.id = d.customer_id AND d.delivery_date >= ? AND d.delivery_date <= ? AND d.status = 'DELIVERED'
+          LEFT JOIN deliveries d ON c.id = d.customer_id AND d.delivery_date >= ? AND d.delivery_date <= ? AND d.status = 'DELIVERED' AND d.agent_id = ?
+          WHERE c.agent_id = ?
           GROUP BY c.id
           ORDER BY total_bill_amount DESC
-        `).all(sDate, eDate);
+        `).all(sDate, eDate, agentId, agentId);
         break;
 
       case 'COLLECTIONS':
@@ -97,9 +100,9 @@ router.get('/', requireAdmin, async (req, res) => {
                  p.amount
           FROM payments p
           JOIN customers c ON p.customer_id = c.id
-          WHERE p.payment_date >= ? AND p.payment_date <= ?
+          WHERE p.payment_date >= ? AND p.payment_date <= ? AND p.agent_id = ?
           ORDER BY p.payment_date DESC
-        `).all(sDate, eDate);
+        `).all(sDate, eDate, agentId);
         break;
 
       case 'PENDING_PAYMENTS':
@@ -108,9 +111,9 @@ router.get('/', requireAdmin, async (req, res) => {
           SELECT c.id, c.name, c.phone, c.address, c.customer_category, c.billing_type, c.route,
                  c.pending_balance, c.advance_balance
           FROM customers c
-          WHERE c.pending_balance > 0 AND c.status = 'ACTIVE'
+          WHERE c.pending_balance > 0 AND c.status = 'ACTIVE' AND c.agent_id = ?
           ORDER BY c.pending_balance DESC
-        `).all();
+        `).all(agentId);
         break;
 
       case 'ADVANCE_BALANCES':
@@ -119,9 +122,9 @@ router.get('/', requireAdmin, async (req, res) => {
           SELECT c.id, c.name, c.phone, c.address, c.customer_category, c.billing_type, c.route,
                  c.advance_balance, c.pending_balance
           FROM customers c
-          WHERE c.advance_balance > 0 AND c.status = 'ACTIVE'
+          WHERE c.advance_balance > 0 AND c.status = 'ACTIVE' AND c.agent_id = ?
           ORDER BY c.advance_balance DESC
-        `).all();
+        `).all(agentId);
         break;
 
       case 'EXPENSES':
@@ -129,9 +132,9 @@ router.get('/', requireAdmin, async (req, res) => {
         data = await db.prepare(`
           SELECT expense_date, category, amount, payment_method, recipient_name, description
           FROM expenses
-          WHERE expense_date >= ? AND expense_date <= ?
+          WHERE expense_date >= ? AND expense_date <= ? AND agent_id = ?
           ORDER BY expense_date DESC
-        `).all(sDate, eDate);
+        `).all(sDate, eDate, agentId);
         break;
 
       default:

@@ -3,6 +3,8 @@ import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
 import BillInvoiceModal from './BillInvoiceModal';
+import ProductPacketImage from '../../components/ProductPacketImage';
+import CustomerSubscriptionsManager from '../../components/subscription/CustomerSubscriptionsManager';
 import {
   User,
   Phone,
@@ -20,15 +22,33 @@ import {
   Eye,
   RefreshCw,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Minus,
+  Plus,
+  Play,
+  Pause,
+  Sliders
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
-export default function CustomerProfileModal({ customerId, isOpen, onClose, onRefreshList }) {
+export default function CustomerProfileModal({
+  customerId,
+  isOpen,
+  onClose,
+  onRefreshList,
+  initialTab = 'overview',
+  onEditCustomer
+}) {
   const [profile, setProfile] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'subscriptions' | 'deliveries' | 'bills' | 'payments' | 'ledger'
+  const [activeTab, setActiveTab] = useState(initialTab || 'overview'); // 'overview' | 'subscriptions' | 'deliveries' | 'bills' | 'payments' | 'ledger'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab || 'overview');
+    }
+  }, [isOpen, initialTab]);
 
   // Default start date to 1st of current month
   const todayStr = getLocalDateString();
@@ -131,10 +151,31 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
       quantity: sub.quantity,
       frequency: sub.frequency || 'DAILY',
       start_date: sub.start_date || currentMonthFirstDay,
-      end_date: sub.end_date || ''
+      end_date: sub.end_date || '',
+      is_active: sub.is_active !== undefined ? sub.is_active : 1,
+      product_name: sub.product_name,
+      variant_label: sub.variant_label,
+      selling_price: sub.selling_price,
+      category: sub.category,
+      image_url: sub.image_url
     });
     setSubError('');
     setShowAddSub(true);
+  };
+
+  const handleTogglePauseSubscription = async (sub) => {
+    try {
+      setSubLoading(true);
+      await api.put(`/customers/${customerId}/subscriptions/${sub.id}`, {
+        is_active: (sub.is_active === 1 || sub.is_active === true) ? 0 : 1
+      });
+      await fetchCustomerProfile();
+      onRefreshList?.();
+    } catch (err) {
+      alert(err.message || 'Failed to update subscription status');
+    } finally {
+      setSubLoading(false);
+    }
   };
 
   const handleSaveSubscription = async (e) => {
@@ -143,20 +184,27 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
       setSubLoading(true);
       setSubError('');
       if (editingSubId) {
-        await api.put(`/customers/${customerId}/subscriptions/${editingSubId}`, subForm);
+        await api.put(`/customers/${customerId}/subscriptions/${editingSubId}`, {
+          product_id: subForm.product_id,
+          quantity: parseInt(subForm.quantity) || 1,
+          frequency: subForm.frequency || 'DAILY',
+          start_date: subForm.start_date,
+          end_date: subForm.end_date || null,
+          is_active: subForm.is_active !== undefined ? subForm.is_active : 1
+        });
       } else {
         const payload = subItems.length > 1
           ? {
               items: subItems.map(it => ({
                 product_id: it.product_id,
-                quantity: it.quantity,
+                quantity: parseInt(it.quantity) || 1,
                 start_date: subForm.start_date,
                 frequency: 'DAILY'
               }))
             }
           : {
               product_id: subItems[0]?.product_id || subForm.product_id,
-              quantity: subItems[0]?.quantity || subForm.quantity,
+              quantity: parseInt(subItems[0]?.quantity || subForm.quantity) || 1,
               frequency: 'DAILY',
               start_date: subForm.start_date
             };
@@ -185,6 +233,7 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
   };
 
   const handleGenerateOrRecalculateBill = async (targetMonth = null) => {
+    if (billLoading) return;
     const monthToUse = targetMonth || new Date().toISOString().slice(0, 7);
     try {
       setBillLoading(true);
@@ -206,6 +255,7 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
   };
 
   const handleRecalculateSpecificBill = async (billId) => {
+    if (billLoading) return;
     try {
       setBillLoading(true);
       const res = await api.post(`/bills/${billId}/regenerate`);
@@ -282,6 +332,53 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
             </div>
           </div>
 
+          {/* Quick Action Bar */}
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '8px',
+            marginBottom: '16px',
+            padding: '10px 14px',
+            background: '#f1f5f9',
+            borderRadius: 'var(--radius-md)',
+            alignItems: 'center'
+          }}>
+            <button
+              type="button"
+              onClick={() => setActiveTab('subscriptions')}
+              className={`btn btn-sm ${activeTab === 'subscriptions' ? 'btn-primary' : 'btn-outline'}`}
+              style={{ fontSize: '0.8rem', fontWeight: '700' }}
+            >
+              <Calendar size={14} /> View Subscription ({profile.subscriptions?.length || 0})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('subscriptions');
+                handleOpenAddSub();
+              }}
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '0.8rem', fontWeight: '700', color: '#166534', borderColor: '#bbf7d0', background: '#dcfce7' }}
+            >
+              <PlusCircle size={14} /> Modify / Add Subscription
+            </button>
+
+            {onEditCustomer && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onEditCustomer(customer);
+                }}
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.8rem', fontWeight: '700', marginLeft: 'auto' }}
+              >
+                <Edit2 size={14} /> Edit Customer Details
+              </button>
+            )}
+          </div>
+
           {/* Navigation Tabs */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', gap: '8px', marginBottom: '16px', overflowX: 'auto' }}>
             {[
@@ -344,227 +441,20 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
 
           {/* TAB: SUBSCRIPTIONS */}
           {activeTab === 'subscriptions' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div>
-                  <h4 style={{ fontSize: '0.9rem', margin: 0 }}>Active Delivery Subscriptions</h4>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
-                    Subscriptions evaluate day-by-day. Changing start date to 1st of month bills for the entire month.
-                  </p>
-                </div>
-                <button onClick={handleOpenAddSub} className="btn btn-primary btn-sm">
-                  <PlusCircle size={15} /> Add Subscription
-                </button>
-              </div>
-
-              {showAddSub && (
-                <form onSubmit={handleSaveSubscription} className="card" style={{ marginBottom: '16px', background: '#f8fafc', padding: '16px', border: '1px solid var(--primary-light)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <h5 style={{ fontSize: '0.875rem', margin: 0, fontWeight: '700', color: 'var(--primary)' }}>
-                      {editingSubId ? 'Edit Delivery Subscription' : 'New Delivery Subscription'}
-                    </h5>
-                    {!editingSubId && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        Select one or more products for daily delivery
-                      </span>
-                    )}
-                  </div>
-                  {subError && <div style={{ color: 'var(--accent-red)', fontSize: '0.8rem', marginBottom: '8px' }}>{subError}</div>}
-
-                  {editingSubId ? (
-                    /* Edit Single Subscription */
-                    <div className="form-row">
-                      <div className="form-group" style={{ flex: 1.5 }}>
-                        <label className="form-label">Product</label>
-                        <select
-                          className="form-select"
-                          value={subForm.product_id}
-                          onChange={(e) => setSubForm({ ...subForm, product_id: e.target.value })}
-                          required
-                        >
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.variant_label}) - ₹{p.selling_price}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="form-group" style={{ flex: 0.8 }}>
-                        <label className="form-label">Quantity / Day</label>
-                        <input
-                          type="number"
-                          min="1"
-                          className="form-input"
-                          value={subForm.quantity}
-                          onChange={(e) => setSubForm({ ...subForm, quantity: parseInt(e.target.value) || 1 })}
-                          required
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    /* Multi-Product Subscription Creation */
-                    <div>
-                      {subItems.map((item, idx) => (
-                        <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', marginBottom: '10px' }}>
-                          <div className="form-group" style={{ flex: 2, marginBottom: 0 }}>
-                            <label className="form-label" style={{ fontSize: '0.75rem' }}>
-                              {idx === 0 ? 'Product / Milk 1' : `Additional Product / Milk ${idx + 1}`}
-                            </label>
-                            <select
-                              className="form-select"
-                              value={item.product_id}
-                              onChange={(e) => handleSubItemChange(idx, 'product_id', e.target.value)}
-                              required
-                            >
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>{p.name} ({p.variant_label}) - ₹{p.selling_price}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="form-group" style={{ flex: 0.8, marginBottom: 0 }}>
-                            <label className="form-label" style={{ fontSize: '0.75rem' }}>Qty / Day</label>
-                            <input
-                              type="number"
-                              min="1"
-                              className="form-input"
-                              value={item.quantity}
-                              onChange={(e) => handleSubItemChange(idx, 'quantity', parseInt(e.target.value) || 1)}
-                              required
-                            />
-                          </div>
-
-                          {subItems.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveSubItem(idx)}
-                              className="btn btn-outline btn-sm"
-                              style={{ color: 'var(--accent-red)', borderColor: '#fca5a5', height: '36px', padding: '0 8px' }}
-                              title="Remove product"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-
-                      <div style={{ marginTop: '6px', marginBottom: '14px' }}>
-                        <button
-                          type="button"
-                          onClick={handleAddSubItem}
-                          className="btn btn-outline btn-sm"
-                          style={{ fontSize: '0.813rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                        >
-                          <PlusCircle size={15} /> Add Additional Product (e.g. Shubham Milk + Toned Milk)
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Start Date row */}
-                  <div className="form-row" style={{ marginTop: '8px' }}>
-                    <div className="form-group" style={{ flex: 1.2 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label className="form-label" style={{ marginBottom: 0 }}>Delivery Start Date</label>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          <button
-                            type="button"
-                            className="btn btn-outline"
-                            style={{ fontSize: '0.68rem', padding: '1px 6px', height: 'auto' }}
-                            onClick={() => setSubForm({ ...subForm, start_date: currentMonthFirstDay })}
-                          >
-                            1st of Month
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-outline"
-                            style={{ fontSize: '0.68rem', padding: '1px 6px', height: 'auto' }}
-                            onClick={() => setSubForm({ ...subForm, start_date: todayStr })}
-                          >
-                            Today
-                          </button>
-                        </div>
-                      </div>
-                      <input
-                        type="date"
-                        className="form-input"
-                        style={{ marginTop: '4px' }}
-                        value={subForm.start_date}
-                        onChange={(e) => setSubForm({ ...subForm, start_date: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.78rem', color: '#065f46', marginBottom: '12px' }}>
-                    🥛 <strong>Combined Milk Rule:</strong> When delivering multiple milk types (e.g. Shubham + Toned), total milk volume is combined for delivery charge (1L = ₹3, 500ml = ₹2).
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
-                    <button type="button" onClick={() => { setShowAddSub(false); setEditingSubId(null); }} className="btn btn-outline btn-sm">Cancel</button>
-                    <button type="submit" className="btn btn-primary btn-sm" disabled={subLoading}>
-                      {subLoading ? 'Saving...' : editingSubId ? 'Update & Save Subscription' : subItems.length > 1 ? `Save ${subItems.length} Subscriptions` : 'Save Subscription'}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {profile.subscriptions?.length === 0 ? (
-                <EmptyState title="No active subscriptions" description="Click Add Subscription to setup daily milk or curd delivery." />
-              ) : (
-                <div className="table-container">
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>Product</th>
-                        <th>Variant</th>
-                        <th>Qty/Day</th>
-                        <th>Unit Price</th>
-                        <th>Start Date</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {profile.subscriptions.map((s) => (
-                        <tr key={s.id}>
-                          <td style={{ fontWeight: '700' }}>{s.product_name}</td>
-                          <td>{s.variant_label}</td>
-                          <td style={{ fontWeight: '800', color: 'var(--primary)' }}>{s.quantity}</td>
-                          <td>₹{s.selling_price}</td>
-                          <td>
-                            <span style={{ fontWeight: '600' }}>{s.start_date}</span>
-                            {s.start_date === currentMonthFirstDay && (
-                              <span style={{ marginLeft: '6px', fontSize: '0.7rem', color: '#16a34a', fontWeight: '700' }}>(1st of Month)</span>
-                            )}
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <button
-                                onClick={() => handleOpenEditSub(s)}
-                                className="btn btn-outline btn-sm"
-                                style={{ padding: '4px 8px' }}
-                                title="Edit subscription start date / quantity"
-                              >
-                                <Edit2 size={13} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteSubscription(s.id)}
-                                className="btn btn-outline btn-sm"
-                                style={{ color: 'var(--accent-red)', padding: '4px 8px' }}
-                                title="Delete subscription"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <CustomerSubscriptionsManager
+                customerId={customerId}
+                customerName={customer.name}
+                subscriptions={profile.subscriptions || []}
+                products={products}
+                onRefresh={async () => {
+                  await fetchCustomerProfile();
+                  onRefreshList?.();
+                }}
+              />
 
               {profile.subscriptions?.length > 0 && customer.billing_type === 'PREPAID' && (
-                <div style={{ marginTop: '16px', padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ marginTop: '8px', padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <div style={{ fontSize: '0.8rem', color: '#166534' }}>
                     <strong>Monthly Bill Sync:</strong> Changed subscription start date to 1st of month? Recalculate bill to apply full month.
                   </div>
@@ -588,38 +478,61 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
               {profile.deliveries?.length === 0 ? (
                 <EmptyState title="No delivery records found" description="Deliveries recorded by delivery boy will appear here." />
               ) : (
-                <div className="table-container">
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Product</th>
-                        <th>Qty</th>
-                        <th>Product Amount</th>
-                        <th>Del Charge</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {profile.deliveries.map((d) => (
-                        <tr key={d.id}>
-                          <td style={{ fontWeight: '600' }}>{d.delivery_date}</td>
-                          <td>{d.product_name_snapshot} ({d.variant_snapshot})</td>
-                          <td>{d.quantity}</td>
-                          <td>₹{d.total_product_amount?.toFixed(2)}</td>
-                          <td>₹{d.delivery_charge_snapshot?.toFixed(2)}</td>
-                          <td style={{ fontWeight: '700' }}>₹{d.total_amount?.toFixed(2)}</td>
-                          <td>
-                            <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
-                              {d.status}
-                            </span>
-                          </td>
+                <>
+                  <div className="table-container desktop-only">
+                    <table className="custom-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Product</th>
+                          <th>Qty</th>
+                          <th>Product Amount</th>
+                          <th>Del Charge</th>
+                          <th>Total</th>
+                          <th>Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {profile.deliveries.map((d) => (
+                          <tr key={d.id}>
+                            <td style={{ fontWeight: '600' }}>{d.delivery_date}</td>
+                            <td>{d.product_name_snapshot} ({d.variant_snapshot})</td>
+                            <td>{d.quantity}</td>
+                            <td>₹{d.total_product_amount?.toFixed(2)}</td>
+                            <td>₹{d.delivery_charge_snapshot?.toFixed(2)}</td>
+                            <td style={{ fontWeight: '700' }}>₹{d.total_amount?.toFixed(2)}</td>
+                            <td>
+                              <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
+                                {d.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mobile-only mobile-card-list">
+                    {profile.deliveries.map((d) => (
+                      <div key={d.id} className="mobile-data-card" style={{ padding: '12px' }}>
+                        <div className="mobile-card-header">
+                          <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{d.delivery_date}</span>
+                          <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
+                            {d.status}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>
+                          {d.product_name_snapshot} ({d.variant_snapshot}) × {d.quantity} pkt
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-muted)', borderTop: '1px dashed #e2e8f0', paddingTop: '6px' }}>
+                          <span>Product: ₹{d.total_product_amount?.toFixed(2)}</span>
+                          <span>Del: ₹{d.delivery_charge_snapshot?.toFixed(2)}</span>
+                          <span style={{ fontWeight: '800', color: 'var(--text-primary)' }}>Total: ₹{d.total_amount?.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -656,60 +569,103 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
                   }
                 />
               ) : (
-                <div className="table-container">
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>Bill #</th>
-                        <th>Month</th>
-                        <th>Type</th>
-                        <th>Gross</th>
-                        <th>Adv Used</th>
-                        <th>Net Payable</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {profile.bills.map((b) => (
-                        <tr key={b.id}>
-                          <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{b.bill_number}</td>
-                          <td>{b.billing_month}</td>
-                          <td><span className="badge badge-gray">{b.billing_type}</span></td>
-                          <td>₹{b.gross_amount?.toFixed(2)}</td>
-                          <td style={{ color: '#16a34a' }}>₹{b.advance_adjusted?.toFixed(2)}</td>
-                          <td style={{ fontWeight: '800' }}>₹{b.net_payable?.toFixed(2)}</td>
-                          <td>
-                            <span className={`badge ${b.status === 'PAID' || b.status === 'ADVANCE_PAID' ? 'badge-success' : b.status === 'PARTIALLY_PAID' ? 'badge-warning' : 'badge-danger'}`}>
-                              {b.status}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <button
-                                onClick={() => setSelectedBillId(b.id)}
-                                className="btn btn-outline btn-sm"
-                                style={{ padding: '4px 8px' }}
-                                title="View & Print Invoice"
-                              >
-                                <Eye size={13} />
-                              </button>
-                              <button
-                                onClick={() => handleRecalculateSpecificBill(b.id)}
-                                className="btn btn-outline btn-sm"
-                                style={{ padding: '4px 8px' }}
-                                title="Recalculate Bill (apply updated subscription dates)"
-                                disabled={billLoading}
-                              >
-                                <RotateCcw size={13} />
-                              </button>
-                            </div>
-                          </td>
+                <>
+                  <div className="table-container desktop-only">
+                    <table className="custom-table">
+                      <thead>
+                        <tr>
+                          <th>Bill #</th>
+                          <th>Month</th>
+                          <th>Type</th>
+                          <th>Gross</th>
+                          <th>Adv Used</th>
+                          <th>Net Payable</th>
+                          <th>Status</th>
+                          <th>Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {profile.bills.map((b) => (
+                          <tr key={b.id}>
+                            <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{b.bill_number}</td>
+                            <td>{b.billing_month}</td>
+                            <td><span className="badge badge-gray">{b.billing_type}</span></td>
+                            <td>₹{b.gross_amount?.toFixed(2)}</td>
+                            <td style={{ color: '#16a34a' }}>₹{b.advance_adjusted?.toFixed(2)}</td>
+                            <td style={{ fontWeight: '800' }}>₹{b.net_payable?.toFixed(2)}</td>
+                            <td>
+                              <span className={`badge ${b.status === 'PAID' || b.status === 'ADVANCE_PAID' ? 'badge-success' : b.status === 'PARTIALLY_PAID' ? 'badge-warning' : 'badge-danger'}`}>
+                                {b.status}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                <button
+                                  onClick={() => setSelectedBillId(b.id)}
+                                  className="btn btn-outline btn-sm"
+                                  style={{ padding: '4px 8px' }}
+                                  title="View & Print Invoice"
+                                >
+                                  <Eye size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handleRecalculateSpecificBill(b.id)}
+                                  className="btn btn-outline btn-sm"
+                                  style={{ padding: '4px 8px' }}
+                                  title="Recalculate Bill (apply updated subscription dates)"
+                                  disabled={billLoading}
+                                >
+                                  <RotateCcw size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mobile-only mobile-card-list">
+                    {profile.bills.map((b) => (
+                      <div key={b.id} className="mobile-data-card" style={{ padding: '12px' }}>
+                        <div className="mobile-card-header">
+                          <div>
+                            <span style={{ fontWeight: '800', color: 'var(--primary)', fontFamily: 'monospace', fontSize: '0.78rem' }}>{b.bill_number}</span>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Month: {b.billing_month}</div>
+                          </div>
+                          <span className={`badge ${b.status === 'PAID' || b.status === 'ADVANCE_PAID' ? 'badge-success' : b.status === 'PARTIALLY_PAID' ? 'badge-warning' : 'badge-danger'}`}>
+                            {b.status}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f8fafc', borderRadius: '8px', fontSize: '0.8rem' }}>
+                          <div>Gross: <strong>₹{b.gross_amount?.toFixed(2)}</strong></div>
+                          <div style={{ color: '#16a34a' }}>Adv: <strong>₹{b.advance_adjusted?.toFixed(2)}</strong></div>
+                          <div style={{ color: b.net_payable > 0 ? '#dc2626' : '#16a34a' }}>Net: <strong>₹{b.net_payable?.toFixed(2)}</strong></div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBillId(b.id)}
+                            className="btn btn-primary btn-sm"
+                            style={{ flex: 1, minHeight: '34px', fontSize: '0.78rem' }}
+                          >
+                            <Eye size={13} /> View Invoice
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRecalculateSpecificBill(b.id)}
+                            className="btn btn-outline btn-sm"
+                            style={{ minHeight: '34px', padding: '4px 10px' }}
+                            title="Recalculate"
+                            disabled={billLoading}
+                          >
+                            <RotateCcw size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -720,30 +676,49 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
               {profile.payments?.length === 0 ? (
                 <EmptyState title="No payments recorded" description="Payment transactions recorded will appear here." />
               ) : (
-                <div className="table-container">
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>Receipt #</th>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Method</th>
-                        <th>Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {profile.payments.map((p) => (
-                        <tr key={p.id}>
-                          <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{p.receipt_number}</td>
-                          <td>{p.payment_date}</td>
-                          <td>{p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance' : 'Postpaid'}</td>
-                          <td><span className="badge badge-gray">{p.payment_method}</span></td>
-                          <td style={{ fontWeight: '800', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</td>
+                <>
+                  <div className="table-container desktop-only">
+                    <table className="custom-table">
+                      <thead>
+                        <tr>
+                          <th>Receipt #</th>
+                          <th>Date</th>
+                          <th>Type</th>
+                          <th>Method</th>
+                          <th>Amount</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {profile.payments.map((p) => (
+                          <tr key={p.id}>
+                            <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{p.receipt_number}</td>
+                            <td>{p.payment_date}</td>
+                            <td>{p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance' : 'Postpaid'}</td>
+                            <td><span className="badge badge-gray">{p.payment_method}</span></td>
+                            <td style={{ fontWeight: '800', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mobile-only mobile-card-list">
+                    {profile.payments.map((p) => (
+                      <div key={p.id} className="mobile-data-card" style={{ padding: '12px' }}>
+                        <div className="mobile-card-header">
+                          <div>
+                            <span style={{ fontWeight: '800', color: 'var(--primary)', fontFamily: 'monospace', fontSize: '0.78rem' }}>{p.receipt_number}</span>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.payment_date} • {p.payment_method}</div>
+                          </div>
+                          <span style={{ fontWeight: '800', fontSize: '1.05rem', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</span>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          Type: {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Postpaid Settlement'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -754,41 +729,65 @@ export default function CustomerProfileModal({ customerId, isOpen, onClose, onRe
               {profile.ledger?.length === 0 ? (
                 <EmptyState title="No ledger records yet" description="Ledger entries are created automatically on each transaction." />
               ) : (
-                <div className="table-container">
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Transaction</th>
-                        <th>Debit (+)</th>
-                        <th>Credit (-)</th>
-                        <th>Adv Balance</th>
-                        <th>Pending Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {profile.ledger.map((l) => (
-                        <tr key={l.id}>
-                          <td>{l.transaction_date}</td>
-                          <td>
-                            <div style={{ fontWeight: '600', fontSize: '0.813rem' }}>{l.transaction_type}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{l.description}</div>
-                          </td>
-                          <td style={{ color: l.debit > 0 ? '#dc2626' : 'inherit', fontWeight: l.debit > 0 ? '700' : 'normal' }}>
-                            {l.debit > 0 ? `₹${l.debit?.toFixed(2)}` : '-'}
-                          </td>
-                          <td style={{ color: l.credit > 0 ? '#16a34a' : 'inherit', fontWeight: l.credit > 0 ? '700' : 'normal' }}>
-                            {l.credit > 0 ? `₹${l.credit?.toFixed(2)}` : '-'}
-                          </td>
-                          <td style={{ fontWeight: '700', color: '#16a34a' }}>₹{l.advance_balance_after?.toFixed(2)}</td>
-                          <td style={{ fontWeight: '700', color: l.pending_balance_after > 0 ? '#dc2626' : 'inherit' }}>
-                            ₹{l.pending_balance_after?.toFixed(2)}
-                          </td>
+                <>
+                  <div className="table-container desktop-only">
+                    <table className="custom-table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Transaction</th>
+                          <th>Debit (+)</th>
+                          <th>Credit (-)</th>
+                          <th>Adv Balance</th>
+                          <th>Pending Balance</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {profile.ledger.map((l) => (
+                          <tr key={l.id}>
+                            <td>{l.transaction_date}</td>
+                            <td>
+                              <div style={{ fontWeight: '600', fontSize: '0.813rem' }}>{l.transaction_type}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{l.description}</div>
+                            </td>
+                            <td style={{ color: l.debit > 0 ? '#dc2626' : 'inherit', fontWeight: l.debit > 0 ? '700' : 'normal' }}>
+                              {l.debit > 0 ? `₹${l.debit?.toFixed(2)}` : '-'}
+                            </td>
+                            <td style={{ color: l.credit > 0 ? '#16a34a' : 'inherit', fontWeight: l.credit > 0 ? '700' : 'normal' }}>
+                              {l.credit > 0 ? `₹${l.credit?.toFixed(2)}` : '-'}
+                            </td>
+                            <td style={{ fontWeight: '700', color: '#16a34a' }}>₹{l.advance_balance_after?.toFixed(2)}</td>
+                            <td style={{ fontWeight: '700', color: l.pending_balance_after > 0 ? '#dc2626' : 'inherit' }}>
+                              ₹{l.pending_balance_after?.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mobile-only mobile-card-list">
+                    {profile.ledger.map((l) => (
+                      <div key={l.id} className="mobile-data-card" style={{ padding: '12px' }}>
+                        <div className="mobile-card-header">
+                          <div>
+                            <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{l.transaction_type}</span>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{l.transaction_date}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            {l.debit > 0 && <span style={{ color: '#dc2626', fontWeight: '800' }}>+₹{l.debit?.toFixed(2)}</span>}
+                            {l.credit > 0 && <span style={{ color: '#16a34a', fontWeight: '800' }}>-₹{l.credit?.toFixed(2)}</span>}
+                          </div>
+                        </div>
+                        {l.description && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{l.description}</div>}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', borderTop: '1px dashed #e2e8f0', paddingTop: '6px', marginTop: '2px' }}>
+                          <span>Adv Bal: <strong style={{ color: '#16a34a' }}>₹{l.advance_balance_after?.toFixed(2)}</strong></span>
+                          <span>Pending: <strong style={{ color: l.pending_balance_after > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{l.pending_balance_after?.toFixed(2)}</strong></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}

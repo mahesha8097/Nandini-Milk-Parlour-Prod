@@ -8,15 +8,16 @@ const { getLocalDateString } = require('../utils/dateUtils');
 // Get all Delivery Boys (Admin only)
 router.get('/', requireAdmin, async (req, res) => {
   try {
+    const agentId = req.agentId || 1;
     const deliveryBoys = await db.prepare(`
       SELECT u.id, u.name, u.username, u.role, u.phone, u.email, u.is_active,
              u.assigned_route, u.created_at,
-             (SELECT COUNT(*) FROM customers c WHERE c.delivery_boy_id = u.id) as assigned_customers_count,
-             (SELECT COUNT(*) FROM deliveries d WHERE d.delivery_boy_id = u.id AND d.status = 'DELIVERED') as total_deliveries_count
+             (SELECT COUNT(*) FROM customers c WHERE c.delivery_boy_id = u.id AND c.agent_id = ?) as assigned_customers_count,
+             (SELECT COUNT(*) FROM deliveries d WHERE d.delivery_boy_id = u.id AND d.status = 'DELIVERED' AND d.agent_id = ?) as total_deliveries_count
       FROM users u
-      WHERE u.role = 'DELIVERY_BOY'
+      WHERE u.role = 'DELIVERY_BOY' AND u.agent_id = ?
       ORDER BY u.name ASC
-    `).all();
+    `).all(agentId, agentId, agentId);
 
     res.json(deliveryBoys);
   } catch (err) {
@@ -28,11 +29,12 @@ router.get('/', requireAdmin, async (req, res) => {
 // Get single Delivery Boy details & performance stats (Admin only)
 router.get('/:id', requireAdmin, async (req, res) => {
   try {
+    const agentId = req.agentId || 1;
     const dboy = await db.prepare(`
       SELECT id, name, username, role, phone, email, is_active, assigned_route, created_at
       FROM users
-      WHERE id = ? AND role = 'DELIVERY_BOY'
-    `).get(req.params.id);
+      WHERE id = ? AND role = 'DELIVERY_BOY' AND agent_id = ?
+    `).get(req.params.id, agentId);
 
     if (!dboy) {
       return res.status(404).json({ error: 'Delivery boy not found' });
@@ -41,9 +43,9 @@ router.get('/:id', requireAdmin, async (req, res) => {
     const assignedCustomers = await db.prepare(`
       SELECT id, name, phone, address, customer_category, billing_type, route, status
       FROM customers
-      WHERE delivery_boy_id = ?
+      WHERE delivery_boy_id = ? AND agent_id = ?
       ORDER BY route ASC, name ASC
-    `).all(dboy.id);
+    `).all(dboy.id, agentId);
 
     const todayStr = getLocalDateString();
     const todayStats = await db.prepare(`
@@ -53,8 +55,8 @@ router.get('/:id', requireAdmin, async (req, res) => {
         SUM(CASE WHEN status = 'SKIPPED' THEN 1 ELSE 0 END) as skipped_today,
         SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_today
       FROM deliveries
-      WHERE delivery_boy_id = ? AND delivery_date = ?
-    `).get(dboy.id, todayStr);
+      WHERE delivery_boy_id = ? AND delivery_date = ? AND agent_id = ?
+    `).get(dboy.id, todayStr, agentId);
 
     res.json({
       deliveryBoy: dboy,
@@ -88,12 +90,13 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
+    const agentId = req.agentId || 1;
 
     const stmt = db.prepare(`
       INSERT INTO users (
         name, username, password_hash, role, phone, email, assigned_route,
-        is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, 'DELIVERY_BOY', ?, ?, ?, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        is_active, agent_id, created_at, updated_at
+      ) VALUES (?, ?, ?, 'DELIVERY_BOY', ?, ?, ?, 1, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
     `);
 
     const result = await stmt.run(
@@ -102,7 +105,8 @@ router.post('/', requireAdmin, async (req, res) => {
       passwordHash,
       phone ? phone.trim() : '',
       email ? email.trim() : '',
-      assigned_route ? assigned_route.trim() : ''
+      assigned_route ? assigned_route.trim() : '',
+      agentId
     );
 
     const created = await db.prepare('SELECT id, name, username, role, phone, email, assigned_route, is_active, created_at FROM users WHERE id = ?').get(result.lastInsertRowid);

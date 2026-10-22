@@ -15,9 +15,10 @@ router.get('/', requireAdmin, async (req, res) => {
       FROM payments p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN users u ON p.recorded_by_user_id = u.id
-      WHERE 1=1
+      WHERE (p.agent_id = ? OR c.agent_id = ?)
     `;
-    const params = [];
+    const agentId = req.agentId || 1;
+    const params = [agentId, agentId];
 
     if (customer_id) {
       query += ` AND p.customer_id = ?`;

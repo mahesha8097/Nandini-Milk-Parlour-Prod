@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS products (
   fixed_delivery_charge DOUBLE PRECISION DEFAULT 0,
   is_active INTEGER DEFAULT 1,
   image_url TEXT,
+  agent_id INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+  updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+-- 5b. Zones table (Apartment, villa community, gated community, or delivery cluster)
+CREATE TABLE IF NOT EXISTS zones (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT,
+  route_order INTEGER DEFAULT 0,
+  image_url TEXT,
+  agent_id INTEGER DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
   updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
 );
@@ -88,6 +101,8 @@ CREATE TABLE IF NOT EXISTS customers (
   name TEXT NOT NULL,
   phone TEXT NOT NULL,
   address TEXT NOT NULL,
+  flat_no TEXT,
+  zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL,
   customer_category TEXT NOT NULL CHECK(customer_category IN ('HOUSE', 'BULK_HOTEL')),
   billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID')),
   delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -96,6 +111,7 @@ CREATE TABLE IF NOT EXISTS customers (
   notes TEXT,
   advance_balance DOUBLE PRECISION DEFAULT 0.0,
   pending_balance DOUBLE PRECISION DEFAULT 0.0,
+  agent_id INTEGER DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
   updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
 );
@@ -248,7 +264,27 @@ CREATE TABLE IF NOT EXISTS daily_delivery_requirements (
   UNIQUE(customer_id, product_id, delivery_date)
 );
 
--- 16. Performance Indexes
+-- 16. Delivery Corrections table
+CREATE TABLE IF NOT EXISTS delivery_corrections (
+  id SERIAL PRIMARY KEY,
+  delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  delivery_date TEXT NOT NULL,
+  previous_status TEXT NOT NULL,
+  new_status TEXT NOT NULL,
+  previous_quantity INTEGER NOT NULL,
+  corrected_quantity INTEGER NOT NULL,
+  previous_amount REAL NOT NULL DEFAULT 0,
+  corrected_amount REAL NOT NULL DEFAULT 0,
+  reason TEXT,
+  corrected_by_user_id INTEGER REFERENCES users(id),
+  corrected_by_role TEXT,
+  agent_id INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+-- 17. Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_deliveries_date ON deliveries(delivery_date);
 CREATE INDEX IF NOT EXISTS idx_deliveries_cust ON deliveries(customer_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_dboy ON deliveries(delivery_boy_id);
@@ -259,3 +295,6 @@ CREATE INDEX IF NOT EXISTS idx_ledger_cust ON customer_ledger(customer_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_req_date_cust ON daily_delivery_requirements(delivery_date, customer_id);
 CREATE INDEX IF NOT EXISTS idx_req_date_status ON daily_delivery_requirements(delivery_date, status);
+CREATE INDEX IF NOT EXISTS idx_deliv_corr_deliv ON delivery_corrections(delivery_id);
+CREATE INDEX IF NOT EXISTS idx_deliv_corr_cust ON delivery_corrections(customer_id);
+CREATE INDEX IF NOT EXISTS idx_deliv_corr_date ON delivery_corrections(delivery_date);

@@ -162,56 +162,108 @@ export default function ExpensesPage({ initialOpenAdd = false }) {
           }
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Category</th>
-                <th>Description</th>
-                <th>Recipient</th>
-                <th>Method</th>
-                <th>Amount</th>
-                <th>Recorded By</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map((exp) => (
-                <tr key={exp.id}>
-                  <td>{exp.expense_date}</td>
-                  <td>
-                    <span className="badge badge-indigo">{exp.category}</span>
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: '600' }}>{exp.description || 'N/A'}</div>
-                    {exp.notes && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{exp.notes}</div>}
-                  </td>
-                  <td>{exp.recipient_name || 'N/A'}</td>
-                  <td><span className="badge badge-gray">{exp.payment_method}</span></td>
-                  <td>
-                    <span style={{ fontWeight: '800', color: '#dc2626' }}>
-                      ₹{exp.amount?.toFixed(2)}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>{exp.created_by_name || 'Admin'}</span>
-                  </td>
-                  <td>
-                    <button
-                      onClick={() => handleDeleteExpense(exp.id)}
-                      className="btn btn-outline btn-sm"
-                      style={{ color: 'var(--accent-red)', padding: '4px 8px' }}
-                      title="Delete expense"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Category</th>
+                  <th>Description</th>
+                  <th>Recipient</th>
+                  <th>Method</th>
+                  <th>Amount</th>
+                  <th>Recorded By</th>
+                  <th>Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {expenses.map((exp) => (
+                  <tr key={exp.id}>
+                    <td>{exp.expense_date}</td>
+                    <td>
+                      <span className="badge badge-indigo">{exp.category}</span>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: '600' }}>{exp.description || 'N/A'}</div>
+                      {exp.notes && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{exp.notes}</div>}
+                    </td>
+                    <td>{exp.recipient_name || 'N/A'}</td>
+                    <td><span className="badge badge-gray">{exp.payment_method}</span></td>
+                    <td>
+                      <span style={{ fontWeight: '800', color: '#dc2626' }}>
+                        ₹{exp.amount?.toFixed(2)}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>{exp.created_by_name || 'Admin'}</span>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => handleDeleteExpense(exp.id)}
+                        className="btn btn-outline btn-sm"
+                        style={{ color: 'var(--accent-red)', padding: '4px 8px' }}
+                        title="Delete expense"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Expense Cards */}
+          <div className="mobile-only mobile-card-list">
+            {expenses.map((exp) => (
+              <div key={exp.id} className="mobile-data-card">
+                <div className="mobile-card-header">
+                  <span className="badge badge-indigo" style={{ fontWeight: '800', fontSize: '0.75rem' }}>
+                    {exp.category}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{exp.expense_date}</span>
+                </div>
+
+                <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+                  {exp.description || 'General Business Expense'}
+                </div>
+
+                {exp.recipient_name && (
+                  <div className="mobile-card-row">
+                    <span className="mobile-card-row-label">Paid To</span>
+                    <span className="mobile-card-row-value">{exp.recipient_name}</span>
+                  </div>
+                )}
+
+                <div className="mobile-card-row">
+                  <span className="mobile-card-row-label">Payment Method</span>
+                  <span className="badge badge-gray">{exp.payment_method}</span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#fef2f2', borderRadius: '10px', border: '1px solid #fecaca', marginTop: '2px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.68rem', color: '#991b1b', fontWeight: '700', textTransform: 'uppercase' }}>Amount</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#dc2626' }}>
+                      ₹{exp.amount?.toFixed(2)}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteExpense(exp.id)}
+                    className="btn btn-outline btn-sm"
+                    style={{ color: '#dc2626', borderColor: '#fca5a5', minHeight: '34px', padding: '4px 10px' }}
+                    title="Delete expense"
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Record Expense Modal */}

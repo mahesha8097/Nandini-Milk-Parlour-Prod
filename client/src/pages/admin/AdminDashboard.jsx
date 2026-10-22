@@ -327,34 +327,53 @@ export default function AdminDashboard({ onNavigate }) {
           {(!data?.recentActivity?.deliveries || data.recentActivity.deliveries.length === 0) ? (
             <EmptyState title="No deliveries recorded yet" description="Deliveries will appear here once marked." />
           ) : (
-            <div className="table-container">
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>Customer</th>
-                    <th>Product</th>
-                    <th>Qty</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recentActivity.deliveries.map((del) => (
-                    <tr key={del.id}>
-                      <td style={{ fontWeight: '600' }}>{del.customer_name}</td>
-                      <td>{del.product_name_snapshot} ({del.variant_snapshot})</td>
-                      <td>{del.quantity}</td>
-                      <td style={{ fontWeight: '700' }}>₹{del.total_amount?.toFixed(2)}</td>
-                      <td>
-                        <span className={`badge ${del.status === 'DELIVERED' ? 'badge-success' : del.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
-                          {del.status}
-                        </span>
-                      </td>
+            <>
+              <div className="table-container desktop-only">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Product</th>
+                      <th>Qty</th>
+                      <th>Amount</th>
+                      <th>Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {data.recentActivity.deliveries.map((del) => (
+                      <tr key={del.id}>
+                        <td style={{ fontWeight: '600' }}>{del.customer_name}</td>
+                        <td>{del.product_name_snapshot} ({del.variant_snapshot})</td>
+                        <td>{del.quantity}</td>
+                        <td style={{ fontWeight: '700' }}>₹{del.total_amount?.toFixed(2)}</td>
+                        <td>
+                          <span className={`badge ${del.status === 'DELIVERED' ? 'badge-success' : del.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
+                            {del.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mobile-only mobile-card-list">
+                {data.recentActivity.deliveries.map((del) => (
+                  <div key={del.id} style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '0.875rem' }}>{del.customer_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{del.product_name_snapshot} ({del.variant_snapshot}) × {del.quantity}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: '800', fontSize: '0.9rem', color: 'var(--primary-dark)' }}>₹{del.total_amount?.toFixed(2)}</div>
+                      <span className={`badge ${del.status === 'DELIVERED' ? 'badge-success' : del.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`} style={{ fontSize: '0.68rem' }}>
+                        {del.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
 
@@ -368,30 +387,49 @@ export default function AdminDashboard({ onNavigate }) {
           {(!data?.recentActivity?.payments || data.recentActivity.payments.length === 0) ? (
             <EmptyState title="No payments recorded yet" description="Payments recorded will show up in real-time." />
           ) : (
-            <div className="table-container">
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>Receipt</th>
-                    <th>Customer</th>
-                    <th>Type</th>
-                    <th>Method</th>
-                    <th>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recentActivity.payments.map((p) => (
-                    <tr key={p.id}>
-                      <td style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--primary)' }}>{p.receipt_number}</td>
-                      <td style={{ fontWeight: '600' }}>{p.customer_name}</td>
-                      <td style={{ fontSize: '0.75rem' }}>{p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance' : 'Postpaid'}</td>
-                      <td><span className="badge badge-gray">{p.payment_method}</span></td>
-                      <td style={{ fontWeight: '800', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</td>
+            <>
+              <div className="table-container desktop-only">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Receipt</th>
+                      <th>Customer</th>
+                      <th>Type</th>
+                      <th>Method</th>
+                      <th>Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {data.recentActivity.payments.map((p) => (
+                      <tr key={p.id}>
+                        <td style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--primary)' }}>{p.receipt_number}</td>
+                        <td style={{ fontWeight: '600' }}>{p.customer_name}</td>
+                        <td style={{ fontSize: '0.75rem' }}>{p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance' : 'Postpaid'}</td>
+                        <td><span className="badge badge-gray">{p.payment_method}</span></td>
+                        <td style={{ fontWeight: '800', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mobile-only mobile-card-list">
+                {data.recentActivity.payments.map((p) => (
+                  <div key={p.id} style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '0.875rem' }}>{p.customer_name}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.receipt_number} • {p.payment_method}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</div>
+                      <span className="badge badge-gray" style={{ fontSize: '0.68rem' }}>
+                        {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance' : 'Postpaid'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>

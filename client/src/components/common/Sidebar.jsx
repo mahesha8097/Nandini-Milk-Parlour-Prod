@@ -15,6 +15,7 @@ import {
   UserCheck,
   Settings,
   LogOut,
+  Building2,
   X
 } from 'lucide-react';
 
@@ -25,9 +26,10 @@ export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) 
 
   const adminNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'deliveries', label: 'Daily Deliveries', icon: PackageCheck },
+    { id: 'zones', label: 'Zones', icon: Building2 },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'delivery-boys', label: 'Delivery Boys', icon: Truck },
-    { id: 'deliveries', label: 'Deliveries', icon: PackageCheck },
     { id: 'daily-requirements', label: 'Daily Requirements', icon: ClipboardList },
     { id: 'bills', label: 'Bills', icon: Receipt },
     { id: 'monthly-bill-generate', label: 'Monthly Bill Generate', icon: CalendarDays },
@@ -41,7 +43,8 @@ export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) 
 
   const deliveryNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'deliveries', label: 'My Deliveries', icon: PackageCheck },
+    { id: 'deliveries', label: 'Daily Deliveries', icon: PackageCheck },
+    { id: 'zones', label: 'Zones', icon: Building2 },
     { id: 'customers', label: 'My Customers', icon: Users },
     { id: 'history', label: 'Delivery History', icon: FileBarChart },
     { id: 'profile', label: 'Profile', icon: UserCheck }

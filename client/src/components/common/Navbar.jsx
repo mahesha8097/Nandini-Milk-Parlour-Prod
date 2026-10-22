@@ -10,15 +10,18 @@ export default function Navbar({ onToggleSidebar }) {
       height: '64px',
       background: 'white',
       borderBottom: '1px solid var(--border-color)',
-      padding: '0 24px',
+      padding: '0 16px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
       position: 'sticky',
       top: 0,
-      zIndex: 40
+      zIndex: 40,
+      width: '100%',
+      maxWidth: '100%',
+      boxSizing: 'border-box'
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
         <button
           onClick={onToggleSidebar}
           style={{
@@ -29,17 +32,18 @@ export default function Navbar({ onToggleSidebar }) {
             border: 'none',
             borderRadius: '8px',
             padding: '8px',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            flexShrink: 0
           }}
           aria-label="Toggle menu"
         >
           <Menu size={20} color="#475569" />
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
           <div style={{
-            width: '42px',
-            height: '32px',
+            width: '36px',
+            height: '28px',
             borderRadius: '6px',
             background: 'white',
             border: '1px solid #e2e8f0',
@@ -56,46 +60,47 @@ export default function Navbar({ onToggleSidebar }) {
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
             />
           </div>
-          <div>
-            <span style={{ fontWeight: '800', fontSize: '1rem', color: 'var(--primary-dark)', letterSpacing: '0.02em' }}>NANDINI</span>
-            <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: '6px', fontWeight: '600' }}>MILK PARLOUR</span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', overflow: 'hidden' }}>
+            <span style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--primary-dark)', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>NANDINI</span>
+            <span className="hide-mobile" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', whiteSpace: 'nowrap' }}>MILK PARLOUR</span>
           </div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         {user && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              padding: '6px 12px',
+              gap: '6px',
+              padding: '5px 10px',
               borderRadius: 'var(--radius-full)',
               background: user.role === 'ADMIN' ? 'var(--primary-light)' : '#ecfdf5',
               border: '1px solid #cbd5e1'
             }}>
               {user.role === 'ADMIN' ? (
-                <Shield size={16} color="var(--primary)" />
+                <Shield size={14} color="var(--primary)" />
               ) : (
-                <Truck size={16} color="var(--secondary)" />
+                <Truck size={14} color="var(--secondary)" />
               )}
               <span style={{
-                fontSize: '0.813rem',
+                fontSize: '0.78rem',
                 fontWeight: '700',
-                color: user.role === 'ADMIN' ? 'var(--primary-dark)' : '#065f46'
+                color: user.role === 'ADMIN' ? 'var(--primary-dark)' : '#065f46',
+                whiteSpace: 'nowrap'
               }}>
-                {user.name} ({user.role === 'ADMIN' ? 'Admin' : 'Delivery Boy'})
+                {user.name} <span className="hide-mobile">({user.role === 'ADMIN' ? 'Admin' : 'Delivery Boy'})</span>
               </span>
             </div>
 
             <button
               onClick={logout}
               className="btn btn-outline btn-sm"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px' }}
               title="Logout"
             >
-              <LogOut size={16} />
+              <LogOut size={15} />
               <span className="hide-mobile">Logout</span>
             </button>
           </div>

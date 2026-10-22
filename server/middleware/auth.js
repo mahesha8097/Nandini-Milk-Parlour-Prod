@@ -4,12 +4,14 @@ const db = require('../config/db');
 const JWT_SECRET = process.env.JWT_SECRET || 'nandini-parlour-super-secret-key-2026';
 
 function generateToken(user) {
+  const agentId = user.role === 'ADMIN' ? user.id : (user.agent_id || user.id || 1);
   return jwt.sign(
     {
       id: user.id,
       username: user.username,
       role: user.role,
-      name: user.name
+      name: user.name,
+      agent_id: agentId
     },
     JWT_SECRET,
     { expiresIn: '30d' }
@@ -26,7 +28,7 @@ async function verifyToken(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     // Verify user still exists and is active
-    const user = await db.prepare('SELECT id, name, username, role, is_active, phone FROM users WHERE id = ?').get(decoded.id);
+    const user = await db.prepare('SELECT id, name, username, role, is_active, phone, agent_id FROM users WHERE id = ?').get(decoded.id);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
@@ -34,6 +36,7 @@ async function verifyToken(req, res, next) {
       return res.status(403).json({ error: 'Account is deactivated. Please contact administrator.' });
     }
     req.user = user;
+    req.agentId = user.role === 'ADMIN' ? user.id : (user.agent_id || user.id || 1);
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });

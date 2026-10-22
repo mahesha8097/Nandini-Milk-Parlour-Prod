@@ -51,7 +51,11 @@ export default function DeliveryBoyHistory() {
             className="form-input"
             style={{ width: 'auto', padding: '6px 12px' }}
             value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
+            max={getLocalDateString()}
+            onChange={(e) => {
+              if (e.target.value > getLocalDateString()) return;
+              setSelectedDate(e.target.value);
+            }}
           />
         </div>
       </div>
@@ -67,37 +71,73 @@ export default function DeliveryBoyHistory() {
           description="Select another date to view historical delivery logs."
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Customer</th>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deliveries.map((d) => (
-                <tr key={d.id}>
-                  <td>
-                    <div style={{ fontWeight: '700' }}>{d.customer_name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{d.customer_address}</div>
-                  </td>
-                  <td>{d.product_name_snapshot} ({d.variant_snapshot})</td>
-                  <td>{d.quantity}</td>
-                  <td style={{ fontWeight: '700' }}>₹{d.total_amount?.toFixed(2)}</td>
-                  <td>
-                    <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
-                      {d.status}
-                    </span>
-                  </td>
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Amount</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {deliveries.map((d) => (
+                  <tr key={d.id}>
+                    <td>
+                      <div style={{ fontWeight: '700' }}>{d.customer_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{d.customer_address}</div>
+                    </td>
+                    <td>{d.product_name_snapshot} ({d.variant_snapshot})</td>
+                    <td>{d.quantity}</td>
+                    <td style={{ fontWeight: '700' }}>₹{d.total_amount?.toFixed(2)}</td>
+                    <td>
+                      <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
+                        {d.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Delivery History Cards */}
+          <div className="mobile-only mobile-card-list">
+            {deliveries.map((d) => (
+              <div key={d.id} className="mobile-data-card">
+                <div className="mobile-card-header">
+                  <div>
+                    <h3 className="mobile-card-title">{d.customer_name}</h3>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{d.customer_address}</div>
+                  </div>
+                  <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
+                    {d.status}
+                  </span>
+                </div>
+
+                <div className="mobile-card-row">
+                  <span className="mobile-card-row-label">Product</span>
+                  <span className="mobile-card-row-value">{d.product_name_snapshot} ({d.variant_snapshot})</span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '2px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Quantity</span>
+                    <div style={{ fontSize: '0.95rem', fontWeight: '800' }}>{d.quantity} pkt</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Amount</span>
+                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--primary-dark)' }}>₹{d.total_amount?.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

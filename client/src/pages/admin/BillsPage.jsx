@@ -166,100 +166,188 @@ export default function BillsPage() {
           }
         />
       ) : (
-        <div className="table-container">
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Bill Number</th>
-                <th>Customer</th>
-                <th>Billing Scheme</th>
-                <th>Product Subtotal</th>
-                <th>Delivery Charges</th>
-                <th>Gross Total</th>
-                <th>Advance Deducted</th>
-                <th>Net Payable</th>
-                <th>Advance Remaining</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bills.map((bill) => (
-                <tr key={bill.id}>
-                  <td>
-                    <div style={{ fontWeight: '700', color: 'var(--primary)' }}>{bill.bill_number}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Date: {bill.bill_date}</div>
-                  </td>
-                  <td>
-                    <div style={{ fontWeight: '700' }}>{bill.customer_name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{bill.customer_phone}</div>
-                  </td>
-                  <td>
-                    <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                      {bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                    </span>
-                  </td>
-                  <td>₹{bill.product_subtotal?.toFixed(2)}</td>
-                  <td>
-                    <span style={{ fontWeight: '600', color: bill.delivery_charges_total > 0 ? '#d97706' : 'var(--text-muted)' }}>
-                      ₹{bill.delivery_charges_total?.toFixed(2)}
-                    </span>
-                  </td>
-                  <td style={{ fontWeight: '700' }}>₹{bill.gross_amount?.toFixed(2)}</td>
-                  <td style={{ color: '#16a34a', fontWeight: '700' }}>
-                    {bill.advance_adjusted > 0 ? `- ₹${bill.advance_adjusted?.toFixed(2)}` : '₹0.00'}
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '800', fontSize: '0.95rem', color: bill.net_payable > 0 ? '#dc2626' : 'inherit' }}>
-                      ₹{bill.net_payable?.toFixed(2)}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: '700', color: '#16a34a' }}>
-                      ₹{bill.customer_advance_balance !== undefined ? Number(bill.customer_advance_balance).toFixed(2) : '0.00'}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`badge ${bill.status === 'PAID' || bill.status === 'ADVANCE_PAID' ? 'badge-success' : bill.status === 'PARTIALLY_PAID' ? 'badge-warning' : bill.status === 'CANCELLED' ? 'badge-gray' : 'badge-danger'}`}>
-                      {bill.status}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        onClick={() => setSelectedBillId(bill.id)}
-                        className="btn btn-outline btn-sm"
-                        style={{ padding: '6px 10px' }}
-                        title="View / Print Invoice"
-                      >
-                        <Eye size={15} />
-                      </button>
-                      <button
-                        onClick={() => handleRecalculateBill(bill.id, bill.bill_number)}
-                        className="btn btn-outline btn-sm"
-                        style={{ padding: '6px 10px' }}
-                        title="Recalculate Bill with latest subscription dates"
-                        disabled={generating}
-                      >
-                        <RotateCcw size={15} />
-                      </button>
-                      {bill.status !== 'CANCELLED' && (
-                        <button
-                          onClick={() => handleCancelBill(bill.id, bill.bill_number)}
-                          className="btn btn-outline btn-sm"
-                          style={{ padding: '6px 10px', color: 'var(--accent-red)' }}
-                          title="Cancel Bill"
-                        >
-                          <Ban size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
+        <>
+          {/* Desktop Table: Completely unchanged */}
+          <div className="table-container desktop-only">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Bill Number</th>
+                  <th>Customer</th>
+                  <th>Billing Scheme</th>
+                  <th>Product Subtotal</th>
+                  <th>Delivery Charges</th>
+                  <th>Gross Total</th>
+                  <th>Advance Deducted</th>
+                  <th>Net Payable</th>
+                  <th>Advance Remaining</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {bills.map((bill) => (
+                  <tr key={bill.id}>
+                    <td>
+                      <div style={{ fontWeight: '700', color: 'var(--primary)' }}>{bill.bill_number}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Date: {bill.bill_date}</div>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: '700' }}>{bill.customer_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{bill.customer_phone}</div>
+                    </td>
+                    <td>
+                      <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
+                        {bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                      </span>
+                    </td>
+                    <td>₹{bill.product_subtotal?.toFixed(2)}</td>
+                    <td>
+                      <span style={{ fontWeight: '600', color: bill.delivery_charges_total > 0 ? '#d97706' : 'var(--text-muted)' }}>
+                        ₹{bill.delivery_charges_total?.toFixed(2)}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: '700' }}>₹{bill.gross_amount?.toFixed(2)}</td>
+                    <td style={{ color: '#16a34a', fontWeight: '700' }}>
+                      {bill.advance_adjusted > 0 ? `- ₹${bill.advance_adjusted?.toFixed(2)}` : '₹0.00'}
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '800', fontSize: '0.95rem', color: bill.net_payable > 0 ? '#dc2626' : 'inherit' }}>
+                        ₹{bill.net_payable?.toFixed(2)}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: '700', color: '#16a34a' }}>
+                        ₹{bill.customer_advance_balance !== undefined ? Number(bill.customer_advance_balance).toFixed(2) : '0.00'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`badge ${bill.status === 'PAID' || bill.status === 'ADVANCE_PAID' ? 'badge-success' : bill.status === 'PARTIALLY_PAID' ? 'badge-warning' : bill.status === 'CANCELLED' ? 'badge-gray' : 'badge-danger'}`}>
+                        {bill.status}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => setSelectedBillId(bill.id)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px' }}
+                          title="View / Print Invoice"
+                        >
+                          <Eye size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleRecalculateBill(bill.id, bill.bill_number)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px' }}
+                          title="Recalculate Bill with latest subscription dates"
+                          disabled={generating}
+                        >
+                          <RotateCcw size={15} />
+                        </button>
+                        {bill.status !== 'CANCELLED' && (
+                          <button
+                            onClick={() => handleCancelBill(bill.id, bill.bill_number)}
+                            className="btn btn-outline btn-sm"
+                            style={{ padding: '6px 10px', color: 'var(--accent-red)' }}
+                            title="Cancel Bill"
+                          >
+                            <Ban size={15} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile-Only Bill Cards */}
+          <div className="mobile-only mobile-card-list">
+            {bills.map((bill) => (
+              <div key={bill.id} className="mobile-data-card" onClick={() => setSelectedBillId(bill.id)} style={{ cursor: 'pointer' }}>
+                <div className="mobile-card-header">
+                  <div>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'monospace' }}>
+                      {bill.bill_number}
+                    </span>
+                    <h3 className="mobile-card-title" style={{ marginTop: '2px' }}>{bill.customer_name}</h3>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Date: {bill.bill_date}</div>
+                  </div>
+                  <span className={`badge ${bill.status === 'PAID' || bill.status === 'ADVANCE_PAID' ? 'badge-success' : bill.status === 'PARTIALLY_PAID' ? 'badge-warning' : bill.status === 'CANCELLED' ? 'badge-gray' : 'badge-danger'}`}>
+                    {bill.status}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px' }}>
+                  <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
+                    {bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                  </span>
+
+                  {bill.customer_phone && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      📞 {bill.customer_phone}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', marginTop: '4px' }}>
+                  <div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Gross Bill</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-primary)' }}>₹{bill.gross_amount?.toFixed(2)}</div>
+                  </div>
+                  {bill.advance_adjusted > 0 && (
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: '700', textTransform: 'uppercase' }}>Advance Deducted</div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: '800', color: '#16a34a' }}>-₹{bill.advance_adjusted?.toFixed(2)}</div>
+                    </div>
+                  )}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Net Payable</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: '800', color: bill.net_payable > 0 ? '#dc2626' : '#16a34a' }}>
+                      ₹{bill.net_payable?.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mobile-card-actions" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillId(bill.id)}
+                    className="btn btn-primary btn-sm"
+                    style={{ flex: '1 1 120px', minHeight: '38px', fontSize: '0.82rem', fontWeight: '700' }}
+                  >
+                    <Eye size={14} /> View Invoice
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRecalculateBill(bill.id, bill.bill_number)}
+                    className="btn btn-outline btn-sm"
+                    disabled={generating}
+                    style={{ minHeight: '38px', padding: '6px 12px' }}
+                    title="Recalculate"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+
+                  {bill.status !== 'CANCELLED' && (
+                    <button
+                      type="button"
+                      onClick={() => handleCancelBill(bill.id, bill.bill_number)}
+                      className="btn btn-outline btn-sm"
+                      style={{ minHeight: '38px', padding: '6px 12px', color: 'var(--accent-red)' }}
+                      title="Cancel Bill"
+                    >
+                      <Ban size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Invoice Modal */}

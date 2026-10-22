@@ -56,7 +56,11 @@ function handleUpload(multerMiddleware) {
 // Get Business Profile & Invoicing Details
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const profile = await db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
+    const agentId = req.agentId || 1;
+    let profile = await db.prepare('SELECT * FROM business_profile WHERE agent_id = ?').get(agentId);
+    if (!profile) {
+      profile = await db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
+    }
     res.json(profile);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch profile' });
@@ -72,13 +76,23 @@ router.post('/upload-logo', requireAdmin, handleUpload(upload.single('logo')), a
 
     const uploadResult = await storageService.uploadFile(req.file, 'business-logo');
     const fileUrl = uploadResult.fileUrl;
+    const agentId = req.agentId || 1;
     
     // Automatically persist to business_profile database immediately
-    await db.prepare(`
-      UPDATE business_profile
-      SET business_logo = ?, invoice_logo = ?, updated_at = datetime('now', 'localtime')
-      WHERE id = 1
-    `).run(fileUrl, fileUrl);
+    const existing = await db.prepare('SELECT id FROM business_profile WHERE agent_id = ?').get(agentId);
+    if (existing) {
+      await db.prepare(`
+        UPDATE business_profile
+        SET business_logo = ?, invoice_logo = ?, updated_at = datetime('now', 'localtime')
+        WHERE agent_id = ?
+      `).run(fileUrl, fileUrl, agentId);
+    } else {
+      await db.prepare(`
+        UPDATE business_profile
+        SET business_logo = ?, invoice_logo = ?, updated_at = datetime('now', 'localtime')
+        WHERE id = 1
+      `).run(fileUrl, fileUrl);
+    }
 
     res.json({
       message: 'Business logo uploaded and saved successfully',
@@ -100,13 +114,23 @@ router.post('/upload-signature', requireAdmin, handleUpload(upload.single('signa
 
     const uploadResult = await storageService.uploadFile(req.file, 'signature');
     const fileUrl = uploadResult.fileUrl;
+    const agentId = req.agentId || 1;
     
     // Automatically persist to business_profile database immediately
-    await db.prepare(`
-      UPDATE business_profile
-      SET signature = ?, updated_at = datetime('now', 'localtime')
-      WHERE id = 1
-    `).run(fileUrl);
+    const existing = await db.prepare('SELECT id FROM business_profile WHERE agent_id = ?').get(agentId);
+    if (existing) {
+      await db.prepare(`
+        UPDATE business_profile
+        SET signature = ?, updated_at = datetime('now', 'localtime')
+        WHERE agent_id = ?
+      `).run(fileUrl, agentId);
+    } else {
+      await db.prepare(`
+        UPDATE business_profile
+        SET signature = ?, updated_at = datetime('now', 'localtime')
+        WHERE id = 1
+      `).run(fileUrl);
+    }
 
     res.json({
       message: 'Signature uploaded and saved successfully',
@@ -128,13 +152,23 @@ router.post('/upload-upi-qr', requireAdmin, handleUpload(upload.single('upi_qr')
 
     const uploadResult = await storageService.uploadFile(req.file, 'upi-qr');
     const fileUrl = uploadResult.fileUrl;
+    const agentId = req.agentId || 1;
     
     // Automatically persist to business_profile database immediately
-    await db.prepare(`
-      UPDATE business_profile
-      SET upi_qr = ?, updated_at = datetime('now', 'localtime')
-      WHERE id = 1
-    `).run(fileUrl);
+    const existing = await db.prepare('SELECT id FROM business_profile WHERE agent_id = ?').get(agentId);
+    if (existing) {
+      await db.prepare(`
+        UPDATE business_profile
+        SET upi_qr = ?, updated_at = datetime('now', 'localtime')
+        WHERE agent_id = ?
+      `).run(fileUrl, agentId);
+    } else {
+      await db.prepare(`
+        UPDATE business_profile
+        SET upi_qr = ?, updated_at = datetime('now', 'localtime')
+        WHERE id = 1
+      `).run(fileUrl);
+    }
 
     res.json({
       message: 'UPI QR code uploaded and saved successfully',
@@ -148,7 +182,7 @@ router.post('/upload-upi-qr', requireAdmin, handleUpload(upload.single('upi_qr')
 });
 
 // Update Business Profile (Admin only)
-router.put('/', requireAdmin, (req, res) => {
+router.put('/', requireAdmin, async (req, res) => {
   try {
     const {
       business_name,
@@ -168,33 +202,68 @@ router.put('/', requireAdmin, (req, res) => {
       invoice_footer
     } = req.body;
 
-    db.prepare(`
-      UPDATE business_profile
-      SET business_name = ?, business_logo = ?, phone = ?, email = ?,
-          address = ?, state = ?, pincode = ?, business_details = ?,
-          invoice_business_name = ?, invoice_logo = ?, signature = ?,
-          upi_id = ?, upi_qr = ?, upi_phone = ?, invoice_footer = ?,
-          updated_at = datetime('now', 'localtime')
-      WHERE id = 1
-    `).run(
-      business_name || 'Nandini Milk Parlour',
-      business_logo !== undefined ? business_logo : '',
-      phone !== undefined ? phone : '',
-      email !== undefined ? email : '',
-      address !== undefined ? address : '',
-      state || 'Karnataka',
-      pincode !== undefined ? pincode : '',
-      business_details !== undefined ? business_details : '',
-      invoice_business_name || 'Nandini Milk Parlour',
-      invoice_logo !== undefined ? invoice_logo : '',
-      signature !== undefined ? signature : '',
-      upi_id !== undefined ? upi_id : '',
-      upi_qr !== undefined ? upi_qr : '',
-      upi_phone !== undefined ? upi_phone : '7022754524',
-      invoice_footer || 'Thank you for choosing Nandini Milk! Pure & Fresh.'
-    );
+    const agentId = req.agentId || 1;
+    const existing = await db.prepare('SELECT id FROM business_profile WHERE agent_id = ?').get(agentId);
 
-    const updated = db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
+    if (existing) {
+      await db.prepare(`
+        UPDATE business_profile
+        SET business_name = ?, business_logo = ?, phone = ?, email = ?,
+            address = ?, state = ?, pincode = ?, business_details = ?,
+            invoice_business_name = ?, invoice_logo = ?, signature = ?,
+            upi_id = ?, upi_qr = ?, upi_phone = ?, invoice_footer = ?,
+            updated_at = datetime('now', 'localtime')
+        WHERE agent_id = ?
+      `).run(
+        business_name || 'Nandini Milk Parlour',
+        business_logo !== undefined ? business_logo : '',
+        phone !== undefined ? phone : '',
+        email !== undefined ? email : '',
+        address !== undefined ? address : '',
+        state || 'Karnataka',
+        pincode !== undefined ? pincode : '',
+        business_details !== undefined ? business_details : '',
+        invoice_business_name || 'Nandini Milk Parlour',
+        invoice_logo !== undefined ? invoice_logo : '',
+        signature !== undefined ? signature : '',
+        upi_id !== undefined ? upi_id : '',
+        upi_qr !== undefined ? upi_qr : '',
+        upi_phone !== undefined ? upi_phone : '7022754524',
+        invoice_footer || 'Thank you for choosing Nandini Milk! Pure & Fresh.',
+        agentId
+      );
+    } else {
+      await db.prepare(`
+        UPDATE business_profile
+        SET business_name = ?, business_logo = ?, phone = ?, email = ?,
+            address = ?, state = ?, pincode = ?, business_details = ?,
+            invoice_business_name = ?, invoice_logo = ?, signature = ?,
+            upi_id = ?, upi_qr = ?, upi_phone = ?, invoice_footer = ?,
+            updated_at = datetime('now', 'localtime')
+        WHERE id = 1
+      `).run(
+        business_name || 'Nandini Milk Parlour',
+        business_logo !== undefined ? business_logo : '',
+        phone !== undefined ? phone : '',
+        email !== undefined ? email : '',
+        address !== undefined ? address : '',
+        state || 'Karnataka',
+        pincode !== undefined ? pincode : '',
+        business_details !== undefined ? business_details : '',
+        invoice_business_name || 'Nandini Milk Parlour',
+        invoice_logo !== undefined ? invoice_logo : '',
+        signature !== undefined ? signature : '',
+        upi_id !== undefined ? upi_id : '',
+        upi_qr !== undefined ? upi_qr : '',
+        upi_phone !== undefined ? upi_phone : '7022754524',
+        invoice_footer || 'Thank you for choosing Nandini Milk! Pure & Fresh.'
+      );
+    }
+
+    let updated = await db.prepare('SELECT * FROM business_profile WHERE agent_id = ?').get(agentId);
+    if (!updated) {
+      updated = await db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
+    }
     res.json(updated);
   } catch (err) {
     console.error('Update profile error:', err);

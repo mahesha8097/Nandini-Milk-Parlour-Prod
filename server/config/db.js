@@ -1,7 +1,9 @@
 const path = require('path');
 const fs = require('fs');
 
-const isProduction = process.env.NODE_ENV === 'production' || !!process.env.DATABASE_URL;
+const isProduction = process.env.USE_LOCAL_SQLITE === 'true'
+  ? false
+  : (process.env.NODE_ENV === 'production' || !!process.env.DATABASE_URL);
 
 let db;
 
@@ -24,31 +26,91 @@ if (isProduction && process.env.DATABASE_URL) {
     console.error('Unexpected error on idle PostgreSQL client:', err);
   });
 
-  // Automatically ensure PostgreSQL compatibility functions exist
-  pool.query(`
-    CREATE OR REPLACE FUNCTION datetime(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
-    RETURNS text AS $$
-    BEGIN
-      RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS');
-    END;
-    $$ LANGUAGE plpgsql IMMUTABLE;
+  // Automatically ensure PostgreSQL compatibility functions and tables exist safely
+  (async () => {
+    try {
+      await pool.query(`
+        CREATE OR REPLACE FUNCTION datetime(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
+        RETURNS text AS $$
+        BEGIN
+          RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS');
+        END;
+        $$ LANGUAGE plpgsql IMMUTABLE;
 
-    CREATE OR REPLACE FUNCTION date(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
-    RETURNS text AS $$
-    BEGIN
-      RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
-    END;
-    $$ LANGUAGE plpgsql IMMUTABLE;
-  `).catch((err) => {
-    console.warn('PostgreSQL compatibility functions setup note:', err.message);
-  });
+        CREATE OR REPLACE FUNCTION date(format_type text DEFAULT 'now', tz_offset text DEFAULT 'localtime')
+        RETURNS text AS $$
+        BEGIN
+          RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
+        END;
+        $$ LANGUAGE plpgsql IMMUTABLE;
+      `);
 
-  // Ensure serial_no column exists on customers in PostgreSQL
-  pool.query(`
-    ALTER TABLE customers ADD COLUMN IF NOT EXISTS serial_no INTEGER DEFAULT 0;
-  `).catch((err) => {
-    console.warn('PostgreSQL customers.serial_no column setup note:', err.message);
-  });
+      // Ensure zones table exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS zones (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          address TEXT,
+          route_order INTEGER DEFAULT 0,
+          image_url TEXT,
+          agent_id INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+          updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+        );
+      `);
+
+      // Ensure customer columns exist
+      await pool.query(`
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS serial_no INTEGER DEFAULT 0;
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS flat_no TEXT;
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;
+      `);
+
+      // Ensure delivery_corrections table exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS delivery_corrections (
+          id SERIAL PRIMARY KEY,
+          delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+          customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+          product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+          delivery_date TEXT NOT NULL,
+          previous_status TEXT NOT NULL,
+          new_status TEXT NOT NULL,
+          previous_quantity INTEGER NOT NULL,
+          corrected_quantity INTEGER NOT NULL,
+          previous_amount REAL NOT NULL DEFAULT 0,
+          corrected_amount REAL NOT NULL DEFAULT 0,
+          reason TEXT,
+          corrected_by_user_id INTEGER REFERENCES users(id),
+          corrected_by_role TEXT,
+          agent_id INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+        );
+      `);
+
+      // Ensure agent_id exists on all tenant tables
+      const pgTenantTables = [
+        'users', 'zones', 'customers', 'products', 'deliveries', 'bills',
+        'payments', 'expenses', 'daily_delivery_requirements', 'delivery_corrections', 'business_profile'
+      ];
+      for (const tbl of pgTenantTables) {
+        try {
+          await pool.query(`
+            ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS agent_id INTEGER DEFAULT 1;
+            UPDATE ${tbl} SET agent_id = 1 WHERE agent_id IS NULL;
+          `);
+        } catch (tblErr) {
+          console.warn(`PostgreSQL ${tbl}.agent_id setup note:`, tblErr.message);
+        }
+      }
+
+      await pool.query(`
+        ALTER TABLE business_profile DROP CONSTRAINT IF EXISTS business_profile_id_check;
+      `);
+    } catch (err) {
+      console.warn('PostgreSQL safe startup schema check note:', err.message);
+    }
+  })();
 
   function translateSql(sql) {
     let paramIndex = 0;
@@ -190,6 +252,17 @@ if (isProduction && process.env.DATABASE_URL) {
         updated_at TEXT NOT NULL
       );
 
+      -- Zones table (Apartment, villa community, gated community, or delivery cluster)
+      CREATE TABLE IF NOT EXISTS zones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        address TEXT,
+        route_order INTEGER DEFAULT 0,
+        image_url TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       -- Customers table
       CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,6 +270,8 @@ if (isProduction && process.env.DATABASE_URL) {
         name TEXT NOT NULL,
         phone TEXT NOT NULL,
         address TEXT NOT NULL,
+        flat_no TEXT,
+        zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL,
         customer_category TEXT NOT NULL CHECK(customer_category IN ('HOUSE', 'BULK_HOTEL')),
         billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID')),
         delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -357,6 +432,25 @@ if (isProduction && process.env.DATABASE_URL) {
         UNIQUE(customer_id, product_id, delivery_date)
       );
 
+      -- Delivery Corrections Audit Table
+      CREATE TABLE IF NOT EXISTS delivery_corrections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        delivery_date TEXT NOT NULL,
+        previous_status TEXT NOT NULL,
+        new_status TEXT NOT NULL,
+        previous_quantity INTEGER NOT NULL,
+        corrected_quantity INTEGER NOT NULL,
+        previous_amount REAL NOT NULL DEFAULT 0,
+        corrected_amount REAL NOT NULL DEFAULT 0,
+        reason TEXT,
+        corrected_by_user_id INTEGER REFERENCES users(id),
+        corrected_by_role TEXT,
+        created_at TEXT NOT NULL
+      );
+
       -- Indexes for high performance queries
       CREATE INDEX IF NOT EXISTS idx_deliveries_date ON deliveries(delivery_date);
       CREATE INDEX IF NOT EXISTS idx_deliveries_cust ON deliveries(customer_id);
@@ -368,6 +462,9 @@ if (isProduction && process.env.DATABASE_URL) {
       CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
       CREATE INDEX IF NOT EXISTS idx_req_date_cust ON daily_delivery_requirements(delivery_date, customer_id);
       CREATE INDEX IF NOT EXISTS idx_req_date_status ON daily_delivery_requirements(delivery_date, status);
+      CREATE INDEX IF NOT EXISTS idx_deliv_corr_deliv ON delivery_corrections(delivery_id);
+      CREATE INDEX IF NOT EXISTS idx_deliv_corr_cust ON delivery_corrections(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_deliv_corr_date ON delivery_corrections(delivery_date);
     `);
 
     // Ensure upi_phone column exists on business_profile
@@ -381,26 +478,148 @@ if (isProduction && process.env.DATABASE_URL) {
       console.warn('Migration note for business_profile.upi_phone:', mErr.message);
     }
 
-    // Ensure serial_no column exists on customers in SQLite
+    // Ensure serial_no, zone_id, flat_no columns exist on customers in SQLite
     try {
       const custTableInfo = db.prepare("PRAGMA table_info(customers)").all();
       const hasSerialNo = custTableInfo.some(col => col.name === 'serial_no');
       if (!hasSerialNo) {
         db.prepare("ALTER TABLE customers ADD COLUMN serial_no INTEGER DEFAULT 0").run();
       }
+      const hasZoneId = custTableInfo.some(col => col.name === 'zone_id');
+      if (!hasZoneId) {
+        db.prepare("ALTER TABLE customers ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL").run();
+      }
+      const hasFlatNo = custTableInfo.some(col => col.name === 'flat_no');
+      if (!hasFlatNo) {
+        db.prepare("ALTER TABLE customers ADD COLUMN flat_no TEXT").run();
+      }
     } catch (mErr) {
-      console.warn('Migration note for customers.serial_no:', mErr.message);
+      console.warn('Migration note for customers columns:', mErr.message);
+    }
+
+    // Seed default zones if table is empty
+    try {
+      const zoneCount = db.prepare("SELECT COUNT(*) as count FROM zones").get();
+      if (zoneCount.count === 0) {
+        const seedZones = [
+          { name: 'Prestige Lakeside', address: 'Varthur Main Road, Bangalore', route_order: 1 },
+          { name: 'Chaitanya Apartments', address: 'Sandeep Vihar, Seegehalli, Bangalore', route_order: 2 },
+          { name: 'Green View Villas', address: 'Whitefield, Bangalore', route_order: 3 },
+          { name: 'Sai Residency', address: 'Kadugodi, Bangalore', route_order: 4 },
+          { name: 'Brindavan Enclave', address: 'Brookefield, Bangalore', route_order: 5 },
+          { name: 'Independent Houses', address: 'Seegehalli & Krishnarajapura', route_order: 6 }
+        ];
+        const insertZone = db.prepare(`
+          INSERT INTO zones (name, address, route_order, created_at, updated_at)
+          VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        `);
+        for (const z of seedZones) {
+          insertZone.run(z.name, z.address, z.route_order);
+        }
+
+        // Map existing customers to zones and set flat/house numbers where appropriate
+        db.prepare("UPDATE customers SET zone_id = 2, flat_no = 'A-102' WHERE id = 121 AND (zone_id IS NULL OR zone_id = 0)").run();
+        db.prepare("UPDATE customers SET zone_id = 1, flat_no = 'A-103' WHERE id = 4 AND (zone_id IS NULL OR zone_id = 0)").run();
+        db.prepare("UPDATE customers SET zone_id = 6, flat_no = 'House #3' WHERE id = 3 AND (zone_id IS NULL OR zone_id = 0)").run();
+        db.prepare("UPDATE customers SET zone_id = 5, flat_no = 'Villa 36' WHERE id = 36 AND (zone_id IS NULL OR zone_id = 0)").run();
+        db.prepare("UPDATE customers SET zone_id = 3, flat_no = 'V-154' WHERE id = 154 AND (zone_id IS NULL OR zone_id = 0)").run();
+      }
+    } catch (zErr) {
+      console.warn('Zone initial seed note:', zErr.message);
+    }
+
+    // Multi-tenant business_profile migration: ensure agent_id column and remove CHECK (id = 1)
+    try {
+      const bpSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='business_profile'").get()?.sql || '';
+      if (bpSql.includes('CHECK (id = 1)') || bpSql.includes('CHECK(id = 1)') || bpSql.includes('CHECK (id=1)')) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS business_profile_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id INTEGER UNIQUE,
+            business_name TEXT DEFAULT 'Nandini Milk Parlour',
+            business_logo TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            state TEXT DEFAULT 'Karnataka',
+            pincode TEXT,
+            business_details TEXT,
+            invoice_business_name TEXT DEFAULT 'Nandini Milk Parlour',
+            invoice_logo TEXT,
+            signature TEXT,
+            upi_id TEXT,
+            upi_qr TEXT,
+            upi_phone TEXT DEFAULT '7022754524',
+            invoice_footer TEXT DEFAULT 'Thank you for choosing Nandini Milk! Pure & Fresh.',
+            updated_at TEXT NOT NULL
+          );
+          INSERT OR IGNORE INTO business_profile_v2 (id, agent_id, business_name, business_logo, phone, email, address, state, pincode, business_details, invoice_business_name, invoice_logo, signature, upi_id, upi_qr, upi_phone, invoice_footer, updated_at)
+          SELECT id, 1, business_name, business_logo, phone, email, address, state, pincode, business_details, invoice_business_name, invoice_logo, signature, upi_id, upi_qr, upi_phone, invoice_footer, updated_at FROM business_profile;
+          DROP TABLE business_profile;
+          ALTER TABLE business_profile_v2 RENAME TO business_profile;
+        `);
+      } else {
+        const bpCols = db.prepare("PRAGMA table_info(business_profile)").all();
+        if (!bpCols.some(col => col.name === 'agent_id')) {
+          db.prepare("ALTER TABLE business_profile ADD COLUMN agent_id INTEGER UNIQUE").run();
+          db.prepare("UPDATE business_profile SET agent_id = 1 WHERE agent_id IS NULL").run();
+        }
+      }
+    } catch (bpErr) {
+      console.warn('business_profile multi-tenant migration note:', bpErr.message);
+    }
+
+    // Ensure agent_id column exists on all relevant tables for multi-agent data isolation
+    const tenantTables = [
+      'users',
+      'zones',
+      'customers',
+      'products',
+      'deliveries',
+      'bills',
+      'payments',
+      'expenses',
+      'daily_delivery_requirements',
+      'delivery_corrections'
+    ];
+
+    for (const tbl of tenantTables) {
+      try {
+        const cols = db.prepare(`PRAGMA table_info(${tbl})`).all();
+        if (!cols.some(c => c.name === 'agent_id')) {
+          db.prepare(`ALTER TABLE ${tbl} ADD COLUMN agent_id INTEGER DEFAULT 1`).run();
+          db.prepare(`UPDATE ${tbl} SET agent_id = 1 WHERE agent_id IS NULL`).run();
+        }
+      } catch (err) {
+        console.warn(`Migration note for ${tbl}.agent_id:`, err.message);
+      }
+    }
+
+    // Indices for multi-agent query performance
+    try {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_customers_agent ON customers(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_deliveries_agent ON deliveries(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_bills_agent ON bills(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_zones_agent ON zones(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_products_agent ON products(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_users_agent ON users(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_payments_agent ON payments(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_expenses_agent ON expenses(agent_id);
+      `);
+    } catch (idxErr) {
+      console.warn('Index creation note:', idxErr.message);
     }
 
     // Ensure default profile row exists (empty / initial defaults, no fake business data)
-    const profileCount = db.prepare('SELECT COUNT(*) as count FROM business_profile WHERE id = 1').get();
+    const profileCount = db.prepare('SELECT COUNT(*) as count FROM business_profile WHERE agent_id = 1 OR id = 1').get();
     if (profileCount.count === 0) {
       db.prepare(`
         INSERT INTO business_profile (
-          id, business_name, phone, email, address, state, pincode, business_details,
+          id, agent_id, business_name, phone, email, address, state, pincode, business_details,
           invoice_business_name, invoice_footer, upi_phone, updated_at
         ) VALUES (
-          1, 'Nandini Milk Parlour', '', '', '', 'Karnataka', '', '',
+          1, 1, 'Nandini Milk Parlour', '', '', '', 'Karnataka', '', '',
           'Nandini Milk Parlour', 'Thank you for choosing Nandini Milk! Pure & Fresh.', '7022754524', datetime('now', 'localtime')
         )
       `).run();
