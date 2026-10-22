@@ -34,7 +34,8 @@ import {
   Home,
   CheckCheck,
   UserPlus,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 
@@ -471,6 +472,14 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
     // 3. Compute stats for each zone
     return allGroups.map((g) => {
+      // Find mapped customers from customer database
+      const mappedCustomers = customers.filter((c) => {
+        if (g.type === 'BULK') return c.customer_category === 'BULK_HOTEL';
+        if (g.type === 'UNASSIGNED') return !c.zone_id && c.customer_category !== 'BULK_HOTEL';
+        return String(c.zone_id) === String(g.id) || (c.zone_name && g.name && c.zone_name.toLowerCase() === g.name.toLowerCase());
+      });
+      const assignedCustomersCount = mappedCustomers.length;
+
       // Group items by customer to count customer stops accurately
       const custMap = new Map();
       for (const d of g.deliveries) {
@@ -508,6 +517,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       return {
         ...g,
         totalStops,
+        assignedCustomersCount,
+        mappedCustomers,
         deliveredStops,
         skippedStops,
         pendingStops,
@@ -537,7 +548,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         })
       };
     });
-  }, [zones, deliveries]);
+  }, [zones, deliveries, customers]);
 
   // Overall route summary metrics
   const routeSummary = useMemo(() => {
@@ -1437,11 +1448,26 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                         gap: '6px',
                         flexWrap: 'wrap'
                       }}>
-                        <span>{zone.totalStops} deliveries</span>
-                        <span style={{ color: '#cbd5e1' }}>•</span>
-                        <span style={{ color: '#16a34a' }}>{zone.deliveredStops} delivered</span>
-                        <span style={{ color: '#cbd5e1' }}>•</span>
-                        <span style={{ color: '#d97706' }}>{zone.pendingStops} pending</span>
+                        {zone.totalStops > 0 ? (
+                          <>
+                            <span>{zone.totalStops} deliveries</span>
+                            {zone.assignedCustomersCount > 0 && (
+                              <span style={{ color: '#64748b' }}>({zone.assignedCustomersCount} cust)</span>
+                            )}
+                            <span style={{ color: '#cbd5e1' }}>•</span>
+                            <span style={{ color: '#16a34a' }}>{zone.deliveredStops} delivered</span>
+                            <span style={{ color: '#cbd5e1' }}>•</span>
+                            <span style={{ color: '#d97706' }}>{zone.pendingStops} pending</span>
+                          </>
+                        ) : zone.assignedCustomersCount > 0 ? (
+                          <>
+                            <span style={{ color: '#0f172a', fontWeight: '800' }}>{zone.assignedCustomersCount} customer{zone.assignedCustomersCount !== 1 ? 's' : ''} assigned</span>
+                            <span style={{ color: '#cbd5e1' }}>•</span>
+                            <span style={{ color: '#64748b' }}>0 deliveries for this date</span>
+                          </>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>0 customers assigned • 0 deliveries</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1876,51 +1902,179 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           {/* Customer Cards List (Level 2: NO PRODUCT DETAILS) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {activeZone.customerGroups.length === 0 ? (
-              <div style={{
-                padding: '48px 24px',
-                textAlign: 'center',
-                background: '#f8fafc',
-                borderRadius: '16px',
-                border: '2px dashed #cbd5e1',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '12px',
-                margin: '10px 0'
-              }}>
-                <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
-                  <Building2 size={30} />
+              activeZone.assignedCustomersCount > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', margin: '10px 0' }}>
+                  <div style={{
+                    padding: '18px 22px',
+                    background: '#eff6ff',
+                    borderRadius: '14px',
+                    border: '1.5px solid #bfdbfe',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '12px'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: '900', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Building2 size={20} />
+                        {activeZone.assignedCustomersCount} Resident{activeZone.assignedCustomersCount !== 1 ? 's' : ''} Assigned to {activeZone.name}
+                      </div>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#3b82f6', fontWeight: '600' }}>
+                        0 delivery records found for selected date ({formatDisplayDate(selectedDate)}). You can sync daily deliveries below.
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => fetchData(false)}
+                        style={{
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          background: '#2563eb',
+                          color: 'white',
+                          border: 'none',
+                          fontWeight: '800',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <RefreshCw size={15} /> Refresh / Sync Deliveries
+                      </button>
+                      {userRole !== 'DELIVERY_BOY' && (
+                        <button
+                          type="button"
+                          onClick={handleOpenAssignCustomerModal}
+                          style={{
+                            padding: '8px 14px',
+                            borderRadius: '8px',
+                            background: 'white',
+                            color: '#1e40af',
+                            border: '1px solid #93c5fd',
+                            fontWeight: '800',
+                            fontSize: '0.85rem',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <UserPlus size={15} /> Add Another Resident
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* List of Assigned Customers */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                    {(activeZone.mappedCustomers || []).map((c) => (
+                      <div
+                        key={c.id}
+                        style={{
+                          background: 'white',
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          padding: '16px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            {c.flat_no && (
+                              <span style={{
+                                display: 'inline-block',
+                                background: '#f1f5f9',
+                                color: '#0f172a',
+                                fontWeight: '900',
+                                fontSize: '0.75rem',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                marginBottom: '4px'
+                              }}>
+                                Flat/Villa #{c.flat_no}
+                              </span>
+                            )}
+                            <h4 style={{ margin: 0, fontSize: '0.98rem', fontWeight: '800', color: '#0f172a' }}>
+                              {c.name}
+                            </h4>
+                          </div>
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: '800',
+                            padding: '2px 8px',
+                            borderRadius: '999px',
+                            background: c.status === 'ACTIVE' ? '#dcfce7' : '#fee2e2',
+                            color: c.status === 'ACTIVE' ? '#15803d' : '#b91c1c'
+                          }}>
+                            {c.status || 'ACTIVE'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Phone size={13} color="#94a3b8" />
+                          <span>{c.phone || 'No phone'}</span>
+                        </div>
+                        {c.address && (
+                          <div style={{ fontSize: '0.78rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.address}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0f172a' }}>
-                  "{activeZone.name}" is Saved & Ready!
+              ) : (
+                <div style={{
+                  padding: '48px 24px',
+                  textAlign: 'center',
+                  background: '#f8fafc',
+                  borderRadius: '16px',
+                  border: '2px dashed #cbd5e1',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px',
+                  margin: '10px 0'
+                }}>
+                  <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                    <Building2 size={30} />
+                  </div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0f172a' }}>
+                    "{activeZone.name}" is Saved & Ready!
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b', maxWidth: '440px', lineHeight: 1.5 }}>
+                    This apartment or villa community is saved in your database. No customers are currently assigned to it. Assign flats or villas to view deliveries here.
+                  </p>
+                  {userRole !== 'DELIVERY_BOY' && (
+                    <button
+                      type="button"
+                      onClick={handleOpenAssignCustomerModal}
+                      style={{
+                        marginTop: '6px',
+                        padding: '8px 18px',
+                        borderRadius: '8px',
+                        background: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        fontWeight: '800',
+                        fontSize: '0.88rem',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 2px 8px rgba(37,99,235,0.25)'
+                      }}
+                    >
+                      <UserPlus size={16} /> Assign Customer to {activeZone.name}
+                    </button>
+                  )}
                 </div>
-                <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b', maxWidth: '440px', lineHeight: 1.5 }}>
-                  This apartment or villa community is saved in your database. No customers are currently assigned to it. Assign flats or villas to view deliveries here.
-                </p>
-                {userRole !== 'DELIVERY_BOY' && (
-                  <button
-                    type="button"
-                    onClick={handleOpenAssignCustomerModal}
-                    style={{
-                      marginTop: '6px',
-                      padding: '8px 18px',
-                      borderRadius: '8px',
-                      background: '#2563eb',
-                      color: 'white',
-                      border: 'none',
-                      fontWeight: '800',
-                      fontSize: '0.88rem',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: '0 2px 8px rgba(37,99,235,0.25)'
-                    }}
-                  >
-                    <UserPlus size={16} /> Assign Customer to {activeZone.name}
-                  </button>
-                )}
-              </div>
+              )
             ) : activeZoneCustomers.length === 0 ? (
               <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', color: '#64748b' }}>
                 No customer deliveries match the selected filters.

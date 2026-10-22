@@ -21,7 +21,7 @@ const {
 async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = null) {
   // FAST-PATH: Check if any active subscription on this date is missing from deliveries table.
   // If all deliveries are already generated and up-to-date, return immediately in 1 quick query.
-  const missingCheck = await db.prepare(`
+  let missingSql = `
     SELECT s.id 
     FROM subscriptions s
     JOIN customers c ON s.customer_id = c.id
@@ -30,8 +30,19 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
       AND (s.end_date IS NULL OR s.end_date >= ?)
       AND c.status = 'ACTIVE'
       AND c.customer_category != 'BULK_HOTEL'
-      AND (? IS NULL OR c.agent_id = ? OR c.agent_id IS NULL)
-      AND (? IS NULL OR c.delivery_boy_id = ?)
+  `;
+  const missingParams = [dateStr, dateStr];
+
+  if (agentId) {
+    missingSql += ` AND (c.agent_id = ? OR c.agent_id IS NULL)`;
+    missingParams.push(agentId);
+  }
+  if (deliveryBoyId) {
+    missingSql += ` AND c.delivery_boy_id = ?`;
+    missingParams.push(deliveryBoyId);
+  }
+
+  missingSql += `
       AND NOT EXISTS (
         SELECT 1 FROM deliveries d
         WHERE d.customer_id = s.customer_id
@@ -43,12 +54,10 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
           ))
       )
     LIMIT 1
-  `).get(
-    dateStr, dateStr,
-    agentId || null, agentId || null,
-    deliveryBoyId || null, deliveryBoyId || null,
-    dateStr, dateStr
-  );
+  `;
+  missingParams.push(dateStr, dateStr);
+
+  const missingCheck = await db.prepare(missingSql).get(...missingParams);
 
   if (!missingCheck) {
     return;
