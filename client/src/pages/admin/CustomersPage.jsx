@@ -69,6 +69,14 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   const [newZoneRouteOrder, setNewZoneRouteOrder] = useState('');
   const [creatingZone, setCreatingZone] = useState(false);
 
+  // Edit Zone modal state
+  const [isEditZoneModalOpen, setIsEditZoneModalOpen] = useState(false);
+  const [editZoneId, setEditZoneId] = useState(null);
+  const [editZoneName, setEditZoneName] = useState('');
+  const [editZoneAddress, setEditZoneAddress] = useState('');
+  const [editZoneRouteOrder, setEditZoneRouteOrder] = useState('');
+  const [updatingZone, setUpdatingZone] = useState(false);
+
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -209,6 +217,35 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       alert(err.message || 'Failed to create zone');
     } finally {
       setCreatingZone(false);
+    }
+  };
+
+  const handleOpenEditZoneFromCustomerModal = () => {
+    const targetZone = zones.find(z => String(z.id) === String(formData.zone_id));
+    if (!targetZone) return;
+    setEditZoneId(targetZone.id);
+    setEditZoneName(targetZone.name || '');
+    setEditZoneAddress(targetZone.address || '');
+    setEditZoneRouteOrder(targetZone.route_order !== undefined && targetZone.route_order !== null ? targetZone.route_order : '');
+    setIsEditZoneModalOpen(true);
+  };
+
+  const handleUpdateZoneFromCustomerModal = async (e) => {
+    e.preventDefault();
+    if (!editZoneName.trim() || !editZoneId) return;
+    try {
+      setUpdatingZone(true);
+      await api.put(`/zones/${editZoneId}`, {
+        name: editZoneName.trim(),
+        address: editZoneAddress.trim(),
+        route_order: parseInt(editZoneRouteOrder, 10) || 0
+      });
+      await fetchZones();
+      setIsEditZoneModalOpen(false);
+    } catch (err) {
+      alert(err.message || 'Failed to update zone');
+    } finally {
+      setUpdatingZone(false);
     }
   };
 
@@ -775,22 +812,43 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             <div className="form-group" style={{ flex: 1.5 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label className="form-label" style={{ marginBottom: 0 }}>Apartment / Villa Zone</label>
-                <button
-                  type="button"
-                  onClick={() => setIsCreateZoneModalOpen(true)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#2563eb',
-                    fontSize: '0.75rem',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    padding: 0
-                  }}
-                >
-                  <PlusCircle size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '3px' }} />
-                  New Zone
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  {formData.zone_id && (
+                    <button
+                      type="button"
+                      onClick={handleOpenEditZoneFromCustomerModal}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#d97706',
+                        fontSize: '0.75rem',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        padding: 0
+                      }}
+                      title="Edit selected zone name, address, or route order"
+                    >
+                      <Edit2 size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '3px' }} />
+                      Edit Zone
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateZoneModalOpen(true)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2563eb',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  >
+                    <PlusCircle size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '3px' }} />
+                    New Zone
+                  </button>
+                </div>
               </div>
               <select
                 className="form-select"
@@ -1011,6 +1069,69 @@ export default function CustomersPage({ initialOpenAdd = false }) {
               disabled={creatingZone}
             >
               {creatingZone ? 'Saving...' : 'Create Zone'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Zone Modal */}
+      <Modal
+        isOpen={isEditZoneModalOpen}
+        onClose={() => setIsEditZoneModalOpen(false)}
+        title="Edit Apartment / Villa Zone"
+      >
+        <form onSubmit={handleUpdateZoneFromCustomerModal}>
+          <div className="form-group">
+            <label className="form-label">Apartment / Community Name *</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Prestige Lakeside or Chaitanya Apartments"
+              value={editZoneName}
+              onChange={(e) => setEditZoneName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Address / Landmark</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Varthur Main Road, Bangalore"
+              value={editZoneAddress}
+              onChange={(e) => setEditZoneAddress(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Route Sequence Order</label>
+            <input
+              type="number"
+              className="form-input"
+              placeholder="e.g. 1, 2, 3..."
+              value={editZoneRouteOrder}
+              onChange={(e) => setEditZoneRouteOrder(e.target.value)}
+            />
+            <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '4px' }}>
+              Determines stop order (1st stop, 2nd stop...) on delivery lists and daily route screens.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+            <button
+              type="button"
+              onClick={() => setIsEditZoneModalOpen(false)}
+              className="btn btn-outline btn-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              disabled={updatingZone}
+            >
+              {updatingZone ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

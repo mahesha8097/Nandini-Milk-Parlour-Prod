@@ -11,8 +11,8 @@ router.get('/', verifyToken, async (req, res) => {
       SELECT z.*, 
              COUNT(c.id) as customer_count
       FROM zones z
-      LEFT JOIN customers c ON c.zone_id = z.id AND c.status = 'ACTIVE' AND c.agent_id = ?
-      WHERE z.agent_id = ?
+      LEFT JOIN customers c ON c.zone_id = z.id AND c.status = 'ACTIVE' AND COALESCE(c.agent_id, 1) = ?
+      WHERE COALESCE(z.agent_id, 1) = ?
       GROUP BY z.id
       ORDER BY z.route_order ASC, z.name ASC
     `).all(agentId, agentId);
@@ -52,7 +52,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const zoneId = req.params.id;
     const agentId = req.agentId || 1;
-    const existing = await db.prepare('SELECT * FROM zones WHERE id = ? AND agent_id = ?').get(zoneId, agentId);
+    const existing = await db.prepare('SELECT * FROM zones WHERE id = ? AND COALESCE(agent_id, 1) = ?').get(zoneId, agentId);
     if (!existing) {
       return res.status(404).json({ error: 'Zone not found' });
     }
@@ -66,7 +66,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
     await db.prepare(`
       UPDATE zones
       SET name = ?, address = ?, route_order = ?, image_url = ?, updated_at = datetime('now', 'localtime')
-      WHERE id = ? AND agent_id = ?
+      WHERE id = ? AND COALESCE(agent_id, 1) = ?
     `).run(newName, newAddress, newOrder, newImage, zoneId, agentId);
 
     const updated = await db.prepare('SELECT * FROM zones WHERE id = ?').get(zoneId);
@@ -82,8 +82,8 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const zoneId = req.params.id;
     const agentId = req.agentId || 1;
-    await db.prepare('UPDATE customers SET zone_id = NULL WHERE zone_id = ? AND agent_id = ?').run(zoneId, agentId);
-    await db.prepare('DELETE FROM zones WHERE id = ? AND agent_id = ?').run(zoneId, agentId);
+    await db.prepare('UPDATE customers SET zone_id = NULL WHERE zone_id = ? AND COALESCE(agent_id, 1) = ?').run(zoneId, agentId);
+    await db.prepare('DELETE FROM zones WHERE id = ? AND COALESCE(agent_id, 1) = ?').run(zoneId, agentId);
     res.json({ message: 'Zone deleted successfully' });
   } catch (err) {
     console.error('Delete zone error:', err);

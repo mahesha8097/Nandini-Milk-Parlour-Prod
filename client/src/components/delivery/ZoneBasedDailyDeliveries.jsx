@@ -160,6 +160,11 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   const [newZoneData, setNewZoneData] = useState({ name: '', address: '', route_order: '' });
   const [zoneSubmitting, setZoneSubmitting] = useState(false);
 
+  // Edit Zone modal state
+  const [showEditZoneModal, setShowEditZoneModal] = useState(false);
+  const [editingZoneData, setEditingZoneData] = useState({ id: null, name: '', address: '', route_order: '' });
+  const [editZoneSubmitting, setEditZoneSubmitting] = useState(false);
+
   // Assign Customer to Zone modal state
   const [showAssignCustomerModal, setShowAssignCustomerModal] = useState(false);
   const [assignCustomerData, setAssignCustomerData] = useState({ customer_id: '', flat_no: '' });
@@ -226,6 +231,39 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       await fetchData();
     } catch (err) {
       alert(err.message || 'Failed to delete zone');
+    }
+  };
+
+  const handleOpenEditZone = (zone, e) => {
+    if (e) e.stopPropagation();
+    setEditingZoneData({
+      id: zone.id,
+      name: zone.name || '',
+      address: zone.address || '',
+      route_order: zone.route_order !== undefined && zone.route_order !== null ? zone.route_order : ''
+    });
+    setShowEditZoneModal(true);
+  };
+
+  const handleUpdateZone = async (e) => {
+    e.preventDefault();
+    if (!editingZoneData.name.trim()) return;
+    try {
+      setEditZoneSubmitting(true);
+      const updated = await api.put(`/zones/${editingZoneData.id}`, {
+        name: editingZoneData.name.trim(),
+        address: editingZoneData.address?.trim() || '',
+        route_order: parseInt(editingZoneData.route_order, 10) || 0
+      });
+      const freshZones = await api.get('/zones');
+      setZones(freshZones || []);
+      setShowEditZoneModal(false);
+      showToast(`Zone "${updated.name}" updated successfully!`);
+      await fetchData();
+    } catch (err) {
+      alert(err.message || 'Failed to update zone');
+    } finally {
+      setEditZoneSubmitting(false);
     }
   };
 
@@ -1341,27 +1379,51 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     {/* Actions */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexShrink: 0 }}>
                       {userRole !== 'DELIVERY_BOY' && zone.id && (
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeleteZone(zone.id, zone.name, e)}
-                          style={{
-                            background: '#fef2f2',
-                            color: '#dc2626',
-                            border: '1px solid #fecaca',
-                            padding: '6px 12px',
-                            borderRadius: '8px',
-                            fontSize: '0.78rem',
-                            fontWeight: '700',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            cursor: 'pointer'
-                          }}
-                          title={`Delete Zone "${zone.name}"`}
-                        >
-                          <Trash2 size={13} />
-                          <span>Delete</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEditZone(zone, e)}
+                            style={{
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              border: '1px solid #bfdbfe',
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              fontSize: '0.78rem',
+                              fontWeight: '700',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              cursor: 'pointer'
+                            }}
+                            title={`Edit Zone "${zone.name}"`}
+                          >
+                            <Edit3 size={13} />
+                            <span>Edit</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteZone(zone.id, zone.name, e)}
+                            style={{
+                              background: '#fef2f2',
+                              color: '#dc2626',
+                              border: '1px solid #fecaca',
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              fontSize: '0.78rem',
+                              fontWeight: '700',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              cursor: 'pointer'
+                            }}
+                            title={`Delete Zone "${zone.name}"`}
+                          >
+                            <Trash2 size={13} />
+                            <span>Delete</span>
+                          </button>
+                        </>
                       )}
 
                       {zone.isCompleted && zone.totalStops > 0 ? (
@@ -3037,6 +3099,71 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       </Modal>
 
       {/* ========================================================================= */}
+      {/* EDIT ZONE MODAL */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={showEditZoneModal}
+        onClose={() => setShowEditZoneModal(false)}
+        title="Edit Apartment / Villa Zone"
+      >
+        <form onSubmit={handleUpdateZone}>
+          <div className="form-group">
+            <label className="form-label">Apartment / Community Name *</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Prestige Lakeside or Chaitanya Apartments"
+              value={editingZoneData.name}
+              onChange={(e) => setEditingZoneData({ ...editingZoneData, name: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Address / Landmark</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Varthur Main Road, Bangalore"
+              value={editingZoneData.address}
+              onChange={(e) => setEditingZoneData({ ...editingZoneData, address: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Route Sequence Order</label>
+            <input
+              type="number"
+              className="form-input"
+              placeholder="e.g. 1, 2, 3..."
+              value={editingZoneData.route_order}
+              onChange={(e) => setEditingZoneData({ ...editingZoneData, route_order: e.target.value })}
+            />
+            <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '4px' }}>
+              Determines stop order (1st stop, 2nd stop...) on delivery lists and daily route screens.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+            <button
+              type="button"
+              onClick={() => setShowEditZoneModal(false)}
+              className="btn btn-outline btn-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              disabled={editZoneSubmitting}
+            >
+              {editZoneSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ========================================================================= */}
       {/* MANAGE & DELETE ZONES MODAL */}
       {/* ========================================================================= */}
       <Modal
@@ -3092,30 +3219,57 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={async (e) => {
-                      await handleDeleteZone(z.id, z.name, e);
-                    }}
-                    className="btn btn-outline btn-sm"
-                    style={{
-                      color: '#dc2626',
-                      borderColor: '#fca5a5',
-                      background: '#fee2e2',
-                      fontWeight: '800',
-                      fontSize: '0.78rem',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0
-                    }}
-                  >
-                    <Trash2 size={14} />
-                    <span>Delete Zone</span>
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        setShowManageZonesModal(false);
+                        handleOpenEditZone(z, e);
+                      }}
+                      className="btn btn-outline btn-sm"
+                      style={{
+                        color: '#1d4ed8',
+                        borderColor: '#bfdbfe',
+                        background: '#eff6ff',
+                        fontWeight: '800',
+                        fontSize: '0.78rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        whiteSpace: 'nowrap'
+                      }}
+                      title={`Edit details of "${z.name}"`}
+                    >
+                      <Edit3 size={14} />
+                      <span>Edit</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        await handleDeleteZone(z.id, z.name, e);
+                      }}
+                      className="btn btn-outline btn-sm"
+                      style={{
+                        color: '#dc2626',
+                        borderColor: '#fca5a5',
+                        background: '#fee2e2',
+                        fontWeight: '800',
+                        fontSize: '0.78rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <Trash2 size={14} />
+                      <span>Delete</span>
+                    </button>
+                  </div>
                 </div>
               ))
             )}
