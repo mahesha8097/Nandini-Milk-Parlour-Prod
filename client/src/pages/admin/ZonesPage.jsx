@@ -181,20 +181,8 @@ export default function ZonesPage({ onNavigate }) {
       customers: []
     };
 
-    const bulkGroup = {
-      key: 'bulk',
-      id: 'bulk',
-      name: 'Bulk & Commercial Accounts',
-      address: 'Hotels, Restaurants & Commercial Orders',
-      route_order: 1000,
-      type: 'BULK',
-      customers: []
-    };
-
     for (const c of customers) {
-      if (c.customer_category === 'BULK_HOTEL') {
-        bulkGroup.customers.push(c);
-      } else if (c.zone_id && map.has(`zone_${c.zone_id}`)) {
+      if (c.zone_id && map.has(`zone_${c.zone_id}`)) {
         map.get(`zone_${c.zone_id}`).customers.push(c);
       } else if (c.zone_name) {
         let found = false;
@@ -213,7 +201,6 @@ export default function ZonesPage({ onNavigate }) {
 
     const list = Array.from(map.values());
     if (unassignedGroup.customers.length > 0) list.push(unassignedGroup);
-    if (bulkGroup.customers.length > 0) list.push(bulkGroup);
 
     list.sort((a, b) => (a.route_order || 0) - (b.route_order || 0));
 
@@ -419,7 +406,7 @@ export default function ZonesPage({ onNavigate }) {
             Unassigned / Houses
           </div>
           <div style={{ fontSize: '1.45rem', fontWeight: '800', color: '#d97706', marginTop: '2px' }}>
-            {customers.filter((c) => !c.zone_id && c.customer_category !== 'BULK_HOTEL').length}
+            {customers.filter((c) => !c.zone_id).length}
           </div>
           <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
             Independent residential customers

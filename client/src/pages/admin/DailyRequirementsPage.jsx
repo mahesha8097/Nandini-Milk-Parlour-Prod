@@ -488,21 +488,9 @@ export default function DailyRequirementsPage() {
       items: []
     };
 
-    const bulkGroup = {
-      key: 'bulk',
-      id: 'bulk',
-      name: 'Bulk & Commercial Daily Accounts',
-      address: 'Hotels, Restaurants & Commercial Accounts',
-      route_order: 1000,
-      type: 'BULK',
-      items: []
-    };
-
     // 2. Distribute all items into zone groups
     for (const it of items) {
-      if (it.customer_category === 'BULK_HOTEL') {
-        bulkGroup.items.push(it);
-      } else if (it.zone_id && map.has(`zone_${it.zone_id}`)) {
+      if (it.zone_id && map.has(`zone_${it.zone_id}`)) {
         map.get(`zone_${it.zone_id}`).items.push(it);
       } else if (it.zone_name) {
         let found = false;
@@ -522,9 +510,6 @@ export default function DailyRequirementsPage() {
     const allGroups = Array.from(map.values());
     if (unassignedGroup.items.length > 0) {
       allGroups.push(unassignedGroup);
-    }
-    if (bulkGroup.items.length > 0) {
-      allGroups.push(bulkGroup);
     }
 
     // Sort zones by route_order

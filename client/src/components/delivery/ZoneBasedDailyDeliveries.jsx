@@ -459,21 +459,9 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       deliveries: []
     };
 
-    const bulkGroup = {
-      key: 'bulk_orders',
-      id: 'bulk',
-      name: 'Bulk & Hotel Daily Orders',
-      address: 'Commercial / Hotel Accounts',
-      route_order: 1000,
-      type: 'BULK',
-      deliveries: []
-    };
-
     // 2. Distribute deliveries into their zones
     for (const del of deliveries) {
-      if (del.customer_category === 'BULK_HOTEL') {
-        bulkGroup.deliveries.push(del);
-      } else if (del.zone_id && map.has(`zone_${del.zone_id}`)) {
+      if (del.zone_id && map.has(`zone_${del.zone_id}`)) {
         map.get(`zone_${del.zone_id}`).deliveries.push(del);
       } else if (del.zone_name) {
         // Match by zone_name if zone_id didn't match directly
@@ -497,16 +485,12 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     if (unassignedGroup.deliveries.length > 0) {
       allGroups.push(unassignedGroup);
     }
-    if (bulkGroup.deliveries.length > 0) {
-      allGroups.push(bulkGroup);
-    }
 
     // 3. Compute stats for each zone
     return allGroups.map((g) => {
       // Find mapped customers from customer database
       const mappedCustomers = customers.filter((c) => {
-        if (g.type === 'BULK') return c.customer_category === 'BULK_HOTEL';
-        if (g.type === 'UNASSIGNED') return !c.zone_id && c.customer_category !== 'BULK_HOTEL';
+        if (g.type === 'UNASSIGNED') return !c.zone_id;
         return String(c.zone_id) === String(g.id) || (c.zone_name && g.name && c.zone_name.toLowerCase() === g.name.toLowerCase());
       });
       const assignedCustomersCount = mappedCustomers.length;

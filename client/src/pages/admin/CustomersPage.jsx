@@ -314,22 +314,9 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       customers: []
     };
 
-    // Special group: Bulk & Commercial Accounts
-    const bulkGroup = {
-      key: 'bulk',
-      id: 'bulk',
-      name: 'Bulk & Commercial Accounts',
-      address: 'Hotels, Restaurants & Daily Bulk Deliveries',
-      route_order: 1000,
-      type: 'BULK',
-      customers: []
-    };
-
     // 2. Distribute all customers into zones
     for (const c of customers) {
-      if (c.customer_category === 'BULK_HOTEL') {
-        bulkGroup.customers.push(c);
-      } else if (c.zone_id && map.has(`zone_${c.zone_id}`)) {
+      if (c.zone_id && map.has(`zone_${c.zone_id}`)) {
         map.get(`zone_${c.zone_id}`).customers.push(c);
       } else if (c.zone_name) {
         let found = false;
@@ -349,9 +336,6 @@ export default function CustomersPage({ initialOpenAdd = false }) {
     const allGroups = Array.from(map.values());
     if (unassignedGroup.customers.length > 0) {
       allGroups.push(unassignedGroup);
-    }
-    if (bulkGroup.customers.length > 0) {
-      allGroups.push(bulkGroup);
     }
 
     // Sort zones by route_order
