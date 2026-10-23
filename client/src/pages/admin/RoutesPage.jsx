@@ -26,7 +26,8 @@ import {
   ArrowRight,
   Plus,
   X,
-  UserCheck
+  UserCheck,
+  ArrowRightLeft
 } from 'lucide-react';
 
 export default function RoutesPage({ onNavigate }) {
@@ -65,6 +66,14 @@ export default function RoutesPage({ onNavigate }) {
   const [editForm, setEditForm] = useState({ id: null, name: '', description: '', delivery_boy_id: '', status: 'ACTIVE' });
   const [selectedZoneIdsToAdd, setSelectedZoneIdsToAdd] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+
+  // Shift Customer Zone Modal State
+  const [shiftModalOpen, setShiftModalOpen] = useState(false);
+  const [customerToShift, setCustomerToShift] = useState(null);
+  const [currentZoneOfCustomer, setCurrentZoneOfCustomer] = useState(null);
+  const [targetShiftZoneId, setTargetShiftZoneId] = useState('');
+  const [allParlourZones, setAllParlourZones] = useState([]);
+  const [shiftingCustomer, setShiftingCustomer] = useState(false);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -140,6 +149,49 @@ export default function RoutesPage({ onNavigate }) {
       } finally {
         setLoadingZoneCustomers(false);
       }
+    }
+  };
+
+  // Open Shift Zone Modal for a customer
+  const handleOpenShiftZoneModal = async (customer, zone) => {
+    setCustomerToShift(customer);
+    setCurrentZoneOfCustomer(zone);
+    setTargetShiftZoneId('');
+    setShiftModalOpen(true);
+    try {
+      const zList = await api.get('/zones');
+      setAllParlourZones(zList || []);
+    } catch (e) {
+      console.error('Failed to load zones for shift:', e);
+    }
+  };
+
+  // Confirm shifting customer to target zone
+  const handleConfirmShiftZone = async (e) => {
+    e.preventDefault();
+    if (!customerToShift || !targetShiftZoneId) return;
+    try {
+      setShiftingCustomer(true);
+      await api.put(`/customers/${customerToShift.id}`, {
+        zone_id: parseInt(targetShiftZoneId, 10)
+      });
+      showToast(`Shifted "${customerToShift.name}" to new zone successfully!`);
+      setShiftModalOpen(false);
+
+      // Refresh current route detail & zone customers
+      if (selectedRouteId) {
+        await fetchRouteDetail(selectedRouteId);
+      }
+      if (expandedZoneId) {
+        const res = await api.get('/customers', { params: { zone_id: expandedZoneId } });
+        const filtered = Array.isArray(res) ? res.filter(c => String(c.zone_id) === String(expandedZoneId)) : [];
+        setZoneCustomers(prev => ({ ...prev, [expandedZoneId]: filtered }));
+      }
+      await fetchData();
+    } catch (err) {
+      alert(err.message || 'Failed to shift customer zone');
+    } finally {
+      setShiftingCustomer(false);
     }
   };
 
@@ -823,20 +875,42 @@ export default function RoutesPage({ onNavigate }) {
                                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                     Seq #{cust.serial_no || '0'}
                                   </span>
-                                  <button
-                                    onClick={() => setProfileCustomerId(cust.id)}
-                                    style={{
-                                      background: 'transparent',
-                                      border: 'none',
-                                      color: '#2563eb',
-                                      fontWeight: '600',
-                                      fontSize: '0.75rem',
-                                      cursor: 'pointer',
-                                      padding: '2px 4px'
-                                    }}
-                                  >
-                                    View Details →
-                                  </button>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenShiftZoneModal(cust, zone)}
+                                      className="btn btn-outline"
+                                      style={{
+                                        padding: '2px 8px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: '700',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        color: '#2563eb',
+                                        borderColor: '#bfdbfe',
+                                        background: '#eff6ff'
+                                      }}
+                                      title={`Shift ${cust.name} to another zone`}
+                                    >
+                                      <ArrowRightLeft size={12} />
+                                      <span>Shift Zone</span>
+                                    </button>
+                                    <button
+                                      onClick={() => setProfileCustomerId(cust.id)}
+                                      style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: '#2563eb',
+                                        fontWeight: '600',
+                                        fontSize: '0.75rem',
+                                        cursor: 'pointer',
+                                        padding: '2px 4px'
+                                      }}
+                                    >
+                                      View Details →
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -1462,6 +1536,75 @@ export default function RoutesPage({ onNavigate }) {
             }
           }}
         />
+      )}
+
+      {/* Modal: Shift Customer to Another Zone */}
+      {shiftModalOpen && customerToShift && (
+        <Modal
+          isOpen={shiftModalOpen}
+          onClose={() => setShiftModalOpen(false)}
+          title={`Shift Customer: ${customerToShift.name}`}
+        >
+          <form onSubmit={handleConfirmShiftZone} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '0.875rem' }}>
+              <div style={{ marginBottom: '4px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Customer: </span>
+                <strong style={{ color: 'var(--text-main)' }}>{customerToShift.name}</strong> ({customerToShift.phone})
+              </div>
+              {customerToShift.flat_no && (
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Flat / House: </span>
+                  <strong style={{ color: 'var(--text-main)' }}>{customerToShift.flat_no}</strong>
+                </div>
+              )}
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Current Zone: </span>
+                <span style={{ fontWeight: '700', color: '#ea580c' }}>{currentZoneOfCustomer?.name || 'Unassigned'}</span>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ fontWeight: '700' }}>Select Destination Zone *</label>
+              <select
+                className="form-select"
+                value={targetShiftZoneId}
+                onChange={(e) => setTargetShiftZoneId(e.target.value)}
+                required
+              >
+                <option value="">-- Choose New Zone / Apartment --</option>
+                {allParlourZones.map(z => {
+                  const isCurrent = String(z.id) === String(customerToShift.zone_id);
+                  return (
+                    <option key={z.id} value={z.id} disabled={isCurrent}>
+                      {z.name} {z.route_name ? `(Route: ${z.route_name})` : '(No Route)'} {isCurrent ? '— Current Zone' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+              <p style={{ margin: '6px 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Upon shifting, this customer will automatically appear under the new zone and inherit that zone's delivery route and delivery boy.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShiftModalOpen(false)}
+                className="btn btn-outline"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={shiftingCustomer || !targetShiftZoneId}
+                className="btn btn-primary"
+                style={{ fontWeight: '700' }}
+              >
+                {shiftingCustomer ? 'Shifting...' : 'Confirm Shift'}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );
