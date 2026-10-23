@@ -13,7 +13,9 @@ import {
   Ban,
   RotateCcw,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 
 export default function BillsPage() {
@@ -25,6 +27,23 @@ export default function BillsPage() {
 
   const [selectedBillId, setSelectedBillId] = useState(null);
   const [generating, setGenerating] = useState(false);
+
+  // Edit Bill Modal States
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editBillData, setEditBillData] = useState({
+    id: null,
+    bill_number: '',
+    customer_name: '',
+    gross_amount: '',
+    product_subtotal: '',
+    delivery_charges_total: '',
+    net_payable: '',
+    status: 'PENDING',
+    due_date: '',
+    notes: ''
+  });
+  const [editingBill, setEditingBill] = useState(false);
+  const [editBillError, setEditBillError] = useState('');
 
   const fetchBills = async () => {
     try {
@@ -91,6 +110,62 @@ export default function BillsPage() {
     }
   };
 
+  const handleOpenEditBill = (bill) => {
+    setEditBillData({
+      id: bill.id,
+      bill_number: bill.bill_number,
+      customer_name: bill.customer_name,
+      gross_amount: bill.gross_amount ?? 0,
+      product_subtotal: bill.product_subtotal ?? 0,
+      delivery_charges_total: bill.delivery_charges_total ?? 0,
+      net_payable: bill.net_payable ?? 0,
+      status: bill.status || 'PENDING',
+      due_date: bill.due_date || '',
+      notes: bill.notes || ''
+    });
+    setEditBillError('');
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateBill = async (e) => {
+    e.preventDefault();
+    try {
+      setEditingBill(true);
+      setEditBillError('');
+      await api.put(`/bills/${editBillData.id}`, {
+        gross_amount: parseFloat(editBillData.gross_amount),
+        product_subtotal: parseFloat(editBillData.product_subtotal),
+        delivery_charges_total: parseFloat(editBillData.delivery_charges_total),
+        net_payable: parseFloat(editBillData.net_payable),
+        status: editBillData.status,
+        due_date: editBillData.due_date,
+        notes: editBillData.notes
+      });
+      setIsEditModalOpen(false);
+      fetchBills();
+    } catch (err) {
+      setEditBillError(err.message || 'Failed to update bill');
+    } finally {
+      setEditingBill(false);
+    }
+  };
+
+  const handleDeleteBill = async (bill) => {
+    if (!window.confirm(`Are you sure you want to permanently delete Bill #${bill.bill_number} for ${bill.customer_name}? The customer's advance and pending balances will be restored.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.delete(`/bills/${bill.id}`);
+      fetchBills();
+    } catch (err) {
+      alert(err.message || 'Failed to delete bill');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="page-wrapper">
       <div className="page-header">
@@ -99,13 +174,10 @@ export default function BillsPage() {
             <Receipt size={28} color="var(--primary)" />
             Customer Bills & Invoices
           </h1>
-          <p className="page-subtitle">Monthly automated billing, advance expected calculations, and invoice history</p>
+          <p className="page-subtitle">Monthly automated billing, advance deduction reconciliation, and invoice generation</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button onClick={fetchBills} className="btn btn-outline btn-sm">
-            <RefreshCw size={16} /> Refresh
-          </button>
-          <button onClick={() => handleGenerateMonthlyBills(false)} className="btn btn-outline btn-sm" disabled={generating}>
+          <button onClick={() => handleGenerateMonthlyBills(false)} className="btn btn-primary btn-sm" disabled={generating} title="Generate bills for any customers who don't have one yet">
             <PlayCircle size={16} />
             {generating ? 'Generating...' : `Run ${monthFilter} Billing`}
           </button>
@@ -158,25 +230,25 @@ export default function BillsPage() {
         <EmptyState
           icon={Receipt}
           title={`No bills found for ${monthFilter}`}
-          description="Click 'Run Billing' to automatically generate monthly bills for active customers."
+          description={`Click "Run ${monthFilter} Billing" to automatically calculate bills and apply prepaid advances for all active customers.`}
           action={
             <button onClick={() => handleGenerateMonthlyBills(false)} className="btn btn-primary btn-sm" disabled={generating}>
-              <PlayCircle size={16} /> Run Monthly Billing
+              <PlayCircle size={16} /> Run {monthFilter} Billing Now
             </button>
           }
         />
       ) : (
         <>
-          {/* Desktop Table: Completely unchanged */}
+          {/* Desktop Table */}
           <div className="table-container desktop-only">
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Bill Number</th>
+                  <th>Bill # / Date</th>
                   <th>Customer</th>
-                  <th>Billing Scheme</th>
-                  <th>Product Subtotal</th>
-                  <th>Delivery Charges</th>
+                  <th>Billing Plan</th>
+                  <th>Product Total</th>
+                  <th>Delivery</th>
                   <th>Gross Total</th>
                   <th>Advance Deducted</th>
                   <th>Net Payable</th>
@@ -237,6 +309,14 @@ export default function BillsPage() {
                           <Eye size={15} />
                         </button>
                         <button
+                          onClick={() => handleOpenEditBill(bill)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px' }}
+                          title="Edit / Correct Bill"
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                        <button
                           onClick={() => handleRecalculateBill(bill.id, bill.bill_number)}
                           className="btn btn-outline btn-sm"
                           style={{ padding: '6px 10px' }}
@@ -255,6 +335,14 @@ export default function BillsPage() {
                             <Ban size={15} />
                           </button>
                         )}
+                        <button
+                          onClick={() => handleDeleteBill(bill)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                          title="Delete Bill"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -311,14 +399,24 @@ export default function BillsPage() {
                   </div>
                 </div>
 
-                <div className="mobile-card-actions" onClick={(e) => e.stopPropagation()}>
+                <div className="mobile-card-actions" onClick={(e) => e.stopPropagation()} style={{ flexWrap: 'wrap', gap: '6px' }}>
                   <button
                     type="button"
                     onClick={() => setSelectedBillId(bill.id)}
                     className="btn btn-primary btn-sm"
-                    style={{ flex: '1 1 120px', minHeight: '38px', fontSize: '0.82rem', fontWeight: '700' }}
+                    style={{ flex: '1 1 100px', minHeight: '36px', fontSize: '0.82rem', fontWeight: '700' }}
                   >
-                    <Eye size={14} /> View Invoice
+                    <Eye size={14} /> View
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditBill(bill)}
+                    className="btn btn-outline btn-sm"
+                    style={{ minHeight: '36px', padding: '6px 10px' }}
+                    title="Edit Bill"
+                  >
+                    <Edit2 size={14} />
                   </button>
 
                   <button
@@ -326,7 +424,7 @@ export default function BillsPage() {
                     onClick={() => handleRecalculateBill(bill.id, bill.bill_number)}
                     className="btn btn-outline btn-sm"
                     disabled={generating}
-                    style={{ minHeight: '38px', padding: '6px 12px' }}
+                    style={{ minHeight: '36px', padding: '6px 10px' }}
                     title="Recalculate"
                   >
                     <RotateCcw size={14} />
@@ -337,18 +435,151 @@ export default function BillsPage() {
                       type="button"
                       onClick={() => handleCancelBill(bill.id, bill.bill_number)}
                       className="btn btn-outline btn-sm"
-                      style={{ minHeight: '38px', padding: '6px 12px', color: 'var(--accent-red)' }}
+                      style={{ minHeight: '36px', padding: '6px 10px', color: 'var(--accent-red)' }}
                       title="Cancel Bill"
                     >
                       <Ban size={14} />
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBill(bill)}
+                    className="btn btn-outline btn-sm"
+                    style={{ minHeight: '36px', padding: '6px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                    title="Delete Bill"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         </>
       )}
+
+      {/* Edit / Correct Bill Modal */}
+      <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title={`Edit Bill (${editBillData.bill_number})`}>
+        <form onSubmit={handleUpdateBill}>
+          {editBillError && (
+            <div style={{ background: '#fef2f2', border: '1px solid #f87171', color: '#dc2626', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.875rem' }}>
+              {editBillError}
+            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label">Customer</label>
+            <input
+              type="text"
+              className="form-input"
+              value={editBillData.customer_name}
+              disabled
+              style={{ background: '#f8fafc', color: 'var(--text-muted)', cursor: 'not-allowed' }}
+            />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Gross Amount (₹) *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-input"
+                value={editBillData.gross_amount}
+                onChange={(e) => setEditBillData({ ...editBillData, gross_amount: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Net Payable (₹) *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-input"
+                value={editBillData.net_payable}
+                onChange={(e) => setEditBillData({ ...editBillData, net_payable: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Product Subtotal (₹)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-input"
+                value={editBillData.product_subtotal}
+                onChange={(e) => setEditBillData({ ...editBillData, product_subtotal: e.target.value })}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Delivery Charges Total (₹)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-input"
+                value={editBillData.delivery_charges_total}
+                onChange={(e) => setEditBillData({ ...editBillData, delivery_charges_total: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Bill Status *</label>
+              <select
+                className="form-select"
+                value={editBillData.status}
+                onChange={(e) => setEditBillData({ ...editBillData, status: e.target.value })}
+              >
+                <option value="PENDING">PENDING (Unpaid)</option>
+                <option value="ADVANCE_PAID">ADVANCE_PAID (Paid from Advance)</option>
+                <option value="PAID">PAID (Settled)</option>
+                <option value="PARTIALLY_PAID">PARTIALLY_PAID</option>
+                <option value="CANCELLED">CANCELLED</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Due Date</label>
+              <input
+                type="date"
+                className="form-input"
+                value={editBillData.due_date}
+                onChange={(e) => setEditBillData({ ...editBillData, due_date: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Correction Notes / Reason</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Corrected manual discount or delivery charge adjustment"
+              value={editBillData.notes}
+              onChange={(e) => setEditBillData({ ...editBillData, notes: e.target.value })}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+            <button type="button" onClick={() => setIsEditModalOpen(false)} className="btn btn-outline">
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={editingBill}>
+              {editingBill ? 'Saving Changes...' : 'Save & Update Bill'}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Invoice Modal */}
       {selectedBillId && (

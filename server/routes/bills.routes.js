@@ -249,4 +249,115 @@ router.post('/:id/cancel', requireAdmin, async (req, res) => {
   }
 });
 
+// Edit / Modify Bill (Admin only)
+router.put('/:id', requireAdmin, async (req, res) => {
+  try {
+    const billId = req.params.id;
+    const { gross_amount, delivery_charges_total, product_subtotal, net_payable, notes, status, due_date } = req.body;
+
+    const bill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+    if (!bill) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+
+    const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(bill.customer_id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const oldNet = parseFloat(bill.net_payable) || 0;
+    const newNet = net_payable !== undefined ? parseFloat(net_payable) : oldNet;
+    const netDiff = parseFloat((newNet - oldNet).toFixed(2));
+
+    // If net payable changed and bill is unpaid or partially paid, adjust customer's pending_balance
+    if (netDiff !== 0 && bill.status !== 'PAID' && bill.status !== 'ADVANCE_PAID') {
+      const newPending = Math.max(0, parseFloat(((customer.pending_balance || 0) + netDiff).toFixed(2)));
+      await db.prepare(`
+        UPDATE customers 
+        SET pending_balance = ?, updated_at = datetime('now', 'localtime') 
+        WHERE id = ?
+      `).run(newPending, customer.id);
+    }
+
+    await db.prepare(`
+      UPDATE bills
+      SET gross_amount = COALESCE(?, gross_amount),
+          delivery_charges_total = COALESCE(?, delivery_charges_total),
+          product_subtotal = COALESCE(?, product_subtotal),
+          net_payable = COALESCE(?, net_payable),
+          status = COALESCE(?, status),
+          due_date = COALESCE(?, due_date),
+          notes = COALESCE(?, notes),
+          updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(
+      gross_amount !== undefined ? parseFloat(gross_amount) : null,
+      delivery_charges_total !== undefined ? parseFloat(delivery_charges_total) : null,
+      product_subtotal !== undefined ? parseFloat(product_subtotal) : null,
+      net_payable !== undefined ? parseFloat(net_payable) : null,
+      status || null,
+      due_date || null,
+      notes !== undefined ? notes : null,
+      billId
+    );
+
+    const updatedBill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+    res.json({
+      message: 'Bill updated successfully',
+      bill: updatedBill
+    });
+  } catch (err) {
+    console.error('Update bill error:', err);
+    res.status(400).json({ error: err.message || 'Failed to update bill' });
+  }
+});
+
+// Delete / Remove Bill (Admin only)
+router.delete('/:id', requireAdmin, async (req, res) => {
+  try {
+    const billId = req.params.id;
+    const bill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+    if (!bill) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+
+    const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(bill.customer_id);
+    if (customer) {
+      // Revert pending balance if net_payable was added
+      if (bill.net_payable > 0 && bill.status !== 'CANCELLED') {
+        const unpaid = Math.max(0, bill.net_payable - (bill.paid_amount || 0));
+        await db.prepare(`
+          UPDATE customers 
+          SET pending_balance = MAX(0, pending_balance - ?), updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(unpaid, customer.id);
+      }
+
+      // Restore advance balance if advance was deducted by this bill
+      if (bill.advance_adjusted > 0) {
+        await db.prepare(`
+          UPDATE customers 
+          SET advance_balance = advance_balance + ?, updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(bill.advance_adjusted, customer.id);
+      }
+
+      // Remove ledger entries associated with this bill
+      await db.prepare(`
+        DELETE FROM customer_ledger 
+        WHERE customer_id = ? AND reference_id = ?
+      `).run(customer.id, `BILL-${billId}`);
+    }
+
+    // Delete bill
+    await db.prepare('DELETE FROM bills WHERE id = ?').run(billId);
+
+    res.json({ success: true, message: `Bill #${bill.bill_number} deleted successfully` });
+  } catch (err) {
+    console.error('Delete bill error:', err);
+    res.status(400).json({ error: err.message || 'Failed to delete bill' });
+  }
+});
+
 module.exports = router;
+

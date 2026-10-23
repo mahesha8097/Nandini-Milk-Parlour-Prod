@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { requireAdmin, verifyToken } = require('../middleware/auth');
-const { recordPaymentTransaction } = require('../services/billingService');
+const { 
+  recordPaymentTransaction,
+  updatePaymentTransaction,
+  deletePaymentTransaction
+} = require('../services/billingService');
 
 // Get all payments (Admin only)
 router.get('/', requireAdmin, async (req, res) => {
@@ -94,4 +98,43 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
+// Update / Correct an existing payment (Admin only)
+router.put('/:id', requireAdmin, async (req, res) => {
+  try {
+    const { amount, payment_date, payment_method, reference_number, notes } = req.body;
+    if (!amount || !payment_date) {
+      return res.status(400).json({ error: 'Payment amount and date are required' });
+    }
+
+    const updated = await updatePaymentTransaction(req.params.id, {
+      amount: parseFloat(amount),
+      paymentDate: payment_date,
+      paymentMethod: payment_method,
+      referenceNumber: reference_number,
+      notes: notes,
+      agentId: req.agentId || 1
+    });
+
+    res.json({
+      message: 'Payment updated successfully',
+      payment: updated
+    });
+  } catch (err) {
+    console.error('Update payment error:', err);
+    res.status(400).json({ error: err.message || 'Failed to update payment' });
+  }
+});
+
+// Delete / Void an existing payment (Admin only)
+router.delete('/:id', requireAdmin, async (req, res) => {
+  try {
+    const result = await deletePaymentTransaction(req.params.id, req.agentId || 1);
+    res.json(result);
+  } catch (err) {
+    console.error('Delete payment error:', err);
+    res.status(400).json({ error: err.message || 'Failed to delete payment' });
+  }
+});
+
 module.exports = router;
+

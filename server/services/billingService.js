@@ -17,9 +17,24 @@ function getDaysInMonth(yearMonthStr) {
  */
 async function generateBillNumber(billingMonth) {
   const cleanMonth = billingMonth.replace('-', '');
-  const countRow = await db.prepare(`SELECT COUNT(*) as count FROM bills WHERE billing_month = ?`).get(billingMonth);
-  const seq = ((countRow?.count || 0) + 1).toString().padStart(4, '0');
-  return `NB-${cleanMonth}-${seq}`;
+  const prefix = `NB-${cleanMonth}-`;
+  const maxRow = await db.prepare(`SELECT bill_number FROM bills WHERE bill_number LIKE ? ORDER BY id DESC LIMIT 1`).get(`${prefix}%`);
+  let nextSeq = 1;
+  if (maxRow && maxRow.bill_number) {
+    const parts = maxRow.bill_number.split('-');
+    const lastNum = parseInt(parts[parts.length - 1], 10);
+    if (!isNaN(lastNum)) {
+      nextSeq = lastNum + 1;
+    }
+  }
+  let billNum = `${prefix}${nextSeq.toString().padStart(4, '0')}`;
+  let exists = await db.prepare('SELECT id FROM bills WHERE bill_number = ?').get(billNum);
+  while (exists) {
+    nextSeq++;
+    billNum = `${prefix}${nextSeq.toString().padStart(4, '0')}`;
+    exists = await db.prepare('SELECT id FROM bills WHERE bill_number = ?').get(billNum);
+  }
+  return billNum;
 }
 
 /**
@@ -621,9 +636,25 @@ async function recordPaymentTransaction({
     throw new Error('Invalid payment amount');
   }
 
-  // Generate sequential Receipt Number
-  const countRow = await db.prepare('SELECT COUNT(*) as count FROM payments').get();
-  const receiptNumber = `RCT-${new Date().getFullYear()}-${((countRow?.count || 0) + 1).toString().padStart(5, '0')}`;
+  // Generate sequential unique Receipt Number
+  const currentYear = new Date().getFullYear();
+  const prefix = `RCT-${currentYear}-`;
+  const maxRow = await db.prepare(`SELECT receipt_number FROM payments WHERE receipt_number LIKE ? ORDER BY id DESC LIMIT 1`).get(`${prefix}%`);
+  let nextSeq = 1;
+  if (maxRow && maxRow.receipt_number) {
+    const parts = maxRow.receipt_number.split('-');
+    const lastNum = parseInt(parts[parts.length - 1], 10);
+    if (!isNaN(lastNum)) {
+      nextSeq = lastNum + 1;
+    }
+  }
+  let receiptNumber = `${prefix}${nextSeq.toString().padStart(5, '0')}`;
+  let exists = await db.prepare('SELECT id FROM payments WHERE receipt_number = ?').get(receiptNumber);
+  while (exists) {
+    nextSeq++;
+    receiptNumber = `${prefix}${nextSeq.toString().padStart(5, '0')}`;
+    exists = await db.prepare('SELECT id FROM payments WHERE receipt_number = ?').get(receiptNumber);
+  }
 
   const insertPayment = db.prepare(`
     INSERT INTO payments (
@@ -864,6 +895,133 @@ async function calculateAdvanceProjectionForMonth(billingMonth, agentId = null) 
   };
 }
 
+/**
+ * Updates an existing payment transaction with corrected amounts/fields and adjusts customer balances.
+ */
+async function updatePaymentTransaction(paymentId, {
+  amount,
+  paymentDate,
+  paymentMethod,
+  referenceNumber = '',
+  notes = '',
+  agentId = null
+}) {
+  const payment = await db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
+  if (!payment) {
+    throw new Error('Payment not found');
+  }
+
+  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(payment.customer_id);
+  if (!customer) {
+    throw new Error('Customer associated with payment not found');
+  }
+
+  const oldAmount = parseFloat(payment.amount) || 0;
+  const newAmount = parseFloat(amount);
+  if (isNaN(newAmount) || newAmount <= 0) {
+    throw new Error('Invalid payment amount');
+  }
+
+  const diff = parseFloat((newAmount - oldAmount).toFixed(2));
+  let currentAdvance = customer.advance_balance || 0;
+  let currentPending = customer.pending_balance || 0;
+
+  if (diff !== 0) {
+    if (payment.payment_type === 'ADVANCE_PAYMENT') {
+      currentAdvance = Math.max(0, parseFloat((currentAdvance + diff).toFixed(2)));
+    } else {
+      currentPending = Math.max(0, parseFloat((currentPending - diff).toFixed(2)));
+    }
+
+    await db.prepare(`
+      UPDATE customers 
+      SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(currentAdvance, currentPending, customer.id);
+  }
+
+  // Update payment record
+  await db.prepare(`
+    UPDATE payments 
+    SET amount = ?, payment_date = ?, payment_method = ?, reference_number = ?, notes = ?, updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `).run(
+    newAmount,
+    paymentDate || payment.payment_date,
+    paymentMethod || payment.payment_method,
+    referenceNumber !== undefined ? referenceNumber : payment.reference_number,
+    notes !== undefined ? notes : payment.notes,
+    paymentId
+  );
+
+  // Update or insert corresponding ledger entry
+  const ledgerRef = `PAY-${paymentId}`;
+  const ledgerRow = await db.prepare(`
+    SELECT id FROM customer_ledger 
+    WHERE customer_id = ? AND reference_id = ?
+    LIMIT 1
+  `).get(customer.id, ledgerRef);
+
+  if (ledgerRow) {
+    await db.prepare(`
+      UPDATE customer_ledger 
+      SET transaction_date = ?, credit = ?, advance_balance_after = ?, pending_balance_after = ?,
+          description = ?, created_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(
+      paymentDate || payment.payment_date,
+      newAmount,
+      currentAdvance,
+      currentPending,
+      `Payment corrected via ${paymentMethod || payment.payment_method} (Receipt: ${payment.receipt_number}, Ref: ${referenceNumber || 'N/A'})`,
+      ledgerRow.id
+    );
+  }
+
+  return await db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
+}
+
+/**
+ * Deletes / voids an existing payment transaction and reverts customer balance.
+ */
+async function deletePaymentTransaction(paymentId, agentId = null) {
+  const payment = await db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
+  if (!payment) {
+    throw new Error('Payment not found');
+  }
+
+  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(payment.customer_id);
+  if (customer) {
+    const pAmt = parseFloat(payment.amount) || 0;
+    let currentAdvance = customer.advance_balance || 0;
+    let currentPending = customer.pending_balance || 0;
+
+    if (payment.payment_type === 'ADVANCE_PAYMENT') {
+      currentAdvance = Math.max(0, parseFloat((currentAdvance - pAmt).toFixed(2)));
+    } else {
+      currentPending = parseFloat((currentPending + pAmt).toFixed(2));
+    }
+
+    await db.prepare(`
+      UPDATE customers 
+      SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(currentAdvance, currentPending, customer.id);
+
+    // Delete customer_ledger entry for this payment
+    const ledgerRef = `PAY-${paymentId}`;
+    await db.prepare(`
+      DELETE FROM customer_ledger 
+      WHERE customer_id = ? AND reference_id = ?
+    `).run(customer.id, ledgerRef);
+  }
+
+  // Delete payment record
+  await db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
+
+  return { success: true, message: `Payment ${payment.receipt_number} voided and removed successfully` };
+}
+
 module.exports = {
   getDaysInMonth,
   generateBillNumber,
@@ -874,5 +1032,8 @@ module.exports = {
   calculateAdvanceProjectionForMonth,
   runMonthlyBillGeneration,
   recalculateSingleBill,
-  recordPaymentTransaction
+  recordPaymentTransaction,
+  updatePaymentTransaction,
+  deletePaymentTransaction
 };
+

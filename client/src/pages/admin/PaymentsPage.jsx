@@ -10,7 +10,9 @@ import {
   RefreshCw,
   Search,
   CheckCircle2,
-  Wallet
+  Wallet,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
@@ -33,6 +35,23 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
   });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Edit / Correct Payment Modal
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    id: null,
+    receipt_number: '',
+    customer_name: '',
+    customer_id: '',
+    payment_type: 'ADVANCE_PAYMENT',
+    amount: '',
+    payment_date: getLocalDateString(),
+    payment_method: 'UPI',
+    reference_number: '',
+    notes: ''
+  });
+  const [editFormError, setEditFormError] = useState('');
+  const [editing, setEditing] = useState(false);
 
   const fetchPayments = async () => {
     try {
@@ -78,6 +97,23 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     setIsModalOpen(true);
   };
 
+  const handleOpenEdit = (payment) => {
+    setEditFormData({
+      id: payment.id,
+      receipt_number: payment.receipt_number,
+      customer_name: payment.customer_name,
+      customer_id: payment.customer_id,
+      payment_type: payment.payment_type,
+      amount: payment.amount,
+      payment_date: payment.payment_date,
+      payment_method: payment.payment_method,
+      reference_number: payment.reference_number || '',
+      notes: payment.notes || ''
+    });
+    setEditFormError('');
+    setIsEditModalOpen(true);
+  };
+
   const handleRefresh = async () => {
     await Promise.all([fetchPayments(), fetchCustomers()]);
   };
@@ -105,6 +141,54 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
       setFormError(err.message || 'Failed to record payment.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleUpdatePayment = async (e) => {
+    e.preventDefault();
+    if (!editFormData.amount || !editFormData.payment_date) {
+      setEditFormError('Please fill in amount and payment date.');
+      return;
+    }
+
+    const amt = parseFloat(editFormData.amount);
+    if (isNaN(amt) || amt <= 0) {
+      setEditFormError('Please enter a valid positive payment amount.');
+      return;
+    }
+
+    try {
+      setEditing(true);
+      setEditFormError('');
+      await api.put(`/payments/${editFormData.id}`, {
+        amount: amt,
+        payment_date: editFormData.payment_date,
+        payment_method: editFormData.payment_method,
+        reference_number: editFormData.reference_number,
+        notes: editFormData.notes
+      });
+      setIsEditModalOpen(false);
+      await Promise.all([fetchPayments(), fetchCustomers()]);
+    } catch (err) {
+      setEditFormError(err.message || 'Failed to update payment.');
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const handleDeletePayment = async (p) => {
+    if (!window.confirm(`Are you sure you want to delete payment receipt ${p.receipt_number} of ₹${Number(p.amount || 0).toFixed(2)} for ${p.customer_name}? The customer's advance balance will be updated automatically.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.delete(`/payments/${p.id}`);
+      await Promise.all([fetchPayments(), fetchCustomers()]);
+    } catch (err) {
+      alert(err.message || 'Failed to delete payment');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -145,7 +229,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
         />
       ) : (
         <>
-          {/* Desktop Table: Completely unchanged */}
+          {/* Desktop Table */}
           <div className="table-container desktop-only">
             <table className="custom-table">
               <thead>
@@ -158,6 +242,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                   <th>Method & Ref</th>
                   <th>Amount</th>
                   <th>Recorded By</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -194,6 +279,26 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                     </td>
                     <td>
                       <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>{p.recorded_by_name || 'Admin'}</span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          onClick={() => handleOpenEdit(p)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px' }}
+                          title="Edit / Correct Payment"
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleDeletePayment(p)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                          title="Delete / Void Payment"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -238,15 +343,27 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #bbf7d0', marginTop: '2px' }}>
                   <div>
                     <div style={{ fontSize: '0.68rem', color: '#166534', fontWeight: '700', textTransform: 'uppercase' }}>Amount Received</div>
-                    <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#15803d' }}>
+                    <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#15803d' }}>
                       ₹{p.amount?.toFixed(2)}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Recorded By</div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)' }}>
-                      {p.recorded_by_name || 'Admin'}
-                    </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => handleOpenEdit(p)}
+                      className="btn btn-outline btn-sm"
+                      style={{ padding: '6px 10px' }}
+                      title="Edit Payment"
+                    >
+                      <Edit2 size={15} />
+                    </button>
+                    <button
+                      onClick={() => handleDeletePayment(p)}
+                      className="btn btn-outline btn-sm"
+                      style={{ padding: '6px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
+                      title="Delete Payment"
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -255,15 +372,11 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
         </>
       )}
 
-      {/* Record Payment Modal */}
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Record Customer Payment"
-      >
+      {/* Record New Payment Modal */}
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Record Customer Payment">
         <form onSubmit={handleSavePayment}>
           {formError && (
-            <div style={{ background: 'var(--accent-red-light)', color: '#991b1b', padding: '10px', borderRadius: 'var(--radius-md)', marginBottom: '14px', fontSize: '0.875rem' }}>
+            <div style={{ background: '#fef2f2', border: '1px solid #f87171', color: '#dc2626', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.875rem' }}>
               {formError}
             </div>
           )}
@@ -278,7 +391,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
             >
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({c.billing_type === 'PREPAID' ? 'Prepaid' : 'Postpaid'}) • Due: ₹{c.pending_balance?.toFixed(2) || '0.00'} • Adv: ₹{c.advance_balance?.toFixed(2) || '0.00'}
+                  {c.name} ({c.phone}) - {c.customer_category === 'HOUSE' ? 'House' : 'Bulk'} {c.flat_no ? `[Flat: ${c.flat_no}]` : ''}
                 </option>
               ))}
             </select>
@@ -289,10 +402,10 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
               <label className="form-label">Payment Amount (₹) *</label>
               <input
                 type="number"
+                step="0.01"
                 min="1"
-                step="any"
                 className="form-input"
-                placeholder="e.g. 1000"
+                placeholder="e.g. 1500"
                 value={formData.amount}
                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                 required
@@ -368,6 +481,103 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
             </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? 'Recording Payment...' : 'Confirm & Save Payment'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit / Correct Payment Modal */}
+      <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title={`Edit Payment (${editFormData.receipt_number})`}>
+        <form onSubmit={handleUpdatePayment}>
+          {editFormError && (
+            <div style={{ background: '#fef2f2', border: '1px solid #f87171', color: '#dc2626', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.875rem' }}>
+              {editFormError}
+            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label">Customer</label>
+            <input
+              type="text"
+              className="form-input"
+              value={editFormData.customer_name}
+              disabled
+              style={{ background: '#f8fafc', color: 'var(--text-muted)', cursor: 'not-allowed' }}
+            />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Corrected Amount (₹) *</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                className="form-input"
+                placeholder="e.g. 1500"
+                value={editFormData.amount}
+                onChange={(e) => setEditFormData({ ...editFormData, amount: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Payment Date *</label>
+              <input
+                type="date"
+                className="form-input"
+                value={editFormData.payment_date}
+                onChange={(e) => setEditFormData({ ...editFormData, payment_date: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Payment Method *</label>
+              <select
+                className="form-select"
+                value={editFormData.payment_method}
+                onChange={(e) => setEditFormData({ ...editFormData, payment_method: e.target.value })}
+              >
+                <option value="UPI">UPI (Google Pay / PhonePe / Paytm)</option>
+                <option value="CASH">Cash</option>
+                <option value="BANK_TRANSFER">Bank Transfer (NEFT/IMPS)</option>
+                <option value="CHEQUE">Cheque</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Transaction / UPI Ref #</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. UPI Ref # 348921894"
+                value={editFormData.reference_number}
+                onChange={(e) => setEditFormData({ ...editFormData, reference_number: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Correction Notes / Reason</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Amount corrected from mistake"
+              value={editFormData.notes}
+              onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+            <button type="button" onClick={() => setIsEditModalOpen(false)} className="btn btn-outline">
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={editing}>
+              {editing ? 'Saving Corrections...' : 'Save & Update Balance'}
             </button>
           </div>
         </form>
