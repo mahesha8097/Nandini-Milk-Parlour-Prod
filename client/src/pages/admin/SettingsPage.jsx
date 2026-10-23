@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
-import { Settings, Shield, Database, Save, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
+import { Settings, Shield, Database, Save, CheckCircle2, AlertCircle, Sun, Moon, Monitor, Palette } from 'lucide-react';
 
 export default function SettingsPage() {
+  const { theme, setTheme } = useTheme();
   const [settings, setSettings] = useState({
     auto_advance_bill_generation: 'true',
     default_delivery_due_days: '5',
@@ -46,6 +48,36 @@ export default function SettingsPage() {
     }
   };
 
+  const themeOptions = [
+    {
+      id: 'light',
+      label: 'Light Theme',
+      description: 'Clean, crisp daytime appearance with bright white cards & Nandini blue',
+      icon: Sun,
+      color: '#0054a6',
+      bgPreview: '#ffffff',
+      borderPreview: '#cbd5e1'
+    },
+    {
+      id: 'dark',
+      label: 'Dark Theme',
+      description: 'Obsidian dark mode with reduced glare and comfortable night-time contrast',
+      icon: Moon,
+      color: '#38bdf8',
+      bgPreview: '#131b2e',
+      borderPreview: '#334155'
+    },
+    {
+      id: 'system',
+      label: 'System Auto',
+      description: 'Automatically follows your operating system / device appearance preference',
+      icon: Monitor,
+      color: '#10b981',
+      bgPreview: 'linear-gradient(135deg, #ffffff 50%, #131b2e 50%)',
+      borderPreview: '#64748b'
+    }
+  ];
+
   return (
     <div className="page-wrapper">
       <div className="page-header">
@@ -54,7 +86,83 @@ export default function SettingsPage() {
             <Settings size={28} color="var(--primary)" />
             System & Business Configuration
           </h1>
-          <p className="page-subtitle">Server-side business rules, automation policies, and operational switches</p>
+          <p className="page-subtitle">Server-side business rules, theme appearance, and operational switches</p>
+        </div>
+      </div>
+
+      {/* Theme & Appearance Configuration Card */}
+      <div className="card" style={{ maxWidth: '700px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+          <Palette size={22} color="var(--primary)" />
+          <div>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>
+              Theme & Appearance
+            </h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+              Choose your preferred visual theme for day or night delivery operations
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+          {themeOptions.map((opt) => {
+            const Icon = opt.icon;
+            const isSelected = theme === opt.id;
+            return (
+              <div
+                key={opt.id}
+                onClick={() => setTheme(opt.id)}
+                style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-color)',
+                  background: isSelected ? 'var(--primary-light)' : 'var(--bg-surface)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '8px',
+                    background: opt.bgPreview,
+                    border: `1px solid ${opt.borderPreview}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                  }}>
+                    <Icon size={18} color={opt.color} />
+                  </div>
+                  {isSelected && (
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      background: 'var(--primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffffff' }} />
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                  {opt.label}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.3 }}>
+                  {opt.description}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
