@@ -447,20 +447,22 @@ router.put('/:id', requireAdmin, async (req, res) => {
     const oldAdvance = parseFloat(existing.advance_balance || 0);
     const newAdvance = isNaN(targetAdvance) ? oldAdvance : targetAdvance;
 
-    const newSerial = serial_no !== undefined
-      ? (serial_no === '' || serial_no === null ? 0 : parseInt(serial_no) || 0)
+    const newSerial = serial_no !== undefined && serial_no !== null && serial_no !== ''
+      ? (parseInt(serial_no, 10) || 0)
       : (existing.serial_no || 0);
 
     const newZoneId = zone_id !== undefined
-      ? (zone_id ? parseInt(zone_id, 10) || null : null)
-      : (existing.zone_id || null);
+      ? (zone_id && zone_id !== '' && zone_id !== null ? parseInt(zone_id, 10) || null : null)
+      : (existing.zone_id ? parseInt(existing.zone_id, 10) || null : null);
 
     const newFlatNo = flat_no !== undefined
       ? (flat_no ? flat_no.trim() : null)
       : (existing.flat_no || null);
 
-    let finalRoute = route !== undefined ? route : existing.route;
-    let finalDboyId = delivery_boy_id !== undefined ? delivery_boy_id : existing.delivery_boy_id;
+    let finalRoute = route !== undefined ? (route || '') : (existing.route || '');
+    let finalDboyId = delivery_boy_id !== undefined
+      ? (delivery_boy_id && delivery_boy_id !== '' && delivery_boy_id !== null ? parseInt(delivery_boy_id, 10) || null : null)
+      : (existing.delivery_boy_id ? parseInt(existing.delivery_boy_id, 10) || null : null);
 
     // Automatically determine route and delivery boy if zone changed (Requirement 6)
     if (newZoneId && newZoneId !== existing.zone_id) {
@@ -474,11 +476,13 @@ router.put('/:id', requireAdmin, async (req, res) => {
         if (zInfo.route_name) {
           finalRoute = zInfo.route_name;
         }
-        if (delivery_boy_id === undefined && zInfo.route_dboy_id) {
-          finalDboyId = zInfo.route_dboy_id;
+        if ((delivery_boy_id === undefined || delivery_boy_id === '' || delivery_boy_id === null) && zInfo.route_dboy_id) {
+          finalDboyId = parseInt(zInfo.route_dboy_id, 10) || null;
         }
       }
     }
+
+    finalDboyId = finalDboyId ? parseInt(finalDboyId, 10) || null : null;
 
     await db.prepare(`
       UPDATE customers

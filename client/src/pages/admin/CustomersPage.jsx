@@ -559,11 +559,30 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       setSaving(true);
       setFormError('');
 
+      const cleanedPayload = {
+        name: formData.name.trim(),
+        phone: formData.phone.trim(),
+        address: formData.address.trim(),
+        flat_no: formData.flat_no ? formData.flat_no.trim() : null,
+        zone_id: formData.zone_id && formData.zone_id !== '' ? parseInt(formData.zone_id, 10) : null,
+        customer_category: formData.customer_category,
+        billing_type: formData.billing_type,
+        delivery_boy_id: formData.delivery_boy_id && formData.delivery_boy_id !== '' ? parseInt(formData.delivery_boy_id, 10) : null,
+        route: formData.route || '',
+        status: formData.status || 'ACTIVE',
+        notes: formData.notes || '',
+        serial_no: formData.serial_no !== '' && formData.serial_no !== null && formData.serial_no !== undefined
+          ? parseInt(formData.serial_no, 10) || 0
+          : 0
+      };
+
       if (editingCustomer) {
-        const { advance_balance, initial_advance, ...updatePayload } = formData;
-        await api.put(`/customers/${editingCustomer.id}`, updatePayload);
+        await api.put(`/customers/${editingCustomer.id}`, cleanedPayload);
       } else {
-        await api.post('/customers', formData);
+        await api.post('/customers', {
+          ...cleanedPayload,
+          initial_advance: parseFloat(formData.initial_advance || 0) || 0
+        });
       }
 
       setIsAddModalOpen(false);
@@ -2053,7 +2072,16 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 className="form-select"
                 style={{ marginTop: '4px' }}
                 value={formData.zone_id || ''}
-                onChange={(e) => setFormData({ ...formData, zone_id: e.target.value })}
+                onChange={(e) => {
+                  const newZId = e.target.value;
+                  const matchedZone = zones.find((z) => String(z.id) === String(newZId));
+                  setFormData((prev) => ({
+                    ...prev,
+                    zone_id: newZId,
+                    route: matchedZone?.route_name || prev.route || '',
+                    delivery_boy_id: matchedZone?.route_delivery_boy_id ? String(matchedZone.route_delivery_boy_id) : prev.delivery_boy_id
+                  }));
+                }}
               >
                 <option value="">-- No Zone (Unassigned / Independent) --</option>
                 {zones.map((z) => (
