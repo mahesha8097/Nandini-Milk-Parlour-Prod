@@ -187,6 +187,11 @@ router.post('/:id/assign-customers', requireAdmin, async (req, res) => {
 
     res.json({ message: `Successfully assigned ${customerIds.length} customers to delivery boy.` });
   } catch (err) {
+    console.error('Assign customers error:', err);
+    res.status(500).json({ error: 'Failed to assign customers' });
+  }
+});
+
 // Toggle / Update Delivery Boy Status (Active / Inactive) (Admin only)
 router.patch('/:id/status', requireAdmin, async (req, res) => {
   try {

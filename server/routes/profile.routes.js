@@ -6,10 +6,14 @@ const multer = require('multer');
 const db = require('../config/db');
 const { requireAdmin, verifyToken } = require('../middleware/auth');
 
-// Ensure uploads directory exists
+// Ensure uploads directory exists (local development)
 const uploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+if (!process.env.VERCEL && !fs.existsSync(uploadDir)) {
+  try {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  } catch (e) {
+    console.warn('Upload directory check note:', e.message);
+  }
 }
 
 // Multer Memory Storage Configuration (Supports both Local Disk and Cloud Storage)

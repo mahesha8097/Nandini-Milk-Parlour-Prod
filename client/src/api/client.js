@@ -29,10 +29,33 @@ export async function apiRequest(endpoint, options = {}) {
       return await res.blob();
     }
 
-    const data = await res.json().catch(() => null);
+    let data = null;
+    try {
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // text is not json
+      }
+    } catch {
+      // response body could not be read
+    }
 
     if (!res.ok) {
-      const errorMsg = data?.error || (res.status === 401 ? 'Session expired. Please log in again.' : 'Unable to complete request. Please try again.');
+      let errorMsg = data?.error || data?.message || data?.details;
+      if (!errorMsg) {
+        if (res.status === 401) {
+          errorMsg = 'Invalid username or password or session expired.';
+        } else if (res.status === 403) {
+          errorMsg = 'Access denied. You do not have permission.';
+        } else if (res.status === 404) {
+          errorMsg = 'Requested resource was not found.';
+        } else if (res.status >= 500) {
+          errorMsg = 'Server is currently starting up or experiencing high traffic. Please try again.';
+        } else {
+          errorMsg = 'Unable to complete request. Please try again.';
+        }
+      }
       throw new Error(errorMsg);
     }
 

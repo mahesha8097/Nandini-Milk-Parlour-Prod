@@ -311,8 +311,12 @@ if (isProduction && process.env.DATABASE_URL) {
   // ====================================================================
   const Database = require('better-sqlite3');
   const dataDir = path.join(__dirname, '..', 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  if (!process.env.VERCEL && !fs.existsSync(dataDir)) {
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+    } catch (e) {
+      console.warn('Local data directory note:', e.message);
+    }
   }
 
   const dbPath = process.env.DATABASE_PATH || path.join(dataDir, 'nandini.db');

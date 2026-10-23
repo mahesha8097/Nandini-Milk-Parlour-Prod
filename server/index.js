@@ -69,21 +69,25 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static uploads for local development
 const uploadDir = path.join(__dirname, 'uploads');
 const fs = require('fs');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-app.use('/uploads', express.static(uploadDir));
-
-// Ensure database schema is ready before API routes execute (critical for serverless cold starts)
-app.use(async (req, res, next) => {
-  if (db.initPostgres) {
-    try {
-      await db.initPostgres();
-    } catch (e) {
-      console.warn('Postgres schema init middleware warning:', e.message);
-    }
+if (!process.env.VERCEL && !fs.existsSync(uploadDir)) {
+  try {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  } catch (e) {
+    console.warn('Upload directory creation note:', e.message);
   }
-  next();
+}
+if (!process.env.VERCEL) {
+  app.use('/uploads', express.static(uploadDir));
+}
+
+// Safe Production Health check (instant response for uptime monitors & cold-start diagnostics)
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'online',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    database: db.isPostgres ? 'PostgreSQL (Supabase)' : 'SQLite (Local WAL)'
+  });
 });
 
 // API Routes
@@ -104,16 +108,6 @@ app.use('/api/zones', zoneRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/calendar', calendarRoutes);
-
-// Safe Production Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'online',
-    environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString(),
-    database: db.isPostgres ? 'PostgreSQL (Supabase)' : 'SQLite (Local WAL)'
-  });
-});
 
 // Public downloadable template for bulk customer onboarding
 app.get('/api/download/customer-template', (req, res) => {

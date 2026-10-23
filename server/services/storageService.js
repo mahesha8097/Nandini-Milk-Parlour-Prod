@@ -4,8 +4,12 @@ const { createClient } = require('@supabase/supabase-js');
 
 // Ensure local upload dir exists for development
 const localUploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(localUploadDir)) {
-  fs.mkdirSync(localUploadDir, { recursive: true });
+if (!process.env.VERCEL && !fs.existsSync(localUploadDir)) {
+  try {
+    fs.mkdirSync(localUploadDir, { recursive: true });
+  } catch (e) {
+    console.warn('Local uploads dir note:', e.message);
+  }
 }
 
 // Check Supabase Storage configuration
