@@ -1228,34 +1228,15 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       {/* ========================================================================= */}
       {showIssueModal && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.65)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px'
-          }}
+          className="coupon-modal-backdrop"
           onClick={() => setShowIssueModal(false)}
         >
           <div
-            style={{
-              background: '#ffffff',
-              backgroundColor: '#ffffff',
-              width: '100%',
-              maxWidth: '560px',
-              borderRadius: '16px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-              overflow: 'hidden',
-              border: '1px solid #cbd5e1'
-            }}
+            className="coupon-modal-content"
+            style={{ width: '100%', maxWidth: '580px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fffbeb' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fffbeb', backgroundColor: '#fffbeb' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
                   <Ticket size={22} />
@@ -1277,7 +1258,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </button>
             </div>
 
-            <form onSubmit={handleIssueSubmit} style={{ padding: '24px', background: '#ffffff', backgroundColor: '#ffffff' }}>
+            <form onSubmit={handleIssueSubmit} className="coupon-modal-form">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Customer Selector */}
                 <div>
@@ -1554,34 +1535,15 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       {/* ========================================================================= */}
       {showEditModal && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.65)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px'
-          }}
+          className="coupon-modal-backdrop"
           onClick={() => setShowEditModal(false)}
         >
           <div
-            style={{
-              background: '#ffffff',
-              backgroundColor: '#ffffff',
-              width: '100%',
-              maxWidth: '560px',
-              borderRadius: '16px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-              overflow: 'hidden',
-              border: '1px solid #cbd5e1'
-            }}
+            className="coupon-modal-content"
+            style={{ width: '100%', maxWidth: '580px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eff6ff' }}>
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eff6ff', backgroundColor: '#eff6ff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
                   <Edit size={20} />
@@ -1603,7 +1565,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </button>
             </div>
 
-            <form onSubmit={handleEditSubmit} style={{ padding: '24px', background: '#ffffff', backgroundColor: '#ffffff' }}>
+            <form onSubmit={handleEditSubmit} className="coupon-modal-form">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Book Number & Product */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -1885,34 +1847,12 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       {/* ========================================================================= */}
       {showHistoryModal && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.65)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px'
-          }}
+          className="coupon-modal-backdrop"
           onClick={() => setShowHistoryModal(false)}
         >
           <div
-            style={{
-              background: '#ffffff',
-              backgroundColor: '#ffffff',
-              width: '100%',
-              maxWidth: '780px',
-              maxHeight: '85vh',
-              borderRadius: '16px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-              overflow: 'hidden',
-              border: '1px solid #cbd5e1',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
+            className="coupon-modal-content"
+            style={{ width: '100%', maxWidth: '800px', maxHeight: '88vh' }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -2154,34 +2094,15 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       {/* ========================================================================= */}
       {showAdjustModal && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.65)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px'
-          }}
+          className="coupon-modal-backdrop"
           onClick={() => setShowAdjustModal(false)}
         >
           <div
-            style={{
-              background: '#ffffff',
-              backgroundColor: '#ffffff',
-              width: '100%',
-              maxWidth: '440px',
-              borderRadius: '16px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-              overflow: 'hidden',
-              border: '1px solid #cbd5e1'
-            }}
+            className="coupon-modal-content"
+            style={{ width: '100%', maxWidth: '460px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+            <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', backgroundColor: '#f8fafc' }}>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
                 Manual Coupon Adjustment
               </h3>
@@ -2190,7 +2111,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </button>
             </div>
 
-            <form onSubmit={handleAdjustSubmit} style={{ padding: '20px', background: '#ffffff', backgroundColor: '#ffffff' }}>
+            <form onSubmit={handleAdjustSubmit} className="coupon-modal-form" style={{ padding: '20px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>

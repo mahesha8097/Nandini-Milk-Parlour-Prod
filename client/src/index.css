@@ -573,6 +573,55 @@ h1, h2, h3, h4, h5, h6 {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* Coupon Modal Opaque Styling */
+.coupon-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.coupon-modal-content {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: var(--text-primary) !important;
+  border-radius: 16px;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.5), 0 0 0 1px #cbd5e1 !important;
+  border: 1px solid #cbd5e1 !important;
+  overflow: hidden;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 10000;
+  opacity: 1 !important;
+}
+
+.coupon-modal-form {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: var(--text-primary) !important;
+  padding: 24px;
+  overflow-y: auto;
+  opacity: 1 !important;
+  flex: 1;
+}
+
+.coupon-modal-form input,
+.coupon-modal-form select,
+.coupon-modal-form textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
 /* Mobile Navigation Bar */
 .mobile-nav {
   display: none;
