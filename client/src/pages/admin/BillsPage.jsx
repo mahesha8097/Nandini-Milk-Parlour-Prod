@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
@@ -17,7 +17,9 @@ import {
   Edit2,
   Trash2,
   Clock,
-  Ticket
+  Ticket,
+  Search,
+  X
 } from 'lucide-react';
 
 export default function BillsPage() {
@@ -25,6 +27,7 @@ export default function BillsPage() {
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [statusFilter, setStatusFilter] = useState('');
   const [billingTypeFilter, setBillingTypeFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -34,6 +37,7 @@ export default function BillsPage() {
   // Weekly Billing Modal States
   const [isWeeklyModalOpen, setIsWeeklyModalOpen] = useState(false);
   const [weeklyCustomerList, setWeeklyCustomerList] = useState([]);
+  const [weeklyCustomerSearch, setWeeklyCustomerSearch] = useState('');
   const [weeklyFormData, setWeeklyFormData] = useState({
     customerId: '',
     startDate: '',
@@ -245,6 +249,21 @@ export default function BillsPage() {
     }
   };
 
+  const filteredBills = useMemo(() => {
+    if (!searchQuery.trim()) return bills;
+    const q = searchQuery.toLowerCase().trim();
+    return bills.filter(b => {
+      const billNum = (b.bill_number || '').toLowerCase();
+      const custName = (b.customer_name || '').toLowerCase();
+      const phone = (b.customer_phone || '').toLowerCase();
+      const flat = (b.flat_no || '').toLowerCase();
+      const route = (b.route_name || '').toLowerCase();
+      const status = (b.status || '').toLowerCase();
+      const plan = (b.billing_type || '').toLowerCase();
+      return billNum.includes(q) || custName.includes(q) || phone.includes(q) || flat.includes(q) || route.includes(q) || status.includes(q) || plan.includes(q);
+    });
+  }, [bills, searchQuery]);
+
   return (
     <div className="page-wrapper">
       <div className="page-header">
@@ -282,19 +301,44 @@ export default function BillsPage() {
       {/* Filter Bar */}
       <div className="card" style={{ marginBottom: '20px', padding: '16px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Calendar size={18} color="var(--primary)" />
-            <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Billing Month:</span>
-            <input
-              type="month"
-              className="form-input"
-              style={{ width: 'auto', padding: '6px 12px' }}
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Calendar size={18} color="var(--primary)" />
+              <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Billing Month:</span>
+              <input
+                type="month"
+                className="form-input"
+                style={{ width: 'auto', padding: '6px 12px' }}
+                value={monthFilter}
+                onChange={(e) => setMonthFilter(e.target.value)}
+              />
+            </div>
+
+            {/* Live Search Bar */}
+            <div style={{ position: 'relative', minWidth: '240px', maxWidth: '320px' }}>
+              <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search bill #, customer, phone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: '32px', paddingRight: searchQuery ? '30px' : '10px', paddingBlock: '6px', fontSize: '0.825rem' }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
             <select
               className="form-select"
               style={{ width: 'auto', fontSize: '0.813rem' }}
@@ -321,6 +365,12 @@ export default function BillsPage() {
               <option value="PENDING">Pending</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
+
+            {searchQuery && (
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+                Showing {filteredBills.length} of {bills.length}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -341,6 +391,15 @@ export default function BillsPage() {
             </button>
           }
         />
+      ) : filteredBills.length === 0 ? (
+        <div className="card" style={{ padding: '36px', textAlign: 'center' }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '12px' }}>
+            No bills match your search "<strong>{searchQuery}</strong>".
+          </p>
+          <button onClick={() => setSearchQuery('')} className="btn btn-outline btn-sm">
+            Clear Search Filter
+          </button>
+        </div>
       ) : (
         <>
           {/* Desktop Table */}
@@ -362,7 +421,7 @@ export default function BillsPage() {
                 </tr>
               </thead>
               <tbody>
-                {bills.map((bill) => (
+                {filteredBills.map((bill) => (
                   <tr key={bill.id}>
                     <td>
                       <div style={{ fontWeight: '700', color: 'var(--primary)' }}>{bill.bill_number}</div>
@@ -467,7 +526,7 @@ export default function BillsPage() {
 
           {/* Mobile-Only Bill Cards */}
           <div className="mobile-only mobile-card-list">
-            {bills.map((bill) => (
+            {filteredBills.map((bill) => (
               <div key={bill.id} className="mobile-data-card" onClick={() => setSelectedBillId(bill.id)} style={{ cursor: 'pointer' }}>
                 <div className="mobile-card-header">
                   <div>
@@ -734,18 +793,46 @@ export default function BillsPage() {
           )}
 
           <div className="form-group">
-            <label className="form-label">Customer Selection *</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label className="form-label" style={{ marginBottom: 0 }}>Customer Selection *</label>
+              {weeklyCustomerSearch && (
+                <button
+                  type="button"
+                  onClick={() => setWeeklyCustomerSearch('')}
+                  style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' }}
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+            <div style={{ position: 'relative', marginBottom: '8px' }}>
+              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search customers by name, phone, flat..."
+                value={weeklyCustomerSearch}
+                onChange={(e) => setWeeklyCustomerSearch(e.target.value)}
+                style={{ paddingLeft: '32px', fontSize: '0.8rem', paddingBlock: '6px' }}
+              />
+            </div>
             <select
               className="form-select"
               value={weeklyFormData.customerId}
               onChange={(e) => setWeeklyFormData({ ...weeklyFormData, customerId: e.target.value })}
             >
               <option value="">⚡ All Weekly Customers ({weeklyCustomerList.filter(c => c.billing_type === 'WEEKLY').length} configured)</option>
-              {weeklyCustomerList.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.phone}) - {c.billing_type}
-                </option>
-              ))}
+              {weeklyCustomerList
+                .filter(c => {
+                  if (!weeklyCustomerSearch.trim()) return true;
+                  const q = weeklyCustomerSearch.toLowerCase();
+                  return (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.flat_no || '').toLowerCase().includes(q);
+                })
+                .map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.phone}) {c.flat_no ? `[${c.flat_no}]` : ''} - {c.billing_type}
+                  </option>
+                ))}
             </select>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
               Select a single customer or leave default to generate bills for all weekly customers in one click.

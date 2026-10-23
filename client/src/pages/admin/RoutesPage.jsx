@@ -65,6 +65,7 @@ export default function RoutesPage({ onNavigate }) {
   const [createForm, setCreateForm] = useState({ name: '', description: '', delivery_boy_id: '', status: 'ACTIVE' });
   const [editForm, setEditForm] = useState({ id: null, name: '', description: '', delivery_boy_id: '', status: 'ACTIVE' });
   const [selectedZoneIdsToAdd, setSelectedZoneIdsToAdd] = useState([]);
+  const [zoneAddSearch, setZoneAddSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // Shift Customer Zone Modal State
@@ -72,6 +73,7 @@ export default function RoutesPage({ onNavigate }) {
   const [customerToShift, setCustomerToShift] = useState(null);
   const [currentZoneOfCustomer, setCurrentZoneOfCustomer] = useState(null);
   const [targetShiftZoneId, setTargetShiftZoneId] = useState('');
+  const [shiftZoneSearch, setShiftZoneSearch] = useState('');
   const [allParlourZones, setAllParlourZones] = useState([]);
   const [shiftingCustomer, setShiftingCustomer] = useState(false);
 
@@ -1414,9 +1416,28 @@ export default function RoutesPage({ onNavigate }) {
                 No available zones to add. All zones are already in this route, or no other zones exist yet.
               </div>
             ) : (
-              <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px' }}>
-                {selectedRouteDetail.availableZones.map(zone => {
-                  const isChecked = selectedZoneIdsToAdd.includes(zone.id);
+              <>
+                <div style={{ position: 'relative' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Search zones by name or address..."
+                    value={zoneAddSearch}
+                    onChange={(e) => setZoneAddSearch(e.target.value)}
+                    style={{ paddingLeft: '32px', fontSize: '0.82rem', paddingBlock: '6px' }}
+                  />
+                </div>
+
+                <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', padding: '4px' }}>
+                  {selectedRouteDetail.availableZones
+                    .filter(zone => {
+                      if (!zoneAddSearch.trim()) return true;
+                      const q = zoneAddSearch.toLowerCase();
+                      return (zone.name || '').toLowerCase().includes(q) || (zone.address || '').toLowerCase().includes(q);
+                    })
+                    .map(zone => {
+                      const isChecked = selectedZoneIdsToAdd.includes(zone.id);
                   return (
                     <label
                       key={zone.id}
@@ -1490,7 +1511,8 @@ export default function RoutesPage({ onNavigate }) {
                   );
                 })}
               </div>
-            )}
+            </>
+          )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
               <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-main)' }}>
@@ -1564,7 +1586,29 @@ export default function RoutesPage({ onNavigate }) {
             </div>
 
             <div className="form-group">
-              <label className="form-label" style={{ fontWeight: '700' }}>Select Destination Zone *</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label className="form-label" style={{ fontWeight: '700', marginBottom: 0 }}>Select Destination Zone *</label>
+                {shiftZoneSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setShiftZoneSearch('')}
+                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    Clear Filter
+                  </button>
+                )}
+              </div>
+              <div style={{ position: 'relative', marginBottom: '8px' }}>
+                <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Filter destination zones..."
+                  value={shiftZoneSearch}
+                  onChange={(e) => setShiftZoneSearch(e.target.value)}
+                  style={{ paddingLeft: '32px', fontSize: '0.82rem', paddingBlock: '6px' }}
+                />
+              </div>
               <select
                 className="form-select"
                 value={targetShiftZoneId}
@@ -1572,14 +1616,20 @@ export default function RoutesPage({ onNavigate }) {
                 required
               >
                 <option value="">-- Choose New Zone / Apartment --</option>
-                {allParlourZones.map(z => {
-                  const isCurrent = String(z.id) === String(customerToShift.zone_id);
-                  return (
-                    <option key={z.id} value={z.id} disabled={isCurrent}>
-                      {z.name} {z.route_name ? `(Route: ${z.route_name})` : '(No Route)'} {isCurrent ? '— Current Zone' : ''}
-                    </option>
-                  );
-                })}
+                {allParlourZones
+                  .filter(z => {
+                    if (!shiftZoneSearch.trim()) return true;
+                    const q = shiftZoneSearch.toLowerCase();
+                    return (z.name || '').toLowerCase().includes(q) || (z.route_name || '').toLowerCase().includes(q);
+                  })
+                  .map(z => {
+                    const isCurrent = String(z.id) === String(customerToShift.zone_id);
+                    return (
+                      <option key={z.id} value={z.id} disabled={isCurrent}>
+                        {z.name} {z.route_name ? `(Route: ${z.route_name})` : '(No Route)'} {isCurrent ? '— Current Zone' : ''}
+                      </option>
+                    );
+                  })}
               </select>
               <p style={{ margin: '6px 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                 Upon shifting, this customer will automatically appear under the new zone and inherit that zone's delivery route and delivery boy.

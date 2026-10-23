@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
@@ -12,7 +12,8 @@ import {
   CheckCircle2,
   Wallet,
   Edit2,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
@@ -21,6 +22,11 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Search & Filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState('ALL');
+  const [modalCustomerSearch, setModalCustomerSearch] = useState('');
 
   // Add Payment Modal
   const [isModalOpen, setIsModalOpen] = useState(initialOpenAdd);
@@ -192,6 +198,25 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     }
   };
 
+  const filteredPayments = useMemo(() => {
+    return payments.filter(p => {
+      if (paymentTypeFilter !== 'ALL' && p.payment_type !== paymentTypeFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const receipt = (p.receipt_number || '').toLowerCase();
+        const name = (p.customer_name || '').toLowerCase();
+        const phone = (p.customer_phone || '').toLowerCase();
+        const method = (p.payment_method || '').toLowerCase();
+        const ref = (p.reference_number || '').toLowerCase();
+        const amount = String(p.amount || '');
+        if (!receipt.includes(q) && !name.includes(q) && !phone.includes(q) && !method.includes(q) && !ref.includes(q) && !amount.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [payments, searchQuery, paymentTypeFilter]);
+
   return (
     <div className="page-wrapper">
       <div className="page-header">
@@ -212,6 +237,54 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
         </div>
       </div>
 
+      {/* Search & Filter Bar */}
+      <div className="card" style={{ marginBottom: '18px', padding: '14px 18px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 260px', maxWidth: '380px' }}>
+            <div style={{ position: 'relative', width: '100%' }}>
+              <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search receipt #, customer, phone, ref..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: '32px', paddingRight: searchQuery ? '30px' : '10px', paddingBlock: '6px', fontSize: '0.84rem' }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={paymentTypeFilter}
+              onChange={(e) => setPaymentTypeFilter(e.target.value)}
+            >
+              <option value="ALL">All Payment Types</option>
+              <option value="ADVANCE_PAYMENT">Advance Payment</option>
+              <option value="BILL_PAYMENT">Bill Payment (Postpaid)</option>
+            </select>
+
+            {(searchQuery || paymentTypeFilter !== 'ALL') && (
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+                Showing {filteredPayments.length} of {payments.length}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center' }}>Loading payment records...</div>
       ) : error ? (
@@ -227,6 +300,21 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
             </button>
           }
         />
+      ) : filteredPayments.length === 0 ? (
+        <div className="card" style={{ padding: '36px', textAlign: 'center' }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '12px' }}>
+            No payment receipts match your search "<strong>{searchQuery}</strong>".
+          </p>
+          <button
+            onClick={() => {
+              setSearchQuery('');
+              setPaymentTypeFilter('ALL');
+            }}
+            className="btn btn-outline btn-sm"
+          >
+            Clear Search Filter
+          </button>
+        </div>
       ) : (
         <>
           {/* Desktop Table */}
@@ -246,7 +334,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                 </tr>
               </thead>
               <tbody>
-                {payments.map((p) => (
+                {filteredPayments.map((p) => (
                   <tr key={p.id}>
                     <td>
                       <span style={{ fontWeight: '700', color: 'var(--primary)' }}>{p.receipt_number}</span>
@@ -308,7 +396,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
 
           {/* Mobile-Only Payment Cards */}
           <div className="mobile-only mobile-card-list">
-            {payments.map((p) => (
+            {filteredPayments.map((p) => (
               <div key={p.id} className="mobile-data-card">
                 <div className="mobile-card-header">
                   <div>
@@ -382,18 +470,48 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
           )}
 
           <div className="form-group">
-            <label className="form-label">Customer *</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label className="form-label" style={{ marginBottom: 0 }}>Customer *</label>
+              {modalCustomerSearch && (
+                <button
+                  type="button"
+                  onClick={() => setModalCustomerSearch('')}
+                  style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+            <div style={{ position: 'relative', marginBottom: '8px' }}>
+              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search customer by name, phone, flat..."
+                value={modalCustomerSearch}
+                onChange={(e) => setModalCustomerSearch(e.target.value)}
+                style={{ paddingLeft: '32px', fontSize: '0.82rem', paddingBlock: '6px' }}
+              />
+            </div>
             <select
               className="form-select"
               value={formData.customer_id}
               onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
               required
             >
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.phone}) - {c.customer_category === 'HOUSE' ? 'House' : 'Bulk'} {c.flat_no ? `[Flat: ${c.flat_no}]` : ''}
-                </option>
-              ))}
+              {customers
+                .filter(c => {
+                  if (!modalCustomerSearch.trim()) return true;
+                  const q = modalCustomerSearch.toLowerCase();
+                  return (c.name || '').toLowerCase().includes(q) ||
+                         (c.phone || '').includes(q) ||
+                         (c.flat_no || '').toLowerCase().includes(q);
+                })
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.phone}) - {c.customer_category === 'HOUSE' ? 'House' : 'Bulk'} {c.flat_no ? `[Flat: ${c.flat_no}]` : ''}
+                  </option>
+                ))}
             </select>
           </div>
 

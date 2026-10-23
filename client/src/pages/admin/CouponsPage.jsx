@@ -36,6 +36,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
 
   // Customer dropdown list for issuing books
   const [allCustomers, setAllCustomers] = useState([]);
+  const [issueCustomerSearch, setIssueCustomerSearch] = useState('');
 
   // Modals
   const [showIssueModal, setShowIssueModal] = useState(false);
@@ -647,9 +648,33 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Customer Selector */}
                 <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                    Select Customer *
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', margin: 0 }}>
+                      Select Customer *
+                    </label>
+                    {issueCustomerSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setIssueCustomerSearch('')}
+                        style={{ background: 'none', border: 'none', color: '#d97706', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Clear Filter
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ position: 'relative', marginBottom: '8px' }}>
+                    <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Search customer by name, phone, flat or zone..."
+                      value={issueCustomerSearch}
+                      onChange={(e) => setIssueCustomerSearch(e.target.value)}
+                      style={{ paddingLeft: '32px', fontSize: '13px', paddingBlock: '8px', width: '100%', borderRadius: '8px' }}
+                    />
+                  </div>
+
                   <select
                     className="form-control"
                     value={issueForm.customer_id}
@@ -667,11 +692,20 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     style={{ width: '100%', borderRadius: '8px', padding: '10px' }}
                   >
                     <option value="">-- Choose Customer --</option>
-                    {allCustomers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.phone}) - {c.zone_name || 'No Zone'} {c.billing_type === 'COUPON' ? '★ COUPON' : ''}
-                      </option>
-                    ))}
+                    {allCustomers
+                      .filter(c => {
+                        if (!issueCustomerSearch.trim()) return true;
+                        const q = issueCustomerSearch.toLowerCase();
+                        return (c.name || '').toLowerCase().includes(q) ||
+                               (c.phone || '').includes(q) ||
+                               (c.flat_no || '').toLowerCase().includes(q) ||
+                               (c.zone_name || '').toLowerCase().includes(q);
+                      })
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.phone}) - {c.zone_name || 'No Zone'} {c.billing_type === 'COUPON' ? '★ COUPON' : ''}
+                        </option>
+                      ))}
                   </select>
                 </div>
 

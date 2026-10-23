@@ -176,6 +176,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   // Assign Customer to Zone modal state
   const [showAssignCustomerModal, setShowAssignCustomerModal] = useState(false);
   const [assignCustomerData, setAssignCustomerData] = useState({ customer_id: '', flat_no: '' });
+  const [assignCustomerSearch, setAssignCustomerSearch] = useState('');
   const [allCustomersList, setAllCustomersList] = useState([]);
   const [assigningCustomer, setAssigningCustomer] = useState(false);
 
@@ -4048,7 +4049,29 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       >
         <form onSubmit={handleAssignCustomerToZone}>
           <div className="form-group">
-            <label className="form-label">Select Customer *</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label className="form-label" style={{ marginBottom: 0 }}>Select Customer *</label>
+              {assignCustomerSearch && (
+                <button
+                  type="button"
+                  onClick={() => setAssignCustomerSearch('')}
+                  style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' }}
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+            <div style={{ position: 'relative', marginBottom: '8px' }}>
+              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search by name, phone, flat or zone..."
+                value={assignCustomerSearch}
+                onChange={(e) => setAssignCustomerSearch(e.target.value)}
+                style={{ paddingLeft: '32px', fontSize: '0.8rem', paddingBlock: '6px' }}
+              />
+            </div>
             <select
               className="form-select"
               value={assignCustomerData.customer_id}
@@ -4056,11 +4079,20 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               required
             >
               <option value="">-- Choose Customer --</option>
-              {allCustomersList.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.phone}) {c.flat_no ? `[Flat ${c.flat_no}]` : ''} {c.zone_name ? `— current: ${c.zone_name}` : '— (No Zone)'}
-                </option>
-              ))}
+              {allCustomersList
+                .filter(c => {
+                  if (!assignCustomerSearch.trim()) return true;
+                  const q = assignCustomerSearch.toLowerCase();
+                  return (c.name || '').toLowerCase().includes(q) ||
+                         (c.phone || '').includes(q) ||
+                         (c.flat_no || '').toLowerCase().includes(q) ||
+                         (c.zone_name || '').toLowerCase().includes(q);
+                })
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.phone}) {c.flat_no ? `[Flat ${c.flat_no}]` : ''} {c.zone_name ? `— current: ${c.zone_name}` : '— (No Zone)'}
+                  </option>
+                ))}
             </select>
           </div>
 

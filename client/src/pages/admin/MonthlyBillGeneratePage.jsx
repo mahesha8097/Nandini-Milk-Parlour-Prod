@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../api/client';
 import html2canvas from 'html2canvas';
 import {
@@ -14,7 +14,13 @@ import {
   CheckCircle2,
   Check,
   CalendarDays,
-  Sparkles
+  Sparkles,
+  Search,
+  X,
+  ChevronDown,
+  Building2,
+  MapPin,
+  Route as RouteIcon
 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { getLocalDateString } from '../../utils/dateUtils';
@@ -27,6 +33,23 @@ export default function MonthlyBillGeneratePage() {
   const [selectedMonth, setSelectedMonth] = useState(() => getLocalDateString().slice(0, 7)); // YYYY-MM
   const [defaultMonthDays, setDefaultMonthDays] = useState(31);
   const [items, setItems] = useState([]); // Array of { productId, productName, variantLabel, unitVolumeLitres, unitPrice, quantity, days, startDate, endDate, selectedDays }
+
+  // Customer Search & Filter State
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const [routeFilter, setRouteFilter] = useState('ALL');
+  const dropdownRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsCustomerDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Calendar Modal State
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
@@ -83,6 +106,30 @@ export default function MonthlyBillGeneratePage() {
       setLoading(false);
     }
   };
+
+  const availableRoutes = useMemo(() => {
+    const set = new Set();
+    customers.forEach(c => {
+      if (c.route && c.route.trim()) set.add(c.route.trim());
+    });
+    return Array.from(set).sort();
+  }, [customers]);
+
+  const filteredCustomers = useMemo(() => {
+    const q = customerSearchQuery.toLowerCase().trim();
+    return customers.filter(c => {
+      if (routeFilter !== 'ALL' && c.route !== routeFilter) return false;
+      if (!q) return true;
+      return (
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.flat_no && c.flat_no.toLowerCase().includes(q)) ||
+        (c.address && c.address.toLowerCase().includes(q)) ||
+        (c.zone_name && c.zone_name.toLowerCase().includes(q)) ||
+        (c.route && c.route.toLowerCase().includes(q))
+      );
+    });
+  }, [customers, customerSearchQuery, routeFilter]);
 
   const calculateSubscriptionDaysForMonth = (sub, yearMonth = selectedMonth) => {
     const [year, month] = yearMonth.split('-').map(Number);
@@ -444,117 +491,61 @@ export default function MonthlyBillGeneratePage() {
   const selectedCustomer = customers.find(c => String(c.id) === String(selectedCustomerId)) || null;
   const isBulkHotel = selectedCustomer?.customer_category === 'BULK_HOTEL';
 
-  // Calculate day-by-day delivery charges across all items
-  // Accurately respects:
-  // 1. Bulk / Hotel customers -> ₹0 delivery charges
-  // 2. Fixed per unit products -> (fixedDeliveryCharge * quantity) strictly calculated per packet
+  // Calculate line items and delivery charges
+  // Respects exact Nandini Milk Parlour business rules:
+  // 1. Bulk / Hotel customers -> ₹0 delivery charges (unit price remains exact MRP)
+  // 2. Fixed per unit products -> (fixedDeliveryCharge * quantity) per day
   // 3. None products -> ₹0 delivery charge
-  // 4. Milk rule products -> pooled milk volume (<=0.5L=₹2, >0.5L=litres*3) distributed proportionally
-  const itemDelCharges = new Array(items.length).fill(0);
+  // 4. Milk rule products:
+  //    - <= 0.5 Litre per day (e.g. 1 x 500ml) = ₹2.00 delivery charge per day
+  //    - > 0.5 Litres per day (e.g. 2 x 500ml = 1.0L, or 1 x 1L) = Total Litres × ₹3.00 per day
+  const calculatedItems = items.map((item) => {
+    const itemDays = item.days !== undefined ? item.days : defaultMonthDays;
+    const qty = Math.max(0, parseInt(item.quantity, 10) || 0);
+    const totalQty = qty * itemDays;
+    const unitPrice = parseFloat(item.unitPrice) || 0;
+    const milkSubtotal = parseFloat((unitPrice * totalQty).toFixed(2));
 
-  if (!isBulkHotel && items.length > 0) {
-    for (let d = 1; d <= defaultMonthDays; d++) {
-      // Find items active on day d
-      const activeIndices = [];
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        const days = it.days !== undefined ? it.days : defaultMonthDays;
-        const isDayActive = Array.isArray(it.selectedDays) && it.selectedDays.length > 0
-          ? it.selectedDays.includes(d)
-          : d <= days;
-        if (isDayActive && (it.quantity || 0) > 0) {
-          activeIndices.push(i);
-        }
+    // Daily delivery charge for this row's daily volume & configuration
+    let dailyDeliveryCharge = 0;
+    const chargeType = item.deliveryChargeType || item.delivery_charge_type;
+    const isMilkCat = Boolean(item.category && item.category.trim().toLowerCase() === 'milk');
+    const isMilkRule = chargeType === 'MILK_RULE' || (!chargeType && isMilkCat);
+
+    if (isBulkHotel) {
+      dailyDeliveryCharge = 0;
+    } else if (chargeType === 'FIXED_PER_UNIT') {
+      const fixedPerUnit = parseFloat(item.fixedDeliveryCharge !== undefined ? item.fixedDeliveryCharge : item.fixed_delivery_charge) || 0;
+      dailyDeliveryCharge = parseFloat((fixedPerUnit * qty).toFixed(2));
+    } else if (chargeType === 'NONE') {
+      dailyDeliveryCharge = 0;
+    } else if (isMilkRule) {
+      let vol = item.unitVolumeLitres;
+      if (!vol || vol <= 0) {
+        if (item.variantLabel && item.variantLabel.toLowerCase().includes('500')) vol = 0.5;
+        else if (item.variantLabel && item.variantLabel.toLowerCase().includes('1')) vol = 1.0;
+        else vol = 0.5;
       }
-
-      if (activeIndices.length === 0) continue;
-
-      // Group active items into milk rule items and other items
-      const milkIndices = [];
-      for (const idx of activeIndices) {
-        const it = items[idx];
-        const chargeType = it.deliveryChargeType || it.delivery_charge_type;
-        const isMilkCat = Boolean(it.category && it.category.trim().toLowerCase() === 'milk');
-        const isMilkRule = chargeType === 'MILK_RULE' || (!chargeType && isMilkCat);
-
-        if (isMilkRule) {
-          milkIndices.push(idx);
-        } else {
-          // Other items: FIXED_PER_UNIT or NONE
-          if (chargeType === 'FIXED_PER_UNIT') {
-            const fixedPerUnit = parseFloat(it.fixedDeliveryCharge !== undefined ? it.fixedDeliveryCharge : it.fixed_delivery_charge) || 0;
-            const charge = parseFloat((fixedPerUnit * (it.quantity || 1)).toFixed(2));
-            itemDelCharges[idx] += charge;
-          } else {
-            // NONE -> ₹0
-          }
-        }
-      }
-
-      // Calculate combined milk delivery charge for this day
-      if (milkIndices.length > 0) {
-        let dayMilkLitres = 0;
-        for (const idx of milkIndices) {
-          const it = items[idx];
-          let vol = it.unitVolumeLitres;
-          if (!vol || vol <= 0) {
-            if (it.variantLabel && it.variantLabel.toLowerCase().includes('500')) vol = 0.5;
-            else if (it.variantLabel && it.variantLabel.toLowerCase().includes('1')) vol = 1.0;
-            else vol = 1.0;
-          }
-          dayMilkLitres += vol * (it.quantity || 1);
-        }
-
-        let dayMilkCharge = 0;
-        if (dayMilkLitres > 0) {
-          if (dayMilkLitres <= 0.5) {
-            dayMilkCharge = 2.0;
-          } else {
-            dayMilkCharge = parseFloat((dayMilkLitres * 3.0).toFixed(2));
-          }
-        }
-
-        // Distribute proportionally among active milk items on this day
-        let remCharge = dayMilkCharge;
-        for (let m = 0; m < milkIndices.length; m++) {
-          const idx = milkIndices[m];
-          const it = items[idx];
-          let vol = it.unitVolumeLitres;
-          if (!vol || vol <= 0) {
-            if (it.variantLabel && it.variantLabel.toLowerCase().includes('500')) vol = 0.5;
-            else if (it.variantLabel && it.variantLabel.toLowerCase().includes('1')) vol = 1.0;
-            else vol = 1.0;
-          }
-          const itemVol = vol * (it.quantity || 1);
-
-          let charge = 0;
-          if (m === milkIndices.length - 1) {
-            charge = parseFloat(remCharge.toFixed(2));
-          } else {
-            charge = dayMilkLitres > 0
-              ? parseFloat(((itemVol / dayMilkLitres) * dayMilkCharge).toFixed(2))
-              : 0;
-            remCharge -= charge;
-          }
-          itemDelCharges[idx] += charge;
-        }
+      const dailyLitres = vol * qty;
+      if (dailyLitres <= 0) {
+        dailyDeliveryCharge = 0;
+      } else if (dailyLitres <= 0.5) {
+        dailyDeliveryCharge = 2.0; // ₹2.00 for 500ml or less per day
+      } else {
+        dailyDeliveryCharge = parseFloat((dailyLitres * 3.0).toFixed(2)); // ₹3.00 per litre per day
       }
     }
-  }
 
-  const calculatedItems = items.map((item, idx) => {
-    const itemDays = item.days !== undefined ? item.days : defaultMonthDays;
-    const totalQty = (item.quantity || 1) * itemDays;
-    const milkSubtotal = parseFloat(((item.unitPrice || 0) * (item.quantity || 1) * itemDays).toFixed(2));
-    const deliveryChargeTotal = parseFloat((itemDelCharges[idx] || 0).toFixed(2));
+    const deliveryChargeTotal = parseFloat((dailyDeliveryCharge * itemDays).toFixed(2));
     const lineTotal = parseFloat((milkSubtotal + deliveryChargeTotal).toFixed(2));
-    const effectiveUnitPrice = totalQty > 0 ? parseFloat((lineTotal / totalQty).toFixed(2)) : (item.unitPrice || 0);
+    const effectiveUnitPrice = totalQty > 0 ? parseFloat((lineTotal / totalQty).toFixed(2)) : unitPrice;
 
     return {
       ...item,
       itemDays,
       totalQty,
       milkSubtotal,
+      dailyDeliveryCharge,
       deliveryChargeTotal,
       lineTotal,
       effectiveUnitPrice
@@ -979,23 +970,191 @@ export default function MonthlyBillGeneratePage() {
     <div className="page-wrapper">
       {/* Top Customer / Requirement Control Bar */}
       <div className="card" style={{ marginBottom: '20px', padding: '16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', alignItems: 'flex-end' }}>
-          <div>
-            <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <User size={15} color="var(--primary)" /> Select Customer:
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.6fr) minmax(180px, 1fr) minmax(120px, 0.8fr) auto', gap: '14px', alignItems: 'flex-start' }}>
+          {/* Searchable Customer Selector */}
+          <div ref={dropdownRef} style={{ position: 'relative' }}>
+            <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <User size={15} color="#2563eb" /> Select Customer:
+              </span>
+              {selectedCustomer && (
+                <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: '700' }}>
+                  ✓ {selectedCustomer.name}
+                </span>
+              )}
             </label>
-            <select
-              className="form-select"
-              value={selectedCustomerId}
-              onChange={(e) => handleSelectCustomer(e.target.value)}
-              style={{ fontWeight: '700' }}
-            >
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.phone || 'No phone'}) - {c.route || 'General'}
-                </option>
-              ))}
-            </select>
+
+            {/* Search Input + Route Filter */}
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={15} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Search name, phone, flat, route..."
+                  value={customerSearchQuery}
+                  onChange={(e) => {
+                    setCustomerSearchQuery(e.target.value);
+                    setIsCustomerDropdownOpen(true);
+                  }}
+                  onFocus={() => setIsCustomerDropdownOpen(true)}
+                  style={{ paddingLeft: '32px', fontSize: '0.85rem', fontWeight: '600' }}
+                />
+                {customerSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomerSearchQuery('')}
+                    style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px' }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {availableRoutes.length > 0 && (
+                <select
+                  className="form-select"
+                  value={routeFilter}
+                  onChange={(e) => setRouteFilter(e.target.value)}
+                  style={{ width: 'auto', fontSize: '0.8rem', fontWeight: '700', padding: '6px 10px', background: '#f8fafc' }}
+                  title="Filter by route"
+                >
+                  <option value="ALL">All Routes ({availableRoutes.length})</option>
+                  {availableRoutes.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Dropdown Results List */}
+            {isCustomerDropdownOpen && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                zIndex: 1000,
+                background: 'white',
+                borderRadius: '10px',
+                border: '1.5px solid #cbd5e1',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                maxHeight: '320px',
+                overflowY: 'auto',
+                marginTop: '4px'
+              }}>
+                <div style={{ padding: '6px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '0.72rem', fontWeight: '700', color: '#64748b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Found {filteredCustomers.length} of {customers.length} customers</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomerDropdownOpen(false)}
+                    style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontWeight: '800', fontSize: '0.75rem' }}
+                  >
+                    Close ✕
+                  </button>
+                </div>
+
+                {filteredCustomers.length === 0 ? (
+                  <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                    No customers found matching "{customerSearchQuery}"
+                  </div>
+                ) : (
+                  filteredCustomers.map(c => {
+                    const isSelected = String(c.id) === String(selectedCustomerId);
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          handleSelectCustomer(c.id);
+                          setIsCustomerDropdownOpen(false);
+                          setCustomerSearchQuery('');
+                        }}
+                        style={{
+                          padding: '10px 14px',
+                          borderBottom: '1px solid #f1f5f9',
+                          cursor: 'pointer',
+                          background: isSelected ? '#eff6ff' : 'white',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '8px',
+                          transition: 'background 0.1s'
+                        }}
+                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#f8fafc'; }}
+                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'white'; }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            {c.flat_no && (
+                              <span style={{ background: '#2563eb', color: 'white', fontSize: '0.72rem', fontWeight: '900', padding: '1px 6px', borderRadius: '4px' }}>
+                                Flat {c.flat_no}
+                              </span>
+                            )}
+                            <span style={{ fontWeight: '800', fontSize: '0.9rem', color: '#0f172a' }}>
+                              {c.name}
+                            </span>
+                            {c.customer_category === 'BULK_HOTEL' && (
+                              <span style={{ background: '#f3e8ff', color: '#7c3aed', fontSize: '0.7rem', fontWeight: '800', padding: '1px 6px', borderRadius: '4px' }}>
+                                Bulk Hotel
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                            📞 {c.phone || 'No phone'} • 📍 {c.zone_name || 'No Zone'} ({c.route || 'General'})
+                          </div>
+                        </div>
+
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: '800',
+                            padding: '2px 8px',
+                            borderRadius: '999px',
+                            background: c.billing_type === 'PREPAID' ? '#dcfce7' : '#fef3c7',
+                            color: c.billing_type === 'PREPAID' ? '#15803d' : '#b45309'
+                          }}>
+                            {c.billing_type || 'POSTPAID'}
+                          </span>
+                          {isSelected && (
+                            <div style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: '900', marginTop: '2px' }}>
+                              ✓ Selected
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* Currently Selected Customer Info Badge */}
+            {selectedCustomer && (
+              <div style={{
+                marginTop: '6px',
+                padding: '6px 10px',
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: '6px',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px'
+              }}>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <strong style={{ color: '#1e40af' }}>{selectedCustomer.name}</strong>
+                  {selectedCustomer.flat_no ? ` [Flat ${selectedCustomer.flat_no}]` : ''} • {selectedCustomer.phone || 'No phone'} • Route: {selectedCustomer.route || 'General'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomerDropdownOpen(true)}
+                  style={{ background: 'white', border: '1px solid #93c5fd', color: '#1d4ed8', borderRadius: '4px', padding: '2px 6px', fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
+                >
+                  Change
+                </button>
+              </div>
+            )}
           </div>
 
           <div>
@@ -1065,11 +1224,28 @@ export default function MonthlyBillGeneratePage() {
                       value={item.productId}
                       onChange={(e) => handleItemProductChange(idx, e.target.value)}
                     >
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.variant_label}) — MRP ₹{p.selling_price}
-                        </option>
-                      ))}
+                      {['Milk', 'Curd', 'Ghee', 'Sweets'].map(cat => {
+                        const prodsInCat = products.filter(p => (p.category || '').toLowerCase() === cat.toLowerCase());
+                        if (prodsInCat.length === 0) return null;
+                        return (
+                          <optgroup key={cat} label={`${cat} Products (${prodsInCat.length})`}>
+                            {prodsInCat.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.variant_label}) — MRP ₹{p.selling_price}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                      {products.filter(p => !['milk', 'curd', 'ghee', 'sweets'].includes((p.category || '').toLowerCase())).length > 0 && (
+                        <optgroup label="Other Products">
+                          {products.filter(p => !['milk', 'curd', 'ghee', 'sweets'].includes((p.category || '').toLowerCase())).map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.variant_label}) — MRP ₹{p.selling_price}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                   {items.length > 1 && (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
@@ -13,7 +13,9 @@ import {
   ShieldAlert,
   Upload,
   Trash2,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Search,
+  X
 } from 'lucide-react';
 
 const STANDARD_CATEGORIES = ['Milk', 'Curd', 'Ghee', 'Paneer', 'Butter', 'Sweets', 'Beverages'];
@@ -24,6 +26,11 @@ export default function ProductsPage({ initialOpenAdd = false }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Search & Filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
   // Add / Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(initialOpenAdd);
@@ -280,6 +287,33 @@ export default function ProductsPage({ initialOpenAdd = false }) {
     }
   };
 
+  const availableCategories = useMemo(() => {
+    const set = new Set(STANDARD_CATEGORIES);
+    products.forEach(p => {
+      if (p.category) set.add(p.category);
+    });
+    return Array.from(set);
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false;
+      if (statusFilter === 'ACTIVE' && !p.is_active) return false;
+      if (statusFilter === 'INACTIVE' && p.is_active) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const name = (p.name || '').toLowerCase();
+        const cat = (p.category || '').toLowerCase();
+        const variant = (p.variant_label || '').toLowerCase();
+        const price = String(p.selling_price || '');
+        if (!name.includes(q) && !cat.includes(q) && !variant.includes(q) && !price.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [products, searchQuery, categoryFilter, statusFilter]);
+
   return (
     <div className="page-wrapper">
       <div className="page-header">
@@ -300,6 +334,66 @@ export default function ProductsPage({ initialOpenAdd = false }) {
         </div>
       </div>
 
+      {/* Search & Filter Bar */}
+      <div className="card" style={{ marginBottom: '18px', padding: '14px 18px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 260px', maxWidth: '380px' }}>
+            <div style={{ position: 'relative', width: '100%' }}>
+              <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search products by name, variant, price..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: '32px', paddingRight: searchQuery ? '30px' : '10px', paddingBlock: '6px', fontSize: '0.84rem' }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+                  title="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="ALL">All Categories</option>
+              {availableCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active Only</option>
+              <option value="INACTIVE">Inactive Only</option>
+            </select>
+
+            {(searchQuery || categoryFilter !== 'ALL' || statusFilter !== 'ALL') && (
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+                Showing {filteredProducts.length} of {products.length}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <div style={{ padding: '40px', textAlign: 'center' }}>Loading products...</div>
       ) : error ? (
@@ -315,6 +409,22 @@ export default function ProductsPage({ initialOpenAdd = false }) {
             </button>
           }
         />
+      ) : filteredProducts.length === 0 ? (
+        <div className="card" style={{ padding: '36px', textAlign: 'center' }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '12px' }}>
+            No products match your search or filter criteria.
+          </p>
+          <button
+            onClick={() => {
+              setSearchQuery('');
+              setCategoryFilter('ALL');
+              setStatusFilter('ALL');
+            }}
+            className="btn btn-outline btn-sm"
+          >
+            Reset Filters
+          </button>
+        </div>
       ) : (
         <>
           {/* Desktop Table: Completely unchanged */}
@@ -332,7 +442,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                 </tr>
               </thead>
               <tbody>
-                {products.map((p) => (
+                {filteredProducts.map((p) => (
                   <tr key={p.id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -434,7 +544,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
 
           {/* Mobile-Only Product Cards */}
           <div className="mobile-only mobile-card-list">
-            {products.map((p) => (
+            {filteredProducts.map((p) => (
               <div key={p.id} className="mobile-data-card" onClick={() => handleOpenEdit(p)} style={{ cursor: 'pointer' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {p.image_url ? (
