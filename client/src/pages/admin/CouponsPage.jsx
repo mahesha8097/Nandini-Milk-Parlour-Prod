@@ -174,10 +174,15 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     }
   };
 
-  // Calculate delivery charge per packet based on standard milk rules
+  // Calculate delivery charge per packet for the Coupon System
+  // Coupon books represent bulk milk volume in litres (e.g. 100 coupons of 500ml = 50 Litres).
+  // Delivery charge uses the ₹3.00/Litre bulk rate:
+  // - 500ml packet (0.5L) = 0.5 L × ₹3.00/L = ₹1.50 per coupon
+  // - 1000ml / 1L packet (1.0L) = 1.0 L × ₹3.00/L = ₹3.00 per coupon
+  // - Bulk customers: ₹0
   const getDeliveryChargePerPacket = (product, customer) => {
     if (customer && customer.customer_category === 'BULK_HOTEL') return 0;
-    if (!product) return 2.0; // Standard 500ml milk packet delivery charge
+    if (!product) return 1.5; // Standard 500ml milk packet coupon delivery charge (0.5L × ₹3/L = ₹1.50)
 
     const chargeType = product.delivery_charge_type;
     if (chargeType === 'NONE') return 0;
@@ -185,7 +190,6 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       return parseFloat(product.fixed_delivery_charge || 0);
     }
 
-    // Normal milk delivery rule: <= 500ml is ₹2, > 500ml is volume * ₹3/L (e.g. 1L is ₹3)
     let vol = product.unit_volume_litres;
     if (!vol || vol <= 0) {
       if (product.variant_label && product.variant_label.toLowerCase().includes('500')) vol = 0.5;
@@ -193,10 +197,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       else vol = 0.5;
     }
 
-    if (vol <= 0.5) {
-      return 2.0; // 500ml milk packet = ₹2.00
-    }
-    return parseFloat((vol * 3.0).toFixed(2)); // >0.5L (e.g. 1L) = ₹3.00
+    return parseFloat((vol * 3.0).toFixed(2));
   };
 
   const getProductUnitPrice = (product) => {
@@ -1452,22 +1453,22 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                   return (
                     <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', color: '#166534' }}>
                       <div style={{ fontWeight: 700, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                        <span>🥛 Payment Rate Breakdown (Milk + Normal Delivery Charge):</span>
+                        <span>🥛 Payment Rate Breakdown (Milk + Coupon Delivery Charge):</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
                         <span>Milk Product Price ({prodLabel}):</span>
                         <strong>₹{unitPrice.toFixed(2)} / packet</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                        <span>Normal Milk Delivery Charge:</span>
-                        <strong>+ ₹{delCharge.toFixed(2)} / packet</strong>
+                        <span>Coupon Delivery Charge (₹3.00/L bulk rate):</span>
+                        <strong>+ ₹{delCharge.toFixed(2)} / coupon</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #86efac', fontWeight: 700, fontSize: '13px' }}>
                         <span>Total Rate per Packet / Coupon:</span>
                         <span>₹{totalRate.toFixed(2)}</span>
                       </div>
                       <div style={{ marginTop: '6px', fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px' }}>
-                        ✓ Normal milk delivery charges included: <strong>{totalQty} coupons × ₹{totalRate.toFixed(2)} = ₹{(totalQty * totalRate).toFixed(2)}</strong>
+                        ✓ Coupon delivery charges included: <strong>{totalQty} coupons × ₹{totalRate.toFixed(2)} = ₹{(totalQty * totalRate).toFixed(2)}</strong> (500ml = ₹1.50/coupon at ₹3.00/L)
                       </div>
                     </div>
                   );
@@ -1745,7 +1746,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', color: '#1e40af' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <span style={{ fontWeight: 700, fontSize: '13px' }}>
-                          🥛 Milk Rate Breakdown (Includes Normal Delivery Charge):
+                          🥛 Milk Rate Breakdown (Includes Coupon Delivery Charge):
                         </span>
                         {editBookForm.price_paid !== standardTotal && (
                           <button
@@ -1771,15 +1772,15 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         <strong>₹{unitPrice.toFixed(2)}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                        <span>Normal Milk Delivery Charge:</span>
-                        <strong>+ ₹{delCharge.toFixed(2)}</strong>
+                        <span>Coupon Delivery Charge (₹3.00/L bulk rate):</span>
+                        <strong>+ ₹{delCharge.toFixed(2)} / coupon</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #93c5fd', fontWeight: 700, fontSize: '13px' }}>
                         <span>Total Rate per Packet / Coupon:</span>
                         <span>₹{totalRate.toFixed(2)}</span>
                       </div>
                       <div style={{ marginTop: '6px', fontSize: '11px', color: '#1d4ed8' }}>
-                        Standard Total: {totalQty} coupons × ₹{totalRate.toFixed(2)} = <strong>₹{standardTotal.toFixed(2)}</strong>
+                        Standard Total: {totalQty} coupons × ₹{totalRate.toFixed(2)} = <strong>₹{standardTotal.toFixed(2)}</strong> (500ml = ₹1.50/coupon at ₹3.00/L)
                       </div>
                     </div>
                   );

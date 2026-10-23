@@ -21,11 +21,16 @@ async function generateCouponReceiptNumber() {
 }
 
 /**
- * Helper to calculate standard delivery charge per unit/packet according to normal milk rules
+ * Helper to calculate standard delivery charge per unit/packet for the Coupon System
+ * Coupon books represent bulk milk volume in litres (e.g., 100 coupons of 500ml = 50 Litres).
+ * The delivery charge uses the ₹3.00/Litre rate:
+ * - 500ml packet (0.5L) = 0.5 L × ₹3.00/L = ₹1.50 per coupon
+ * - 1000ml / 1L packet (1.0L) = 1.0 L × ₹3.00/L = ₹3.00 per coupon
+ * - Bulk customers: ₹0
  */
 function getStandardDeliveryChargePerUnit(product, customerCategory = 'HOUSE') {
   if (customerCategory === 'BULK_HOTEL') return 0;
-  if (!product) return 2.0; // Standard 500ml milk packet delivery charge
+  if (!product) return 1.5; // Standard 500ml milk packet delivery charge in coupon system (0.5L × ₹3 = ₹1.50)
 
   const chargeType = product.delivery_charge_type;
   if (chargeType === 'NONE') return 0;
@@ -33,7 +38,9 @@ function getStandardDeliveryChargePerUnit(product, customerCategory = 'HOUSE') {
     return parseFloat(product.fixed_delivery_charge || 0);
   }
 
-  // Normal milk delivery rule: <= 500ml is ₹2, > 500ml is volume * ₹3/L (1L = ₹3)
+  // Coupon System Delivery Rule:
+  // Coupon books represent bulk volume in litres.
+  // Delivery charge uses the ₹3.00/Litre rate: vol × ₹3.00
   let vol = product.unit_volume_litres;
   if (!vol || vol <= 0) {
     if (product.variant_label && product.variant_label.toLowerCase().includes('500')) vol = 0.5;
@@ -41,9 +48,6 @@ function getStandardDeliveryChargePerUnit(product, customerCategory = 'HOUSE') {
     else vol = 0.5;
   }
 
-  if (vol <= 0.5) {
-    return 2.0;
-  }
   return parseFloat((vol * 3.0).toFixed(2));
 }
 
