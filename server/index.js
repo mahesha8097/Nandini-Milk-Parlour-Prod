@@ -22,6 +22,7 @@ const dailyRequirementsRoutes = require('./routes/dailyRequirements.routes');
 const zoneRoutes = require('./routes/zones.routes');
 const routeRoutes = require('./routes/routes.routes');
 const couponRoutes = require('./routes/coupons.routes');
+const calendarRoutes = require('./routes/calendar.routes');
 
 const { runMonthlyBillGeneration } = require('./services/billingService');
 
@@ -102,6 +103,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/zones', zoneRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/coupons', couponRoutes);
+app.use('/api/calendar', calendarRoutes);
 
 // Safe Production Health check
 app.get('/api/health', (req, res) => {

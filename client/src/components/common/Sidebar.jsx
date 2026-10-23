@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Receipt,
   CalendarDays,
+  Calendar,
   Ticket,
   CreditCard,
   Wallet,
@@ -29,6 +30,7 @@ export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) 
   const adminNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'deliveries', label: 'Daily Deliveries', icon: PackageCheck },
+    { id: 'calendar', label: 'Delivery Calendar', icon: Calendar },
     { id: 'routes', label: 'Routes', icon: RouteIcon },
     { id: 'zones', label: 'Zones', icon: Building2 },
     { id: 'customers', label: 'Customers', icon: Users },
@@ -48,6 +50,7 @@ export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) 
   const deliveryNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'deliveries', label: 'Daily Deliveries', icon: PackageCheck },
+    { id: 'calendar', label: 'Delivery Calendar', icon: Calendar },
     { id: 'zones', label: 'Zones', icon: Building2 },
     { id: 'customers', label: 'My Customers', icon: Users },
     { id: 'history', label: 'Delivery History', icon: FileBarChart },

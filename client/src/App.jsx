@@ -24,6 +24,7 @@ import SettingsPage from './pages/admin/SettingsPage';
 import ZonesPage from './pages/admin/ZonesPage';
 import RoutesPage from './pages/admin/RoutesPage';
 import CouponsPage from './pages/admin/CouponsPage';
+import DeliveryCalendarPage from './pages/admin/DeliveryCalendarPage';
 
 // Delivery Boy Pages
 import DeliveryBoyDashboard from './pages/delivery/DeliveryBoyDashboard';
@@ -43,13 +44,13 @@ import {
 } from 'lucide-react';
 
 const VALID_ADMIN_TABS = [
-  'dashboard', 'customers', 'delivery-boys', 'deliveries', 'routes', 'zones',
+  'dashboard', 'customers', 'delivery-boys', 'deliveries', 'calendar', 'routes', 'zones',
   'daily-requirements', 'bills', 'monthly-bill-generate', 'coupons', 'payments',
   'expenses', 'products', 'reports', 'profile', 'settings'
 ];
 
 const VALID_DELIVERY_TABS = [
-  'dashboard', 'deliveries', 'zones', 'customers', 'history', 'profile'
+  'dashboard', 'deliveries', 'calendar', 'zones', 'customers', 'history', 'profile'
 ];
 
 function getStoredTab(role) {
@@ -155,6 +156,8 @@ function MainApplication() {
         return <DeliveryBoysPage initialOpenAdd={navParams.openAdd} />;
       case 'deliveries':
         return <DeliveriesPage />;
+      case 'calendar':
+        return <DeliveryCalendarPage />;
       case 'routes':
         return <RoutesPage onNavigate={handleNavigate} />;
       case 'zones':
@@ -191,6 +194,8 @@ function MainApplication() {
         return <DeliveryBoyDashboard onNavigate={handleNavigate} />;
       case 'deliveries':
         return <DeliveryBoyDeliveries />;
+      case 'calendar':
+        return <DeliveryCalendarPage />;
       case 'zones':
         return <ZonesPage onNavigate={handleNavigate} />;
       case 'customers':

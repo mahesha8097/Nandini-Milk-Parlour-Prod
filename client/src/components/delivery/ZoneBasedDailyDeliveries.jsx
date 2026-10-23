@@ -29,6 +29,9 @@ import {
   Filter,
   Check,
   AlertCircle,
+  AlertTriangle,
+  Bell,
+  ExternalLink,
   FileText,
   Layers,
   Home,
@@ -39,6 +42,7 @@ import {
   Route as RouteIcon
 } from 'lucide-react';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
+import { generateGoogleCalendarPauseUrl, generateGoogleCalendarResumeUrl } from '../../utils/calendarUtils';
 
 // Architectural SVG thumbnails for zone types
 function ZoneBuildingThumbnail({ name = '', index = 0 }) {
@@ -175,9 +179,68 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   const [allCustomersList, setAllCustomersList] = useState([]);
   const [assigningCustomer, setAssigningCustomer] = useState(false);
 
+  // Delivery Calendar & Vacation Notifications state
+  const [calendarNotifs, setCalendarNotifs] = useState({ pausedToday: [], resumingTomorrow: [] });
+  const [showQuickVacationModal, setShowQuickVacationModal] = useState(false);
+  const [quickVacationCustomer, setQuickVacationCustomer] = useState(null);
+  const [vacationForm, setVacationForm] = useState({
+    start_date: '',
+    end_date: '',
+    reason: 'Going out of station',
+    notes: '',
+    syncGcal: true
+  });
+  const [vacationSubmitting, setVacationSubmitting] = useState(false);
+  const [vacationError, setVacationError] = useState('');
+
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 4000);
+  };
+
+  const handleOpenQuickVacation = (customer) => {
+    const sDate = selectedDate || getLocalDateString();
+    setQuickVacationCustomer(customer);
+    setVacationForm({
+      start_date: sDate,
+      end_date: sDate,
+      reason: 'Going out of station',
+      notes: '',
+      syncGcal: true
+    });
+    setVacationError('');
+    setShowQuickVacationModal(true);
+  };
+
+  const handleSubmitQuickVacation = async (e) => {
+    e.preventDefault();
+    if (!quickVacationCustomer || !vacationForm.start_date || !vacationForm.end_date) return;
+    try {
+      setVacationSubmitting(true);
+      setVacationError('');
+      const res = await api.post('/calendar/vacations', {
+        customer_id: quickVacationCustomer.customer_id,
+        start_date: vacationForm.start_date,
+        end_date: vacationForm.end_date,
+        reason: vacationForm.reason,
+        notes: vacationForm.notes
+      });
+
+      setShowQuickVacationModal(false);
+      showToast(`Milk paused for ${quickVacationCustomer.customer_name} (${vacationForm.start_date} to ${vacationForm.end_date}). Delivery boy notified!`);
+
+      // Open Google Calendar link in new tab if sync requested
+      if (vacationForm.syncGcal && res?.gcal_url) {
+        window.open(res.gcal_url, '_blank');
+      }
+
+      await fetchData(true);
+    } catch (err) {
+      console.error('Vacation schedule error:', err);
+      setVacationError(err.message || 'Failed to schedule vacation pause');
+    } finally {
+      setVacationSubmitting(false);
+    }
   };
 
   // Helper to change active selected zone and store in localStorage
@@ -313,9 +376,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       } else if (dboyFilter) {
         params.delivery_boy_id = dboyFilter;
       }
-      const dels = await api.get('/deliveries', { params });
+      const [dels, notifs] = await Promise.all([
+        api.get('/deliveries', { params }).catch(() => []),
+        api.get('/calendar/notifications', { params: { date: selectedDate } }).catch(() => null)
+      ]);
       if (Array.isArray(dels)) {
         setDeliveries(dels);
+      }
+      if (notifs) {
+        setCalendarNotifs(notifs);
       }
     } catch (err) {
       console.error('Silent deliveries refresh notice:', err);
@@ -339,13 +408,17 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       const hasMasterData = zones.length > 0 && products.length > 0 && customers.length > 0;
 
       if (hasMasterData && silent) {
-        const dels = await api.get('/deliveries', { params }).catch((err) => {
-          console.error('Deliveries fetch notice:', err);
-          return [];
-        });
+        const [dels, notifs] = await Promise.all([
+          api.get('/deliveries', { params }).catch((err) => {
+            console.error('Deliveries fetch notice:', err);
+            return [];
+          }),
+          api.get('/calendar/notifications', { params: { date: selectedDate } }).catch(() => null)
+        ]);
         setDeliveries(dels || []);
+        if (notifs) setCalendarNotifs(notifs);
       } else {
-        const [dels, zoneList, prods, custs, dboys, routeList] = await Promise.all([
+        const [dels, zoneList, prods, custs, dboys, routeList, notifs] = await Promise.all([
           api.get('/deliveries', { params }).catch((err) => {
             console.error('Deliveries fetch notice:', err);
             return [];
@@ -354,7 +427,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           api.get('/products').catch(() => []),
           api.get('/customers').catch(() => []),
           userRole === 'ADMIN' ? api.get('/delivery-boys').catch(() => []) : Promise.resolve([]),
-          api.get('/routes').catch(() => [])
+          api.get('/routes').catch(() => []),
+          api.get('/calendar/notifications', { params: { date: selectedDate } }).catch(() => null)
         ]);
 
         setDeliveries(dels || []);
@@ -363,6 +437,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         setCustomers(custs || []);
         setDeliveryBoys(dboys || []);
         setRoutes(routeList || []);
+        if (notifs) setCalendarNotifs(notifs);
 
         if (userRole === 'DELIVERY_BOY') {
           if (routeList && routeList.length > 0) {
@@ -1161,6 +1236,164 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           </div>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* REAL-TIME DELIVERY CALENDAR & MILK VACATION NOTIFICATION BANNERS */}
+      {/* ========================================================================= */}
+      {/* 1. DO NOT DELIVER TODAY BANNER */}
+      {calendarNotifs?.pausedToday?.length > 0 && (
+        <div style={{
+          background: '#fef2f2',
+          border: '1.5px solid #fecaca',
+          borderRadius: '14px',
+          padding: '14px 18px',
+          marginBottom: '18px',
+          boxShadow: '0 2px 8px rgba(220,38,38,0.06)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
+                <AlertTriangle size={18} />
+              </div>
+              <div>
+                <span style={{ fontWeight: '900', color: '#991b1b', fontSize: '0.96rem' }}>
+                  ⛔ DO NOT DELIVER TODAY — {calendarNotifs.pausedToday.length} Customer{calendarNotifs.pausedToday.length > 1 ? 's' : ''} on Milk Vacation / Paused
+                </span>
+                <div style={{ fontSize: '0.8rem', color: '#b91c1c' }}>
+                  These customer(s) requested milk pause. Daily deliveries for today are marked as skipped (₹0).
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, background: '#fee2e2', color: '#991b1b', padding: '4px 10px', borderRadius: '999px', border: '1px solid #fca5a5' }}>
+              {calendarNotifs.pausedToday.length} Paused
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {calendarNotifs.pausedToday.map((p) => (
+              <div
+                key={p.id}
+                style={{
+                  background: 'white',
+                  border: '1px solid #fca5a5',
+                  borderRadius: '8px',
+                  padding: '6px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '0.82rem'
+                }}
+              >
+                <span style={{ fontWeight: 800, color: '#b91c1c' }}>
+                  {p.flat_no ? `Flat ${p.flat_no} — ` : ''}{p.customer_name}
+                </span>
+                <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                  ({p.zone_name || 'Zone'} • {p.start_date} to {p.end_date})
+                </span>
+                {p.gcal_url && (
+                  <a
+                    href={p.gcal_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open Google Calendar Event"
+                    style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center' }}
+                  >
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 2. RESUMES TOMORROW (1-DAY PRIOR NOTIFICATION FOR AGENT & DELIVERY BOY) */}
+      {calendarNotifs?.resumingTomorrow?.length > 0 && (
+        <div style={{
+          background: '#eff6ff',
+          border: '1.5px solid #bfdbfe',
+          borderRadius: '14px',
+          padding: '14px 18px',
+          marginBottom: '18px',
+          boxShadow: '0 2px 8px rgba(37,99,235,0.06)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1d4ed8' }}>
+                <Bell size={18} />
+              </div>
+              <div>
+                <span style={{ fontWeight: '900', color: '#1e40af', fontSize: '0.96rem' }}>
+                  🔔 PRIOR NOTICE: {calendarNotifs.resumingTomorrow.length} Customer{calendarNotifs.resumingTomorrow.length > 1 ? 's' : ''} Resume Delivery Tomorrow ({formatDisplayDate(calendarNotifs.resumingTomorrow[0]?.resume_date)})
+                </span>
+                <div style={{ fontSize: '0.8rem', color: '#2563eb' }}>
+                  Pause ends today. Procure required milk stock today and ensure delivery boy resumes supply tomorrow morning.
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '999px', border: '1px solid #93c5fd' }}>
+              Action Required Today
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+            {calendarNotifs.resumingTomorrow.map((r) => (
+              <div
+                key={r.id}
+                style={{
+                  background: 'white',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '10px',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
+                    {r.flat_no ? `Flat ${r.flat_no} — ` : ''}{r.customer_name}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#2563eb', fontWeight: 700, marginTop: '2px' }}>
+                    📦 {r.products_summary || 'Daily Milk'}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                    {r.zone_name} • {r.route_name}
+                  </div>
+                </div>
+
+                {r.gcal_resume_url && (
+                  <a
+                    href={r.gcal_resume_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-outline btn-sm"
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      borderRadius: '6px',
+                      color: '#1d4ed8',
+                      borderColor: '#bfdbfe',
+                      background: '#eff6ff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      textDecoration: 'none',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title="Add reminder to Google Calendar (mobile notification)"
+                  >
+                    <Calendar size={12} />
+                    <span>+ Google Cal</span>
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Route Hierarchy Bar (Routes -> Zones -> Customers -> Daily Deliveries) */}
       {!activeZone && (
@@ -2303,7 +2536,23 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
                       {/* Status Badge */}
                       <div>
-                        {isDelivered ? (
+                        {calendarNotifs?.pausedToday?.some(p => String(p.customer_id) === String(cust.customer_id)) ? (
+                          <span style={{
+                            background: '#fee2e2',
+                            color: '#991b1b',
+                            border: '1px solid #fecaca',
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            fontSize: '0.78rem',
+                            fontWeight: 900,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                          }}>
+                            <AlertTriangle size={13} color="#dc2626" />
+                            <span>⛔ Paused Today</span>
+                          </span>
+                        ) : isDelivered ? (
                           <span style={{
                             background: '#dcfce7',
                             color: '#15803d',
@@ -2513,6 +2762,61 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             flexDirection: 'column',
             gap: '12px'
           }}>
+            {(() => {
+              const activePause = calendarNotifs?.pausedToday?.find(
+                p => String(p.customer_id) === String(activeCustomer.customer_id)
+              );
+              if (!activePause) return null;
+              return (
+                <div style={{
+                  background: '#fee2e2',
+                  border: '1.5px solid #fca5a5',
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <AlertTriangle size={18} color="#dc2626" />
+                    <div>
+                      <div style={{ fontWeight: 900, color: '#991b1b', fontSize: '0.9rem' }}>
+                        ⛔ MILK DELIVERY PAUSED (DO NOT DELIVER TODAY)
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#b91c1c' }}>
+                        Paused from {activePause.start_date} to {activePause.end_date}. Reason: {activePause.reason || 'Pause requested'}.
+                      </div>
+                    </div>
+                  </div>
+                  {activePause.gcal_url && (
+                    <a
+                      href={activePause.gcal_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        background: 'white',
+                        color: '#b91c1c',
+                        border: '1px solid #fca5a5',
+                        borderRadius: '6px',
+                        padding: '4px 10px',
+                        fontSize: '0.78rem',
+                        fontWeight: 800,
+                        textDecoration: 'none'
+                      }}
+                    >
+                      <Calendar size={13} />
+                      <span>Google Cal</span>
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -2544,7 +2848,30 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleOpenQuickVacation(activeCustomer)}
+                  className="btn btn-outline btn-sm"
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: '#b45309',
+                    borderColor: '#fde68a',
+                    background: '#fef3c7',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                  title="Customer requested not to deliver milk for upcoming days"
+                >
+                  <Calendar size={14} />
+                  <span>Pause Milk / Vacation</span>
+                </button>
+
                 {activeCustomer.customer_phone && (
                   <a
                     href={`tel:${activeCustomer.customer_phone}`}
@@ -3762,6 +4089,147 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               disabled={assigningCustomer || !assignCustomerData.customer_id}
             >
               {assigningCustomer ? 'Assigning...' : 'Assign to Zone'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* QUICK PAUSE MILK / VACATION MODAL */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={showQuickVacationModal}
+        onClose={() => setShowQuickVacationModal(false)}
+        title={`Pause Milk Delivery: ${quickVacationCustomer?.customer_name || 'Customer'}`}
+      >
+        <form onSubmit={handleSubmitQuickVacation} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {vacationError && (
+            <div style={{ padding: '8px 12px', background: '#fef2f2', color: '#b91c1c', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
+              {vacationError}
+            </div>
+          )}
+
+          <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}>
+            <div style={{ fontWeight: 800, color: '#0f172a' }}>
+              {quickVacationCustomer?.flat_no ? `Flat ${quickVacationCustomer.flat_no} • ` : ''}{quickVacationCustomer?.customer_name}
+            </div>
+            <div style={{ color: '#64748b', marginTop: '2px', fontSize: '0.8rem' }}>
+              Deliveries will be marked as <b>SKIPPED (₹0)</b> for these dates and the delivery boy will be instructed <b>NOT to deliver</b>.
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 700 }}>Pause From (Start Date) *</label>
+              <input
+                type="date"
+                className="form-input"
+                required
+                value={vacationForm.start_date}
+                onChange={(e) => setVacationForm({ ...vacationForm, start_date: e.target.value })}
+              />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 700 }}>Pause Until (End Date) *</label>
+              <input
+                type="date"
+                className="form-input"
+                required
+                value={vacationForm.end_date}
+                min={vacationForm.start_date}
+                onChange={(e) => setVacationForm({ ...vacationForm, end_date: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {/* Quick preset buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>Quick:</span>
+            {[
+              { label: '1 Day', days: 1 },
+              { label: '2 Days', days: 2 },
+              { label: '3 Days', days: 3 },
+              { label: '1 Week', days: 7 }
+            ].map(preset => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => {
+                  const s = vacationForm.start_date || selectedDate;
+                  const d = new Date(s);
+                  d.setDate(d.getDate() + preset.days - 1);
+                  const endStr = d.toISOString().split('T')[0];
+                  setVacationForm({ ...vacationForm, start_date: s, end_date: endStr });
+                }}
+                style={{
+                  background: '#f1f5f9',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  padding: '3px 8px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  color: '#334155'
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 700 }}>Reason</label>
+            <select
+              className="form-select"
+              value={vacationForm.reason}
+              onChange={(e) => setVacationForm({ ...vacationForm, reason: e.target.value })}
+            >
+              <option value="Going out of station">Going out of station / Native</option>
+              <option value="Excess milk remaining">Already have leftover milk</option>
+              <option value="Function / Festival">Family function / Festival</option>
+              <option value="Medical / Emergency">Medical / Emergency</option>
+              <option value="Temporary pause">Temporary pause</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 700 }}>Additional Note (Optional)</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Return expected Sunday morning"
+              value={vacationForm.notes}
+              onChange={(e) => setVacationForm({ ...vacationForm, notes: e.target.value })}
+            />
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', color: '#1e293b' }}>
+            <input
+              type="checkbox"
+              checked={vacationForm.syncGcal}
+              onChange={(e) => setVacationForm({ ...vacationForm, syncGcal: e.target.checked })}
+            />
+            <span style={{ fontWeight: 600 }}>Sync to Google Calendar (Mobile notification)</span>
+          </label>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+            <button
+              type="button"
+              onClick={() => setShowQuickVacationModal(false)}
+              className="btn btn-outline btn-sm"
+              style={{ fontWeight: 700 }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={vacationSubmitting}
+              className="btn btn-danger btn-sm"
+              style={{ fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#dc2626' }}
+            >
+              <CheckCircle2 size={15} />
+              {vacationSubmitting ? 'Saving...' : 'Confirm Pause & Update Route'}
             </button>
           </div>
         </form>

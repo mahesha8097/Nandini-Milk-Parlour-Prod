@@ -171,9 +171,27 @@ if (isProduction && process.env.DATABASE_URL) {
               agent_id INTEGER DEFAULT 1,
               created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
             );
+
+            CREATE TABLE IF NOT EXISTS customer_vacations (
+              id SERIAL PRIMARY KEY,
+              customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+              start_date TEXT NOT NULL,
+              end_date TEXT NOT NULL,
+              resume_date TEXT NOT NULL,
+              reason TEXT,
+              status TEXT DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'COMPLETED', 'CANCELLED')),
+              notify_agent_date TEXT,
+              agent_id INTEGER DEFAULT 1,
+              created_by INTEGER REFERENCES users(id),
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+              updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cust_vacations_dates ON customer_vacations(start_date, end_date);
+            CREATE INDEX IF NOT EXISTS idx_cust_vacations_notify ON customer_vacations(notify_agent_date);
           `);
         } catch (e) {
-          console.warn('Postgres delivery_corrections init note:', e.message);
+          console.warn('Postgres delivery_corrections / vacations init note:', e.message);
         }
 
         // Seed initial routes if none exist for agent 1
@@ -607,6 +625,22 @@ if (isProduction && process.env.DATABASE_URL) {
         created_at TEXT NOT NULL
       );
 
+      -- Customer Vacations / Delivery Pause Scheduler
+      CREATE TABLE IF NOT EXISTS customer_vacations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        resume_date TEXT NOT NULL,
+        reason TEXT,
+        status TEXT DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'COMPLETED', 'CANCELLED')),
+        notify_agent_date TEXT,
+        agent_id INTEGER DEFAULT 1,
+        created_by INTEGER REFERENCES users(id),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       -- Indexes for high performance queries
       CREATE INDEX IF NOT EXISTS idx_deliveries_date ON deliveries(delivery_date);
       CREATE INDEX IF NOT EXISTS idx_deliveries_cust ON deliveries(customer_id);
@@ -621,6 +655,8 @@ if (isProduction && process.env.DATABASE_URL) {
       CREATE INDEX IF NOT EXISTS idx_deliv_corr_deliv ON delivery_corrections(delivery_id);
       CREATE INDEX IF NOT EXISTS idx_deliv_corr_cust ON delivery_corrections(customer_id);
       CREATE INDEX IF NOT EXISTS idx_deliv_corr_date ON delivery_corrections(delivery_date);
+      CREATE INDEX IF NOT EXISTS idx_cust_vacations_dates ON customer_vacations(start_date, end_date);
+      CREATE INDEX IF NOT EXISTS idx_cust_vacations_notify ON customer_vacations(notify_agent_date);
     `);
 
     // Ensure upi_phone column exists on business_profile
