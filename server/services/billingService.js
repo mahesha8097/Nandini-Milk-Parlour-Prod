@@ -106,6 +106,10 @@ async function upsertBillLedgerEntry({
  * Based on customer's active subscriptions in that month, strictly respecting start_date and end_date.
  */
 async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate = false) {
+  if (customer.billing_type === 'COUPON') {
+    return null; // Coupon customers pay via coupon books
+  }
+
   // Check if bill already exists
   const existing = await db.prepare(`
     SELECT * FROM bills WHERE customer_id = ? AND billing_month = ? AND billing_type = 'PREPAID'
@@ -339,6 +343,10 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
  * Automatically subtracts/minuses the delivered milk amount from the customer's paid advance balance!
  */
 async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate = false) {
+  if (customer.billing_type === 'COUPON') {
+    return null; // Coupon customers pay via coupon books
+  }
+
   // Check if bill already exists
   const existing = await db.prepare(`
     SELECT * FROM bills WHERE customer_id = ? AND billing_month = ?
@@ -551,6 +559,10 @@ async function generateWeeklyBillNumber(startDateStr) {
  * Generates Weekly Bill based on actual deliveries recorded for that customer between startDate and endDate.
  */
 async function generateWeeklyBillForCustomer(customer, startDate, endDate, forceRegenerate = false) {
+  if (customer.billing_type === 'COUPON') {
+    return null; // Coupon customers pay via coupon books
+  }
+
   const billingMonthStr = `${startDate} to ${endDate}`;
 
   // Check if weekly bill already exists for this exact period
@@ -787,6 +799,14 @@ async function generateWeeklyBillsForPeriod(startDate, endDate, options = {}) {
  * - If billingBasis === 'SUBSCRIPTION', bills the expected monthly subscription.
  */
 async function generateBillForCustomer(customer, billingMonth, { billingBasis = 'AUTO', forceRegenerate = false } = {}) {
+  // Coupon customers pay strictly through coupon book purchases.
+  // Legacy / existing coupon customers have already paid offline, and payment calculation
+  // starts strictly when their next coupon book is purchased in the system.
+  // They must NEVER receive monthly or delivered milk bills.
+  if (customer.billing_type === 'COUPON') {
+    return null;
+  }
+
   const delCountRow = await db.prepare(`
     SELECT COUNT(*) as count FROM deliveries
     WHERE customer_id = ? AND delivery_date LIKE ? AND status = 'DELIVERED'
@@ -822,7 +842,7 @@ async function runMonthlyBillGeneration(targetMonth, options = {}) {
   const agentId = typeof options === 'object' && options.agentId ? options.agentId : null;
   const currentMonthStr = targetMonth || new Date().toISOString().slice(0, 7); // YYYY-MM
   
-  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE'`;
+  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE' AND (billing_type IS NULL OR billing_type != 'COUPON')`;
   const custParams = [];
   if (agentId) {
     custQuery += ` AND agent_id = ?`;

@@ -277,7 +277,14 @@ console.log('\n[TEST 14] Subscription start date is respected (Oct 16 to Oct 31 
 async function test14() {
   const db = require('../config/db');
   const testPhone = '9888877771';
-  db.prepare(`DELETE FROM customers WHERE phone = ?`).run(testPhone);
+  const existingCust14 = db.prepare(`SELECT id FROM customers WHERE phone = ?`).get(testPhone);
+  if (existingCust14) {
+    db.prepare(`DELETE FROM bills WHERE customer_id = ?`).run(existingCust14.id);
+    db.prepare(`DELETE FROM subscriptions WHERE customer_id = ?`).run(existingCust14.id);
+    db.prepare(`DELETE FROM deliveries WHERE customer_id = ?`).run(existingCust14.id);
+    db.prepare(`DELETE FROM customer_ledger WHERE customer_id = ?`).run(existingCust14.id);
+    db.prepare(`DELETE FROM customers WHERE id = ?`).run(existingCust14.id);
+  }
 
   const cRes = db.prepare(`
     INSERT INTO customers (name, phone, address, customer_category, billing_type, advance_balance, pending_balance, created_at, updated_at)
@@ -322,7 +329,14 @@ console.log('\n[TEST 15] Subscription change effective date (Oct 1-15: 1L/day, O
 async function test15() {
   const db = require('../config/db');
   const testPhone = '9888877772';
-  db.prepare(`DELETE FROM customers WHERE phone = ?`).run(testPhone);
+  const existingCust15 = db.prepare(`SELECT id FROM customers WHERE phone = ?`).get(testPhone);
+  if (existingCust15) {
+    db.prepare(`DELETE FROM bills WHERE customer_id = ?`).run(existingCust15.id);
+    db.prepare(`DELETE FROM subscriptions WHERE customer_id = ?`).run(existingCust15.id);
+    db.prepare(`DELETE FROM deliveries WHERE customer_id = ?`).run(existingCust15.id);
+    db.prepare(`DELETE FROM customer_ledger WHERE customer_id = ?`).run(existingCust15.id);
+    db.prepare(`DELETE FROM customers WHERE id = ?`).run(existingCust15.id);
+  }
 
   const cRes = db.prepare(`
     INSERT INTO customers (name, phone, address, customer_category, billing_type, advance_balance, pending_balance, created_at, updated_at)
@@ -374,7 +388,14 @@ console.log('\n[TEST 16, 17, 18] Monthly Bill Generation, Duplicate Bill Prevent
 async function test16_17_18() {
   const db = require('../config/db');
   const testPhone = '9888877773';
-  db.prepare(`DELETE FROM customers WHERE phone = ?`).run(testPhone);
+  const existingCust16 = db.prepare(`SELECT id FROM customers WHERE phone = ?`).get(testPhone);
+  if (existingCust16) {
+    db.prepare(`DELETE FROM bills WHERE customer_id = ?`).run(existingCust16.id);
+    db.prepare(`DELETE FROM subscriptions WHERE customer_id = ?`).run(existingCust16.id);
+    db.prepare(`DELETE FROM deliveries WHERE customer_id = ?`).run(existingCust16.id);
+    db.prepare(`DELETE FROM customer_ledger WHERE customer_id = ?`).run(existingCust16.id);
+    db.prepare(`DELETE FROM customers WHERE id = ?`).run(existingCust16.id);
+  }
 
   const cRes = db.prepare(`
     INSERT INTO customers (name, phone, address, customer_category, billing_type, advance_balance, pending_balance, created_at, updated_at)

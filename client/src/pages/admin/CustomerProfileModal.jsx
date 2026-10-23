@@ -28,7 +28,8 @@ import {
   Play,
   Pause,
   Sliders,
-  Ticket
+  Ticket,
+  Info
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
@@ -553,6 +554,29 @@ export default function CustomerProfileModal({
           {/* TAB: COUPONS */}
           {activeTab === 'coupons' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Legacy physical coupons banner */}
+              {(profile.coupon_books || []).length === 0 && customer.billing_type === 'COUPON' && (
+                <div style={{
+                  padding: '12px 16px',
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '0.82rem',
+                  color: '#1e40af',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px'
+                }}>
+                  <Info size={18} style={{ flexShrink: 0, marginTop: '2px', color: '#2563eb' }} />
+                  <div>
+                    <strong>Pre-issued Physical Coupons (Active):</strong>
+                    <div style={{ margin: '4px 0 0 0', lineHeight: '1.4' }}>
+                      This customer has already taken physical coupons offline. Their daily milk requirement will continue to be delivered normally through the website without billing or payment deductions. Payment calculation and digital coupon tracking will begin when their <strong>next coupon book</strong> is issued below.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Top Overview Cards */}
               <div style={{
                 display: 'grid',
@@ -561,10 +585,12 @@ export default function CustomerProfileModal({
               }}>
                 <div className="card" style={{ padding: '14px', background: '#fffbeb', border: '1px solid #fde68a' }}>
                   <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#92400e', textTransform: 'uppercase' }}>Active Leftover Coupons</div>
-                  <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#b45309', marginTop: '4px' }}>
-                    {customer.coupon_balance || 0}
+                  <div style={{ fontSize: (profile.coupon_books || []).length === 0 && !customer.coupon_balance ? '1.1rem' : '1.6rem', fontWeight: '800', color: '#b45309', marginTop: '4px' }}>
+                    {(profile.coupon_books || []).length === 0 && !customer.coupon_balance ? 'Physical Coupons' : (customer.coupon_balance || 0)}
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: '#78350f', marginTop: '2px' }}>Coupons ready for milk packets</div>
+                  <div style={{ fontSize: '0.72rem', color: '#78350f', marginTop: '2px' }}>
+                    {(profile.coupon_books || []).length === 0 && !customer.coupon_balance ? 'Delivered without deduction until next book' : 'Coupons ready for milk packets'}
+                  </div>
                 </div>
 
                 <div className="card" style={{ padding: '14px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>

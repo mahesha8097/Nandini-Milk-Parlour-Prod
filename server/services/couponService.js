@@ -212,18 +212,28 @@ async function deductCouponsForDelivery(delivery) {
     remainingToDeductFromBooks -= canDeduct;
   }
 
-  // Deduct customer coupon balance
+  const hasActiveBooks = activeBooks.length > 0;
   const currentBal = parseInt(customer.coupon_balance, 10) || 0;
-  const newBal = Math.max(0, currentBal - qty);
+  // If active registered books exist, deduct from book & balance.
+  // If customer has no registered books yet (legacy physical coupons given offline),
+  // they are delivering milk normally; payment calculation starts when they take their next book.
+  const actualDeducted = hasActiveBooks ? (qty - remainingToDeductFromBooks) : 0;
+  const newBal = Math.max(0, currentBal - actualDeducted);
 
-  await db.prepare(`
-    UPDATE customers
-    SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(newBal, customer.id);
+  if (hasActiveBooks) {
+    await db.prepare(`
+      UPDATE customers
+      SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(newBal, customer.id);
+  }
 
   // Record transaction log
   const txDate = delivery.delivery_date || new Date().toISOString().slice(0, 10);
+  const noteText = hasActiveBooks
+    ? `Delivered ${qty}x ${delivery.product_name_snapshot || 'Milk'} (${txDate})`
+    : `Delivered ${qty}x ${delivery.product_name_snapshot || 'Milk'} (Using pre-issued physical coupon - payment tracked from next book purchase)`;
+
   await db.prepare(`
     INSERT INTO coupon_transactions (
       customer_id, coupon_book_id, delivery_id, change_amount, balance_after,
@@ -236,14 +246,14 @@ async function deductCouponsForDelivery(delivery) {
     customer.id,
     bookToLink,
     delivery.id,
-    -qty,
+    -actualDeducted,
     newBal,
     txDate,
-    `Delivered ${qty}x ${delivery.product_name_snapshot || 'Milk'} (${txDate})`,
+    noteText,
     delivery.agent_id || customer.agent_id || 1
   );
 
-  return { deducted: qty, balanceAfter: newBal };
+  return { deducted: actualDeducted, balanceAfter: newBal, legacyCouponDelivery: !hasActiveBooks };
 }
 
 /**
@@ -266,29 +276,31 @@ async function revertCouponsForDelivery(deliveryId) {
   const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
   if (!customer) return null;
 
-  // Restore coupon to book if linked
-  if (bookId) {
-    const book = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(bookId);
-    if (book) {
-      const restoredRemaining = book.remaining_coupons + refundQty;
-      const restoredUsed = Math.max(0, book.used_coupons - refundQty);
-      await db.prepare(`
-        UPDATE coupon_books
-        SET remaining_coupons = ?, used_coupons = ?, status = 'ACTIVE', updated_at = datetime('now', 'localtime')
-        WHERE id = ?
-      `).run(restoredRemaining, restoredUsed, bookId);
-    }
-  }
-
-  // Restore customer coupon balance
   const currentBal = parseInt(customer.coupon_balance, 10) || 0;
-  const newBal = currentBal + refundQty;
+  const newBal = refundQty > 0 ? currentBal + refundQty : currentBal;
 
-  await db.prepare(`
-    UPDATE customers
-    SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(newBal, customerId);
+  if (refundQty > 0) {
+    // Restore coupon to book if linked
+    if (bookId) {
+      const book = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(bookId);
+      if (book) {
+        const restoredRemaining = book.remaining_coupons + refundQty;
+        const restoredUsed = Math.max(0, book.used_coupons - refundQty);
+        await db.prepare(`
+          UPDATE coupon_books
+          SET remaining_coupons = ?, used_coupons = ?, status = 'ACTIVE', updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(restoredRemaining, restoredUsed, bookId);
+      }
+    }
+
+    // Restore customer coupon balance
+    await db.prepare(`
+      UPDATE customers
+      SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(newBal, customerId);
+  }
 
   // Record revert transaction
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -448,8 +460,10 @@ async function getCouponMonthEndSummary(agentId = 1, month = null) {
     `).get(cust.id);
 
     const remaining = parseInt(cust.coupon_balance, 10) || 0;
+    const totalBooks = parseInt(books.book_count, 10) || 0;
     let balanceStatus = 'ACTIVE';
-    if (remaining <= 0) balanceStatus = 'EXHAUSTED';
+    if (totalBooks === 0 && cust.billing_type === 'COUPON') balanceStatus = 'PRE_SYSTEM_COUPONS';
+    else if (remaining <= 0) balanceStatus = 'EXHAUSTED';
     else if (remaining <= 5) balanceStatus = 'LOW';
 
     report.push({

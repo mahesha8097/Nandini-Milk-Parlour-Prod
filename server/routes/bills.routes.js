@@ -206,6 +206,12 @@ router.post('/generate-single', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    if (customer.billing_type === 'COUPON') {
+      return res.status(400).json({
+        error: 'This customer is on the Coupon system. Payments are collected when coupon books are purchased; monthly bills are not generated for coupon customers.'
+      });
+    }
+
     const targetMonth = month || new Date().toISOString().slice(0, 7);
     const { generateBillForCustomer } = require('../services/billingService');
 

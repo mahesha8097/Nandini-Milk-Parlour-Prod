@@ -23,7 +23,7 @@ async function runWeeklyAndCouponTests() {
   console.log('================================================================\n');
 
   // Clean test fixtures
-  const TEST_PHONE = '9888877771';
+  const TEST_PHONE = '9888877779';
   const prevCust = await db.prepare('SELECT id FROM customers WHERE phone = ?').get(TEST_PHONE);
   if (prevCust) {
     await db.prepare('DELETE FROM coupon_transactions WHERE customer_id = ?').run(prevCust.id);

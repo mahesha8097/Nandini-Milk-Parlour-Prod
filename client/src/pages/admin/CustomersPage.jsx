@@ -32,10 +32,16 @@ import {
 
 function renderBillingBadge(c) {
   if (c.billing_type === 'COUPON') {
+    const bal = parseInt(c.coupon_balance, 10) || 0;
+    const isLegacy = bal === 0;
     return (
-      <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+      <span
+        className="badge"
+        style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+        title={isLegacy ? 'Using physical coupons given offline. Payments start from next book.' : `${bal} coupons remaining.`}
+      >
         <Ticket size={11} />
-        Coupon ({c.coupon_balance || 0} left)
+        {isLegacy ? 'Coupon (Physical Book)' : `Coupon (${bal} left)`}
       </span>
     );
   }
@@ -2159,12 +2165,13 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             }}>
               <Ticket size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
               <div>
-                <strong>Coupon-based Customer:</strong> Customer purchases coupon books in advance (e.g. 30 or 60 coupons).
-                Each delivered packet automatically deducts 1 coupon. No monthly monetary bill is generated.
+                <strong>Coupon-based Customer:</strong> Customer uses pre-purchased coupon books.
+                For existing customers who already have physical coupons, daily milk is delivered normally through the website without billing or deductions.
+                Payment calculation will strictly start from their <strong>next coupon book</strong> when they take a new book.
                 {editingCustomer && (
                   <div style={{ marginTop: '4px', fontWeight: '600' }}>
-                    Active Coupon Balance: <span style={{ color: '#b45309', fontWeight: '800' }}>{editingCustomer.coupon_balance || 0} coupons remaining</span>.
-                    You can issue new coupon books or adjust balances anytime in the <strong>Coupons</strong> tab or dedicated Coupons page.
+                    Active Registered Balance: <span style={{ color: '#b45309', fontWeight: '800' }}>{editingCustomer.coupon_balance ? `${editingCustomer.coupon_balance} coupons` : 'Physical Coupons (Untracked until next book)'}</span>.
+                    You can issue their next coupon book anytime in the <strong>Coupons</strong> tab to start digital balance tracking.
                   </div>
                 )}
               </div>
