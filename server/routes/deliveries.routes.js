@@ -15,6 +15,10 @@ const {
   getDeliveryBoyAuthorizedZoneIds,
   getDeliveryBoyAssignedRouteIds
 } = require('../services/routeAuthService');
+const {
+  deductCouponsForDelivery,
+  revertCouponsForDelivery
+} = require('../services/couponService');
 
 /**
  * Ensures pending delivery items exist for a given date based on active customer subscriptions.
@@ -593,6 +597,17 @@ router.post('/bulk-deliver', verifyToken, async (req, res) => {
       WHERE customer_id = ? AND delivery_date = ?
     `).run(customer.id, targetDate);
 
+    // Deduct coupons if customer uses coupons
+    for (const d of existing) {
+      if (d.status !== 'DELIVERED') {
+        try {
+          await deductCouponsForDelivery({ ...d, status: 'DELIVERED' });
+        } catch (cpnErr) {
+          console.warn('Coupon deduction on bulk deliver notice:', cpnErr.message);
+        }
+      }
+    }
+
     // Refresh monthly bill if exists
     const billingMonth = targetDate.slice(0, 7);
     const existingBill = await db.prepare('SELECT id FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
@@ -724,6 +739,21 @@ router.put('/:id/status', verifyToken, async (req, res) => {
       WHERE id = ?
     `).run(status, notes !== undefined ? notes : delivery.notes, deliveryId);
 
+    // Handle coupon deduction or restoration
+    if (status === 'DELIVERED' && delivery.status !== 'DELIVERED') {
+      try {
+        await deductCouponsForDelivery({ ...delivery, status: 'DELIVERED' });
+      } catch (cpnErr) {
+        console.warn('Coupon deduction warning:', cpnErr.message);
+      }
+    } else if (delivery.status === 'DELIVERED' && status !== 'DELIVERED') {
+      try {
+        await revertCouponsForDelivery(deliveryId);
+      } catch (cpnErr) {
+        console.warn('Coupon revert warning:', cpnErr.message);
+      }
+    }
+
     // Recalculate amounts and charges for this customer on this date
     await recalculateCustomerDayDeliveries(delivery.customer_id, delivery.delivery_date);
 
@@ -780,6 +810,22 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
       }
 
       await updateStmt.run(status, notes || null, id);
+
+      // Handle coupon deduction or restoration in bulk
+      if (status === 'DELIVERED' && d.status !== 'DELIVERED') {
+        try {
+          await deductCouponsForDelivery({ ...d, status: 'DELIVERED' });
+        } catch (cpnErr) {
+          console.warn('Coupon deduction in bulk-status warning:', cpnErr.message);
+        }
+      } else if (d.status === 'DELIVERED' && status !== 'DELIVERED') {
+        try {
+          await revertCouponsForDelivery(id);
+        } catch (cpnErr) {
+          console.warn('Coupon revert in bulk-status warning:', cpnErr.message);
+        }
+      }
+
       const key = `${d.customer_id}_${d.delivery_date}`;
       customerDaysToRecalc.set(key, { customerId: d.customer_id, deliveryDate: d.delivery_date });
     }

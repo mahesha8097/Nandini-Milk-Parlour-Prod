@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { calculateDeliveryChargesForCustomerDay } = require('./deliveryChargeService');
 const { generateBillForCustomer } = require('./billingService');
+const { deductCouponsForDelivery, revertCouponsForDelivery } = require('./couponService');
 
 /**
  * Checks whether a delivery can be safely corrected without compromising finalized/paid financial history.
@@ -198,6 +199,20 @@ async function correctDelivery({ deliveryId, correctedQuantity, status, reason, 
         WHERE id = ?
       `).run(itemQty, productAmt, delCharge, totAmt, itemNote, d.id);
     }
+  }
+
+  // Coupon adjustment if status or quantity changed
+  try {
+    if (previousStatus === 'DELIVERED' && newStatus !== 'DELIVERED') {
+      await revertCouponsForDelivery(delivery.id);
+    } else if (previousStatus !== 'DELIVERED' && newStatus === 'DELIVERED') {
+      await deductCouponsForDelivery({ ...delivery, quantity: effectiveQty, status: 'DELIVERED' });
+    } else if (previousStatus === 'DELIVERED' && newStatus === 'DELIVERED' && effectiveQty !== previousQuantity) {
+      await revertCouponsForDelivery(delivery.id);
+      await deductCouponsForDelivery({ ...delivery, quantity: effectiveQty, status: 'DELIVERED' });
+    }
+  } catch (cpnErr) {
+    console.warn('Coupon adjustment in correction notice:', cpnErr.message);
   }
 
   // 5. Record in delivery_corrections table (Audit Trail)

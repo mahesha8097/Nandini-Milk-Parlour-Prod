@@ -27,7 +27,8 @@ import {
   Plus,
   Play,
   Pause,
-  Sliders
+  Sliders,
+  Ticket
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
@@ -40,7 +41,7 @@ export default function CustomerProfileModal({
   onEditCustomer
 }) {
   const [profile, setProfile] = useState(null);
-  const [activeTab, setActiveTab] = useState(initialTab || 'overview'); // 'overview' | 'subscriptions' | 'deliveries' | 'bills' | 'payments' | 'ledger'
+  const [activeTab, setActiveTab] = useState(initialTab || 'overview'); // 'overview' | 'subscriptions' | 'coupons' | 'deliveries' | 'bills' | 'payments' | 'ledger'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -73,6 +74,51 @@ export default function CustomerProfileModal({
   const [selectedBillId, setSelectedBillId] = useState(null);
   const [billLoading, setBillLoading] = useState(false);
   const [billSuccessMsg, setBillSuccessMsg] = useState('');
+
+  // Coupon Book Management in Profile
+  const [showIssueBook, setShowIssueBook] = useState(false);
+  const [couponForm, setCouponForm] = useState({
+    book_number: '',
+    total_coupons: 30,
+    price_paid: '',
+    payment_method: 'CASH',
+    issue_date: getLocalDateString(),
+    notes: ''
+  });
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
+  const handleIssueBook = async (e) => {
+    e.preventDefault();
+    try {
+      setCouponLoading(true);
+      setCouponError('');
+      await api.post('/coupons/issue', {
+        customer_id: customerId,
+        book_number: couponForm.book_number.trim() || undefined,
+        total_coupons: parseInt(couponForm.total_coupons, 10),
+        price_paid: parseFloat(couponForm.price_paid || 0),
+        payment_method: couponForm.payment_method,
+        issue_date: couponForm.issue_date,
+        notes: couponForm.notes
+      });
+      setShowIssueBook(false);
+      setCouponForm({
+        book_number: '',
+        total_coupons: 30,
+        price_paid: '',
+        payment_method: 'CASH',
+        issue_date: getLocalDateString(),
+        notes: ''
+      });
+      await fetchCustomerProfile();
+      onRefreshList?.();
+    } catch (err) {
+      setCouponError(err.message || 'Failed to issue coupon book');
+    } finally {
+      setCouponLoading(false);
+    }
+  };
 
   const fetchCustomerProfile = async () => {
     if (!customerId) return;
@@ -303,9 +349,19 @@ export default function CustomerProfileModal({
                 <span className={`badge ${customer.customer_category === 'HOUSE' ? 'badge-info' : 'badge-indigo'}`}>
                   {customer.customer_category === 'HOUSE' ? 'House' : 'Bulk / Hotel'}
                 </span>
-                <span className={`badge ${customer.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                  {customer.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                </span>
+                {customer.billing_type === 'COUPON' ? (
+                  <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Ticket size={11} /> Coupon
+                  </span>
+                ) : customer.billing_type === 'WEEKLY' ? (
+                  <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe' }}>
+                    Weekly (Actual)
+                  </span>
+                ) : (
+                  <span className={`badge ${customer.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
+                    {customer.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -330,6 +386,15 @@ export default function CustomerProfileModal({
                 ₹{customer.pending_balance?.toFixed(2) || '0.00'}
               </div>
             </div>
+
+            {(customer.billing_type === 'COUPON' || (customer.coupon_balance !== undefined && customer.coupon_balance > 0)) && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#92400e' }}>COUPONS REMAINING</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#d97706', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Ticket size={18} /> {customer.coupon_balance || 0}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick Action Bar */}
@@ -364,6 +429,18 @@ export default function CustomerProfileModal({
               <PlusCircle size={14} /> Modify / Add Subscription
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('coupons');
+                setShowIssueBook(true);
+              }}
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.8rem', fontWeight: '700', color: '#92400e', borderColor: '#fde68a', background: '#fef3c7' }}
+            >
+              <Ticket size={14} /> + Issue Coupon Book
+            </button>
+
             {onEditCustomer && (
               <button
                 type="button"
@@ -384,6 +461,7 @@ export default function CustomerProfileModal({
             {[
               { id: 'overview', label: 'Overview', icon: User },
               { id: 'subscriptions', label: `Subscriptions (${profile.subscriptions?.length || 0})`, icon: Calendar },
+              { id: 'coupons', label: `Coupons (${profile.coupon_books?.length || 0})`, icon: Ticket },
               { id: 'deliveries', label: `Deliveries (${profile.deliveries?.length || 0})`, icon: Truck },
               { id: 'bills', label: `Monthly Bills (${profile.bills?.length || 0})`, icon: Receipt },
               { id: 'payments', label: `Payments (${profile.payments?.length || 0})`, icon: CreditCard },
@@ -467,6 +545,321 @@ export default function CustomerProfileModal({
                     <RotateCcw size={14} />
                     {billLoading ? 'Recalculating...' : 'Recalculate Monthly Bill'}
                   </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: COUPONS */}
+          {activeTab === 'coupons' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Top Overview Cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '12px'
+              }}>
+                <div className="card" style={{ padding: '14px', background: '#fffbeb', border: '1px solid #fde68a' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#92400e', textTransform: 'uppercase' }}>Active Leftover Coupons</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#b45309', marginTop: '4px' }}>
+                    {customer.coupon_balance || 0}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#78350f', marginTop: '2px' }}>Coupons ready for milk packets</div>
+                </div>
+
+                <div className="card" style={{ padding: '14px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Books</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: '800', color: 'var(--primary)', marginTop: '4px' }}>
+                    {(profile.coupon_books || []).filter(b => b.status === 'ACTIVE').length}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>Currently in use</div>
+                </div>
+
+                <div className="card" style={{ padding: '14px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Books Issued</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#475569', marginTop: '4px' }}>
+                    {(profile.coupon_books || []).length}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>All-time books given</div>
+                </div>
+              </div>
+
+              {/* Action Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 style={{ fontSize: '0.92rem', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Ticket size={16} color="#d97706" />
+                  Coupon Books Given to Customer
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setShowIssueBook(!showIssueBook)}
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#d97706', borderColor: '#b45309' }}
+                >
+                  <PlusCircle size={14} /> {showIssueBook ? 'Close Form' : '+ Issue New Coupon Book'}
+                </button>
+              </div>
+
+              {/* Issue New Coupon Book Form */}
+              {showIssueBook && (
+                <div className="card" style={{ padding: '16px', background: '#fffbeb', border: '1px solid #fde68a' }}>
+                  <h4 style={{ fontSize: '0.9rem', color: '#92400e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <PlusCircle size={16} /> Issue New Coupon Book (Advance Payment)
+                  </h4>
+
+                  {couponError && (
+                    <div style={{ padding: '8px 12px', background: '#fee2e2', color: '#991b1b', borderRadius: '6px', fontSize: '0.8rem', marginBottom: '12px' }}>
+                      {couponError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleIssueBook}>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Book Number / Serial (Optional)</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. BK-2026-001"
+                          value={couponForm.book_number}
+                          onChange={(e) => setCouponForm({ ...couponForm, book_number: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Total Coupons in Book *</label>
+                        <input
+                          type="number"
+                          min="1"
+                          required
+                          className="form-input"
+                          placeholder="e.g. 30 or 60"
+                          value={couponForm.total_coupons}
+                          onChange={(e) => setCouponForm({ ...couponForm, total_coupons: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Advance Price Paid (₹)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          className="form-input"
+                          placeholder="0.00"
+                          value={couponForm.price_paid}
+                          onChange={(e) => setCouponForm({ ...couponForm, price_paid: e.target.value })}
+                        />
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          Recorded automatically in customer payments & ledger
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Payment Method</label>
+                        <select
+                          className="form-select"
+                          value={couponForm.payment_method}
+                          onChange={(e) => setCouponForm({ ...couponForm, payment_method: e.target.value })}
+                        >
+                          <option value="CASH">Cash</option>
+                          <option value="UPI">UPI / GPay / PhonePe</option>
+                          <option value="BANK_TRANSFER">Bank Transfer</option>
+                          <option value="ONLINE">Online</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Issue Date *</label>
+                        <input
+                          type="date"
+                          required
+                          className="form-input"
+                          value={couponForm.issue_date}
+                          onChange={(e) => setCouponForm({ ...couponForm, issue_date: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Notes (Optional)</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Any remarks about this coupon book..."
+                        value={couponForm.notes}
+                        onChange={(e) => setCouponForm({ ...couponForm, notes: e.target.value })}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowIssueBook(false)}
+                        className="btn btn-outline btn-sm"
+                        disabled={couponLoading}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="btn btn-primary btn-sm"
+                        style={{ background: '#d97706', borderColor: '#b45309' }}
+                        disabled={couponLoading}
+                      >
+                        {couponLoading ? 'Issuing...' : 'Issue Book & Add Coupons'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Coupon Books List */}
+              {(!profile.coupon_books || profile.coupon_books.length === 0) ? (
+                <EmptyState
+                  icon={Ticket}
+                  title="No coupon books issued yet"
+                  description="When customer takes a new coupon book, click '+ Issue New Coupon Book' to credit coupons and record the advance payment."
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setShowIssueBook(true)}
+                      className="btn btn-primary btn-sm"
+                      style={{ background: '#d97706', borderColor: '#b45309' }}
+                    >
+                      <PlusCircle size={14} /> Issue First Coupon Book
+                    </button>
+                  }
+                />
+              ) : (
+                <>
+                  <div className="table-container desktop-only">
+                    <table className="custom-table">
+                      <thead>
+                        <tr>
+                          <th>Book #</th>
+                          <th>Issue Date</th>
+                          <th>Total Coupons</th>
+                          <th>Used</th>
+                          <th>Remaining</th>
+                          <th>Price Paid</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {profile.coupon_books.map((b) => (
+                          <tr key={b.id}>
+                            <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{b.book_number}</td>
+                            <td>{b.issue_date}</td>
+                            <td><span style={{ fontWeight: '700' }}>{b.total_coupons}</span></td>
+                            <td style={{ color: '#dc2626', fontWeight: '700' }}>{b.used_coupons}</td>
+                            <td>
+                              <span style={{
+                                fontWeight: '800',
+                                color: b.remaining_coupons > 0 ? '#16a34a' : 'var(--text-muted)',
+                                background: b.remaining_coupons > 0 ? '#f0fdf4' : '#f1f5f9',
+                                padding: '2px 8px',
+                                borderRadius: '6px'
+                              }}>
+                                {b.remaining_coupons} left
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: '700' }}>₹{(b.price_paid || 0).toFixed(2)}</td>
+                            <td>
+                              <span className={`badge ${b.status === 'ACTIVE' ? 'badge-success' : 'badge-gray'}`}>
+                                {b.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mobile-only mobile-card-list">
+                    {profile.coupon_books.map((b) => (
+                      <div key={b.id} className="mobile-data-card" style={{ padding: '12px' }}>
+                        <div className="mobile-card-header">
+                          <div>
+                            <span style={{ fontWeight: '800', color: 'var(--primary)', fontFamily: 'monospace', fontSize: '0.82rem' }}>{b.book_number}</span>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Issued: {b.issue_date}</div>
+                          </div>
+                          <span className={`badge ${b.status === 'ACTIVE' ? 'badge-success' : 'badge-gray'}`}>
+                            {b.status}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f8fafc', borderRadius: '8px', fontSize: '0.8rem', marginTop: '6px' }}>
+                          <div>Total: <strong>{b.total_coupons}</strong></div>
+                          <div style={{ color: '#dc2626' }}>Used: <strong>{b.used_coupons}</strong></div>
+                          <div style={{ color: '#16a34a' }}>Left: <strong>{b.remaining_coupons}</strong></div>
+                          <div>Paid: <strong>₹{(b.price_paid || 0).toFixed(2)}</strong></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Coupon Usage / Deduction History */}
+              {profile.coupon_transactions && profile.coupon_transactions.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <h4 style={{ fontSize: '0.88rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                    Recent Coupon Transactions & Delivery Deductions
+                  </h4>
+                  <div className="table-container desktop-only">
+                    <table className="custom-table">
+                      <thead>
+                        <tr>
+                          <th>Date / Time</th>
+                          <th>Type</th>
+                          <th>Coupons</th>
+                          <th>Balance After</th>
+                          <th>Book #</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {profile.coupon_transactions.map((tx) => (
+                          <tr key={tx.id}>
+                            <td style={{ fontSize: '0.78rem' }}>{(tx.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                            <td>
+                              <span className={`badge ${tx.transaction_type === 'ISSUE_BOOK' ? 'badge-success' : tx.transaction_type === 'DELIVERY_DEDUCTION' ? 'badge-warning' : 'badge-info'}`}>
+                                {tx.transaction_type.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: '800', color: tx.coupons_count > 0 ? '#16a34a' : '#dc2626' }}>
+                              {tx.coupons_count > 0 ? `+${tx.coupons_count}` : tx.coupons_count}
+                            </td>
+                            <td style={{ fontWeight: '700' }}>{tx.balance_after}</td>
+                            <td>{tx.book_number || '-'}</td>
+                            <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{tx.notes || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mobile-only mobile-card-list">
+                    {profile.coupon_transactions.slice(0, 15).map((tx) => (
+                      <div key={tx.id} className="mobile-data-card" style={{ padding: '10px' }}>
+                        <div className="mobile-card-header">
+                          <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                            {(tx.created_at || '').slice(0, 16).replace('T', ' ')}
+                          </span>
+                          <span style={{ fontWeight: '800', color: tx.coupons_count > 0 ? '#16a34a' : '#dc2626' }}>
+                            {tx.coupons_count > 0 ? `+${tx.coupons_count}` : tx.coupons_count}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                          <span>{tx.transaction_type.replace('_', ' ')}</span>
+                          <span>Balance: <strong>{tx.balance_after}</strong></span>
+                        </div>
+                        {tx.notes && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>{tx.notes}</div>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -589,7 +982,19 @@ export default function CustomerProfileModal({
                           <tr key={b.id}>
                             <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{b.bill_number}</td>
                             <td>{b.billing_month}</td>
-                            <td><span className="badge badge-gray">{b.billing_type}</span></td>
+                            <td>
+                              {b.billing_type === 'WEEKLY' ? (
+                                <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe' }}>
+                                  Weekly ({b.start_date && b.end_date ? `${b.start_date.slice(5)} to ${b.end_date.slice(5)}` : 'Actual'})
+                                </span>
+                              ) : b.billing_type === 'COUPON' ? (
+                                <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                                  Coupon
+                                </span>
+                              ) : (
+                                <span className="badge badge-gray">{b.billing_type}</span>
+                              )}
+                            </td>
                             <td>₹{b.gross_amount?.toFixed(2)}</td>
                             <td style={{ color: '#16a34a' }}>₹{b.advance_adjusted?.toFixed(2)}</td>
                             <td style={{ fontWeight: '800' }}>₹{b.net_payable?.toFixed(2)}</td>
@@ -631,7 +1036,9 @@ export default function CustomerProfileModal({
                         <div className="mobile-card-header">
                           <div>
                             <span style={{ fontWeight: '800', color: 'var(--primary)', fontFamily: 'monospace', fontSize: '0.78rem' }}>{b.bill_number}</span>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Month: {b.billing_month}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              {b.billing_type === 'WEEKLY' ? `Weekly: ${b.start_date || ''} - ${b.end_date || ''}` : `Month: ${b.billing_month}`}
+                            </div>
                           </div>
                           <span className={`badge ${b.status === 'PAID' || b.status === 'ADVANCE_PAID' ? 'badge-success' : b.status === 'PARTIALLY_PAID' ? 'badge-warning' : 'badge-danger'}`}>
                             {b.status}

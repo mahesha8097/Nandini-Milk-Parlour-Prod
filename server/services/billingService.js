@@ -523,6 +523,265 @@ async function generatePostpaidBill(customer, billingMonth, forceRegenerate = fa
 }
 
 /**
+ * Helper to generate sequential weekly bill numbers: WB-YYYYMMDD-XXXX
+ */
+async function generateWeeklyBillNumber(startDateStr) {
+  const cleanDate = (startDateStr || '').replace(/-/g, '');
+  const prefix = `WB-${cleanDate}-`;
+  const maxRow = await db.prepare(`SELECT bill_number FROM bills WHERE bill_number LIKE ? ORDER BY id DESC LIMIT 1`).get(`${prefix}%`);
+  let nextSeq = 1;
+  if (maxRow && maxRow.bill_number) {
+    const parts = maxRow.bill_number.split('-');
+    const lastNum = parseInt(parts[parts.length - 1], 10);
+    if (!isNaN(lastNum)) {
+      nextSeq = lastNum + 1;
+    }
+  }
+  let billNum = `${prefix}${nextSeq.toString().padStart(4, '0')}`;
+  let exists = await db.prepare('SELECT id FROM bills WHERE bill_number = ?').get(billNum);
+  while (exists) {
+    nextSeq++;
+    billNum = `${prefix}${nextSeq.toString().padStart(4, '0')}`;
+    exists = await db.prepare('SELECT id FROM bills WHERE bill_number = ?').get(billNum);
+  }
+  return billNum;
+}
+
+/**
+ * Generates Weekly Bill based on actual deliveries recorded for that customer between startDate and endDate.
+ */
+async function generateWeeklyBillForCustomer(customer, startDate, endDate, forceRegenerate = false) {
+  const billingMonthStr = `${startDate} to ${endDate}`;
+
+  // Check if weekly bill already exists for this exact period
+  const existing = await db.prepare(`
+    SELECT * FROM bills 
+    WHERE customer_id = ? AND billing_type = 'WEEKLY' 
+      AND ((start_date = ? AND end_date = ?) OR billing_month = ?)
+  `).get(customer.id, startDate, endDate, billingMonthStr);
+
+  if (existing && !forceRegenerate) {
+    return existing;
+  }
+
+  // Fetch actual delivered records between startDate and endDate
+  const deliveries = await db.prepare(`
+    SELECT * FROM deliveries
+    WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED'
+    ORDER BY delivery_date ASC
+  `).all(customer.id, startDate, endDate);
+
+  if (!deliveries || deliveries.length === 0) {
+    return null; // No deliveries to bill
+  }
+
+  let totalProductSubtotal = 0;
+  let totalDeliveryCharges = 0;
+
+  // Group delivered items by product variant for clean invoice presentation
+  const productGroupMap = new Map();
+
+  for (const del of deliveries) {
+    totalProductSubtotal += del.total_product_amount;
+    totalDeliveryCharges += del.delivery_charge_snapshot;
+
+    const key = `${del.product_id}_${del.variant_snapshot || ''}`;
+    if (!productGroupMap.has(key)) {
+      productGroupMap.set(key, {
+        product_id: del.product_id,
+        product_name: del.product_name_snapshot,
+        category: del.category_snapshot,
+        variant_label: del.variant_snapshot,
+        quantity: 0,
+        total_quantity: 0,
+        unit_price: del.unit_price_snapshot,
+        product_subtotal: 0,
+        delivery_charges_total: 0,
+        total_line_amount: 0,
+        delivered_days_count: 0
+      });
+    }
+    const g = productGroupMap.get(key);
+    g.quantity += del.quantity;
+    g.total_quantity += del.quantity;
+    g.product_subtotal += del.total_product_amount;
+    g.delivery_charges_total += del.delivery_charge_snapshot;
+    g.total_line_amount += del.total_amount;
+    g.delivered_days_count += 1;
+  }
+
+  const groupedItems = Array.from(productGroupMap.values()).map(g => ({
+    ...g,
+    product_subtotal: parseFloat(g.product_subtotal.toFixed(2)),
+    delivery_charges_total: parseFloat(g.delivery_charges_total.toFixed(2)),
+    total_line_amount: parseFloat(g.total_line_amount.toFixed(2))
+  }));
+
+  totalProductSubtotal = parseFloat(totalProductSubtotal.toFixed(2));
+  totalDeliveryCharges = parseFloat(totalDeliveryCharges.toFixed(2));
+  const grossAmount = parseFloat((totalProductSubtotal + totalDeliveryCharges).toFixed(2));
+
+  // Determine advance adjustment with fresh balances
+  const freshCustomer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer.id);
+  let currentAdvance = freshCustomer ? freshCustomer.advance_balance : (customer.advance_balance || 0);
+  let currentPending = freshCustomer ? freshCustomer.pending_balance : (customer.pending_balance || 0);
+
+  // If regenerating existing bill, restore previous balances before reapplying
+  if (existing && forceRegenerate) {
+    const prevAdvanceAdjusted = Number(existing.advance_adjusted || 0);
+    let prevCashPaid = Number(existing.paid_amount || 0);
+    if (existing.status === 'ADVANCE_PAID' || Number(existing.net_payable || 0) === 0) {
+      prevCashPaid = 0;
+    }
+
+    const prevNetPayable = Number(existing.net_payable || 0);
+    const prevUnpaidPending = Math.max(0, prevNetPayable - prevCashPaid);
+
+    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
+    currentPending = Math.max(0, parseFloat((currentPending - prevUnpaidPending).toFixed(2)));
+  }
+
+  let advanceToAdjust = 0;
+  if (currentAdvance >= grossAmount) {
+    advanceToAdjust = grossAmount;
+  } else {
+    advanceToAdjust = currentAdvance;
+  }
+
+  const netPayable = parseFloat((grossAmount - advanceToAdjust).toFixed(2));
+  const paidAmount = 0;
+
+  let billStatus = 'GENERATED';
+  if (netPayable === 0) {
+    billStatus = advanceToAdjust > 0 ? 'ADVANCE_PAID' : 'PAID';
+  } else if (advanceToAdjust > 0) {
+    billStatus = 'PARTIALLY_PAID';
+  } else {
+    billStatus = 'PENDING';
+  }
+
+  const billNumber = existing ? existing.bill_number : await generateWeeklyBillNumber(startDate);
+  const billDate = endDate;
+  const dueDate = endDate;
+
+  let billId = existing ? existing.id : null;
+
+  if (existing && forceRegenerate) {
+    await db.prepare(`
+      UPDATE bills
+      SET total_deliveries_count = ?, product_subtotal = ?, delivery_charges_total = ?,
+          gross_amount = ?, previous_due = ?, advance_adjusted = ?, net_payable = ?,
+          paid_amount = ?, status = ?, items_json = ?, notes = ?, start_date = ?, end_date = ?,
+          updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(
+      deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
+      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      JSON.stringify(groupedItems), `Weekly Delivered Milk Bill (${startDate} to ${endDate})`,
+      startDate, endDate,
+      existing.id
+    );
+    billId = existing.id;
+  } else {
+    const info = await db.prepare(`
+      INSERT INTO bills (
+        bill_number, customer_id, billing_month, billing_type, bill_date, due_date,
+        start_date, end_date,
+        total_deliveries_count, product_subtotal, delivery_charges_total, gross_amount,
+        previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
+        items_json, notes, agent_id, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, 'WEEKLY', ?, ?,
+        ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, 'FINALIZED',
+        ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+      )
+    `).run(
+      billNumber, customer.id, billingMonthStr, billDate, dueDate,
+      startDate, endDate,
+      deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
+      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      JSON.stringify(groupedItems), `Weekly Delivered Milk Bill (${startDate} to ${endDate})`,
+      customer.agent_id || 1
+    );
+    billId = info.lastInsertRowid;
+  }
+
+  // Update customer balances: Advance is minused and pending updated
+  const newAdvance = parseFloat((currentAdvance - advanceToAdjust).toFixed(2));
+  const newPending = parseFloat((currentPending + netPayable).toFixed(2));
+
+  await db.prepare(`
+    UPDATE customers
+    SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `).run(newAdvance, newPending, customer.id);
+
+  // Record in Customer Ledger
+  await upsertBillLedgerEntry({
+    customerId: customer.id,
+    billId,
+    transactionDate: billDate,
+    grossAmount,
+    advanceToAdjust,
+    advanceBalanceAfter: newAdvance,
+    pendingBalanceAfter: newPending,
+    description: `Weekly Delivered Milk Bill (${startDate} to ${endDate}, ${deliveries.length} deliveries, Gross: ₹${grossAmount}, Advance Deducted: ₹${advanceToAdjust}, Payable: ₹${netPayable})`
+  });
+
+  return await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+}
+
+/**
+ * Generate weekly bills for all weekly customers or customers with deliveries in period
+ */
+async function generateWeeklyBillsForPeriod(startDate, endDate, options = {}) {
+  const forceRegenerate = Boolean(options.forceRegenerate);
+  const agentId = options.agentId || null;
+  const targetCustomerId = options.customerId || null;
+
+  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE'`;
+  const custParams = [];
+
+  if (targetCustomerId) {
+    custQuery += ` AND id = ?`;
+    custParams.push(targetCustomerId);
+  } else {
+    // Generate for all customers whose billing_type is 'WEEKLY'
+    custQuery += ` AND billing_type = 'WEEKLY'`;
+  }
+
+  if (agentId) {
+    custQuery += ` AND agent_id = ?`;
+    custParams.push(agentId);
+  }
+
+  const customers = await db.prepare(custQuery).all(...custParams);
+  const results = {
+    period: `${startDate} to ${endDate}`,
+    startDate,
+    endDate,
+    weeklyBillsGenerated: 0,
+    skipped: 0,
+    totalGrossAmount: 0
+  };
+
+  for (const cust of customers) {
+    const bill = await generateWeeklyBillForCustomer(cust, startDate, endDate, forceRegenerate);
+    if (bill) {
+      results.weeklyBillsGenerated++;
+      results.totalGrossAmount += (bill.gross_amount || 0);
+    } else {
+      results.skipped++;
+    }
+  }
+
+  results.totalGrossAmount = parseFloat(results.totalGrossAmount.toFixed(2));
+  return results;
+}
+
+/**
  * Intelligent single customer bill generator:
  * - If billingBasis === 'DELIVERIES' (or AUTO and customer has delivered milk records), bills the delivered milk and minuses from advance!
  * - If billingBasis === 'SUBSCRIPTION', bills the expected monthly subscription.
@@ -1025,9 +1284,12 @@ async function deletePaymentTransaction(paymentId, agentId = null) {
 module.exports = {
   getDaysInMonth,
   generateBillNumber,
+  generateWeeklyBillNumber,
   generateAdvanceBillForPrepaidCustomer,
   generatePostpaidBill,
   generateDeliveredMilkBill,
+  generateWeeklyBillForCustomer,
+  generateWeeklyBillsForPeriod,
   generateBillForCustomer,
   calculateAdvanceProjectionForMonth,
   runMonthlyBillGeneration,

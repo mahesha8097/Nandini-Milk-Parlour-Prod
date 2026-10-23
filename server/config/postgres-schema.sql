@@ -130,13 +130,14 @@ CREATE TABLE IF NOT EXISTS customers (
   flat_no TEXT,
   zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL,
   customer_category TEXT NOT NULL CHECK(customer_category IN ('HOUSE', 'BULK_HOTEL')),
-  billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID')),
+  billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON')),
   delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   route TEXT,
   status TEXT DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'INACTIVE')),
   notes TEXT,
   advance_balance DOUBLE PRECISION DEFAULT 0.0,
   pending_balance DOUBLE PRECISION DEFAULT 0.0,
+  coupon_balance INTEGER DEFAULT 0,
   agent_id INTEGER DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
   updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
@@ -186,9 +187,11 @@ CREATE TABLE IF NOT EXISTS bills (
   bill_number TEXT UNIQUE NOT NULL,
   customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
   billing_month TEXT NOT NULL,
-  billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID')),
+  billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON')),
   bill_date TEXT NOT NULL,
   due_date TEXT,
+  start_date TEXT,
+  end_date TEXT,
   total_deliveries_count INTEGER DEFAULT 0,
   product_subtotal DOUBLE PRECISION NOT NULL DEFAULT 0,
   delivery_charges_total DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -201,9 +204,43 @@ CREATE TABLE IF NOT EXISTS bills (
   lifecycle_stage TEXT DEFAULT 'FINALIZED' CHECK(lifecycle_stage IN ('DRAFT', 'REVIEW', 'FINALIZED')),
   items_json TEXT,
   notes TEXT,
+  agent_id INTEGER DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
   updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
   UNIQUE (customer_id, billing_month, billing_type)
+);
+
+-- 9b. Coupon Books table
+CREATE TABLE IF NOT EXISTS coupon_books (
+  id SERIAL PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  book_number TEXT NOT NULL,
+  total_coupons INTEGER NOT NULL,
+  used_coupons INTEGER NOT NULL DEFAULT 0,
+  remaining_coupons INTEGER NOT NULL,
+  price_paid DOUBLE PRECISION DEFAULT 0.0,
+  payment_method TEXT DEFAULT 'CASH',
+  issue_date TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'EXHAUSTED', 'CANCELLED')),
+  notes TEXT,
+  agent_id INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+  updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+-- 9c. Coupon Transactions table
+CREATE TABLE IF NOT EXISTS coupon_transactions (
+  id SERIAL PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  coupon_book_id INTEGER REFERENCES coupon_books(id) ON DELETE SET NULL,
+  delivery_id INTEGER REFERENCES deliveries(id) ON DELETE SET NULL,
+  change_amount INTEGER NOT NULL,
+  balance_after INTEGER NOT NULL,
+  transaction_type TEXT NOT NULL CHECK(transaction_type IN ('BOOK_PURCHASE', 'DELIVERY_USAGE', 'MANUAL_ADJUSTMENT', 'DELIVERY_REVERTED')),
+  transaction_date TEXT NOT NULL,
+  notes TEXT,
+  agent_id INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
 );
 
 -- 10. Payments table

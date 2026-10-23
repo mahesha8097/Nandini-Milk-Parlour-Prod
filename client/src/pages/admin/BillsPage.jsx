@@ -15,18 +15,33 @@ import {
   CheckCircle2,
   AlertCircle,
   Edit2,
-  Trash2
+  Trash2,
+  Clock,
+  Ticket
 } from 'lucide-react';
 
 export default function BillsPage() {
   const [bills, setBills] = useState([]);
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [statusFilter, setStatusFilter] = useState('');
+  const [billingTypeFilter, setBillingTypeFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const [selectedBillId, setSelectedBillId] = useState(null);
   const [generating, setGenerating] = useState(false);
+
+  // Weekly Billing Modal States
+  const [isWeeklyModalOpen, setIsWeeklyModalOpen] = useState(false);
+  const [weeklyCustomerList, setWeeklyCustomerList] = useState([]);
+  const [weeklyFormData, setWeeklyFormData] = useState({
+    customerId: '',
+    startDate: '',
+    endDate: '',
+    forceRegenerate: false
+  });
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const [weeklyError, setWeeklyError] = useState('');
 
   // Edit Bill Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -52,6 +67,7 @@ export default function BillsPage() {
       const params = new URLSearchParams();
       if (monthFilter) params.append('month', monthFilter);
       if (statusFilter) params.append('status', statusFilter);
+      if (billingTypeFilter) params.append('billing_type', billingTypeFilter);
 
       const res = await api.get(`/bills?${params.toString()}`);
       setBills(res);
@@ -62,9 +78,72 @@ export default function BillsPage() {
     }
   };
 
+  const fetchCustomersForWeekly = async () => {
+    try {
+      const res = await api.get('/customers');
+      setWeeklyCustomerList(res || []);
+    } catch (err) {
+      console.error('Failed to load customers for weekly billing:', err);
+    }
+  };
+
   useEffect(() => {
     fetchBills();
-  }, [monthFilter, statusFilter]);
+  }, [monthFilter, statusFilter, billingTypeFilter]);
+
+  useEffect(() => {
+    fetchCustomersForWeekly();
+  }, []);
+
+  const setQuickWeekRange = (type) => {
+    const today = new Date();
+    const day = today.getDay(); // 0 is Sunday, 1 is Monday...
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+
+    const currMonday = new Date(today);
+    currMonday.setDate(today.getDate() + diffToMonday);
+
+    if (type === 'this_week') {
+      const currSunday = new Date(currMonday);
+      currSunday.setDate(currMonday.getDate() + 6);
+      setWeeklyFormData(prev => ({
+        ...prev,
+        startDate: currMonday.toISOString().slice(0, 10),
+        endDate: currSunday.toISOString().slice(0, 10)
+      }));
+    } else if (type === 'last_week') {
+      const prevMonday = new Date(currMonday);
+      prevMonday.setDate(currMonday.getDate() - 7);
+      const prevSunday = new Date(prevMonday);
+      prevSunday.setDate(prevMonday.getDate() + 6);
+      setWeeklyFormData(prev => ({
+        ...prev,
+        startDate: prevMonday.toISOString().slice(0, 10),
+        endDate: prevSunday.toISOString().slice(0, 10)
+      }));
+    }
+  };
+
+  const handleGenerateWeeklyBills = async (e) => {
+    e.preventDefault();
+    try {
+      setWeeklyLoading(true);
+      setWeeklyError('');
+      const res = await api.post('/bills/generate-weekly', {
+        customerId: weeklyFormData.customerId || undefined,
+        startDate: weeklyFormData.startDate,
+        endDate: weeklyFormData.endDate,
+        forceRegenerate: weeklyFormData.forceRegenerate
+      });
+      alert(res.message || 'Weekly bills generated successfully!');
+      setIsWeeklyModalOpen(false);
+      fetchBills();
+    } catch (err) {
+      setWeeklyError(err.message || 'Failed to generate weekly bills');
+    } finally {
+      setWeeklyLoading(false);
+    }
+  };
 
   const handleGenerateMonthlyBills = async (forceRegenerate = false) => {
     const promptMsg = forceRegenerate
@@ -177,13 +256,25 @@ export default function BillsPage() {
           <p className="page-subtitle">Monthly automated billing, advance deduction reconciliation, and invoice generation</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => {
+              setQuickWeekRange('last_week');
+              setIsWeeklyModalOpen(true);
+            }}
+            className="btn btn-secondary btn-sm"
+            style={{ background: '#e0e7ff', color: '#3730a3', borderColor: '#c7d2fe', fontWeight: '700' }}
+            title="Generate weekly bill based on actual delivery count"
+          >
+            <Clock size={16} />
+            Generate Weekly Bill
+          </button>
           <button onClick={() => handleGenerateMonthlyBills(false)} className="btn btn-primary btn-sm" disabled={generating} title="Generate bills for any customers who don't have one yet">
             <PlayCircle size={16} />
-            {generating ? 'Generating...' : `Run ${monthFilter} Billing`}
+            {generating ? 'Generating...' : `Run ${monthFilter} Monthly Billing`}
           </button>
-          <button onClick={() => handleGenerateMonthlyBills(true)} className="btn btn-primary btn-sm" disabled={generating} title="Recalculate existing bills to sync with updated subscription start dates">
+          <button onClick={() => handleGenerateMonthlyBills(true)} className="btn btn-outline btn-sm" disabled={generating} title="Recalculate existing bills to sync with updated subscription start dates">
             <RotateCcw size={16} />
-            {generating ? 'Processing...' : `Recalculate / Sync ${monthFilter} Bills`}
+            {generating ? 'Processing...' : `Recalculate ${monthFilter} Bills`}
           </button>
         </div>
       </div>
@@ -203,7 +294,20 @@ export default function BillsPage() {
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={billingTypeFilter}
+              onChange={(e) => setBillingTypeFilter(e.target.value)}
+            >
+              <option value="">All Billing Schemes</option>
+              <option value="PREPAID">Prepaid (Advance)</option>
+              <option value="POSTPAID">Postpaid (Monthly)</option>
+              <option value="WEEKLY">Weekly (Actual Delivery)</option>
+              <option value="COUPON">Coupon Customers</option>
+            </select>
+
             <select
               className="form-select"
               style={{ width: 'auto', fontSize: '0.813rem' }}
@@ -269,9 +373,19 @@ export default function BillsPage() {
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{bill.customer_phone}</div>
                     </td>
                     <td>
-                      <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                        {bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                      </span>
+                      {bill.billing_type === 'WEEKLY' ? (
+                        <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <Clock size={11} /> Weekly ({bill.start_date && bill.end_date ? `${bill.start_date.slice(5)} to ${bill.end_date.slice(5)}` : 'Actual'})
+                        </span>
+                      ) : bill.billing_type === 'COUPON' ? (
+                        <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <Ticket size={11} /> Coupon
+                        </span>
+                      ) : (
+                        <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
+                          {bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                        </span>
+                      )}
                     </td>
                     <td>₹{bill.product_subtotal?.toFixed(2)}</td>
                     <td>
@@ -369,9 +483,19 @@ export default function BillsPage() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px' }}>
-                  <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                    {bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                  </span>
+                  {bill.billing_type === 'WEEKLY' ? (
+                    <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      <Clock size={11} /> Weekly ({bill.start_date && bill.end_date ? `${bill.start_date.slice(5)} to ${bill.end_date.slice(5)}` : 'Actual'})
+                    </span>
+                  ) : bill.billing_type === 'COUPON' ? (
+                    <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      <Ticket size={11} /> Coupon
+                    </span>
+                  ) : (
+                    <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
+                      {bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                    </span>
+                  )}
 
                   {bill.customer_phone && (
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -576,6 +700,131 @@ export default function BillsPage() {
             </button>
             <button type="submit" className="btn btn-primary" disabled={editingBill}>
               {editingBill ? 'Saving Changes...' : 'Save & Update Bill'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Generate Weekly Bill Modal */}
+      <Modal
+        isOpen={isWeeklyModalOpen}
+        onClose={() => !weeklyLoading && setIsWeeklyModalOpen(false)}
+        title="Generate Weekly Bill (Based on Actual Delivery)"
+        maxWidth="600px"
+      >
+        <form onSubmit={handleGenerateWeeklyBills}>
+          <div style={{
+            background: '#e0e7ff',
+            border: '1px solid #c7d2fe',
+            borderRadius: 'var(--radius-md)',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            fontSize: '0.82rem',
+            color: '#3730a3',
+            lineHeight: '1.4'
+          }}>
+            <strong>Weekly Billing Scheme:</strong> Calculates milk bills based strictly on actual delivered milk recorded for each day in the selected date range.
+            Advances are automatically deducted from the customer's advance balance.
+          </div>
+
+          {weeklyError && (
+            <div style={{ padding: '8px 12px', background: '#fee2e2', color: '#991b1b', borderRadius: '6px', fontSize: '0.8rem', marginBottom: '14px' }}>
+              {weeklyError}
+            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label">Customer Selection *</label>
+            <select
+              className="form-select"
+              value={weeklyFormData.customerId}
+              onChange={(e) => setWeeklyFormData({ ...weeklyFormData, customerId: e.target.value })}
+            >
+              <option value="">⚡ All Weekly Customers ({weeklyCustomerList.filter(c => c.billing_type === 'WEEKLY').length} configured)</option>
+              {weeklyCustomerList.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.phone}) - {c.billing_type}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+              Select a single customer or leave default to generate bills for all weekly customers in one click.
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '14px' }}>
+            <label className="form-label" style={{ marginBottom: '6px' }}>Quick Preset Ranges</label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setQuickWeekRange('this_week')}
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.78rem' }}
+              >
+                📅 This Week (Mon – Sun)
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuickWeekRange('last_week')}
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.78rem' }}
+              >
+                📅 Previous Week (Mon – Sun)
+              </button>
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Start Date *</label>
+              <input
+                type="date"
+                required
+                className="form-input"
+                value={weeklyFormData.startDate}
+                onChange={(e) => setWeeklyFormData({ ...weeklyFormData, startDate: e.target.value })}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">End Date *</label>
+              <input
+                type="date"
+                required
+                className="form-input"
+                value={weeklyFormData.endDate}
+                onChange={(e) => setWeeklyFormData({ ...weeklyFormData, endDate: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div style={{ marginTop: '8px', marginBottom: '18px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.84rem' }}>
+              <input
+                type="checkbox"
+                checked={weeklyFormData.forceRegenerate}
+                onChange={(e) => setWeeklyFormData({ ...weeklyFormData, forceRegenerate: e.target.checked })}
+              />
+              <span>Force Recalculate / Overwrite if bill already exists for this date range</span>
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={() => setIsWeeklyModalOpen(false)}
+              className="btn btn-outline"
+              disabled={weeklyLoading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ background: '#3730a3', borderColor: '#312e81' }}
+              disabled={weeklyLoading}
+            >
+              {weeklyLoading ? 'Generating Weekly Bills...' : 'Generate Weekly Bill'}
             </button>
           </div>
         </form>

@@ -228,13 +228,32 @@ router.get('/:id', verifyToken, async (req, res) => {
       LIMIT 50
     `).all(customerId);
 
+    // Coupon Books
+    const couponBooks = await db.prepare(`
+      SELECT * FROM coupon_books
+      WHERE customer_id = ?
+      ORDER BY issue_date DESC, id DESC
+    `).all(customerId);
+
+    // Coupon Transactions
+    const couponTransactions = await db.prepare(`
+      SELECT ct.*, cb.book_number
+      FROM coupon_transactions ct
+      LEFT JOIN coupon_books cb ON ct.coupon_book_id = cb.id
+      WHERE ct.customer_id = ?
+      ORDER BY ct.created_at DESC, ct.id DESC
+      LIMIT 50
+    `).all(customerId);
+
     res.json({
       customer,
       subscriptions: subscriptions || [],
       deliveries: deliveries || [],
       bills: bills || [],
       payments: payments || [],
-      ledger: ledger || []
+      ledger: ledger || [],
+      coupon_books: couponBooks || [],
+      coupon_transactions: couponTransactions || []
     });
   } catch (err) {
     console.error('Fetch customer profile error:', err);

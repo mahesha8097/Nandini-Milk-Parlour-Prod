@@ -23,6 +23,7 @@ import AdminProfilePage from './pages/admin/AdminProfilePage';
 import SettingsPage from './pages/admin/SettingsPage';
 import ZonesPage from './pages/admin/ZonesPage';
 import RoutesPage from './pages/admin/RoutesPage';
+import CouponsPage from './pages/admin/CouponsPage';
 
 // Delivery Boy Pages
 import DeliveryBoyDashboard from './pages/delivery/DeliveryBoyDashboard';
@@ -37,12 +38,13 @@ import {
   PackageCheck,
   Receipt,
   UserCheck,
-  RefreshCw
+  RefreshCw,
+  Ticket
 } from 'lucide-react';
 
 const VALID_ADMIN_TABS = [
   'dashboard', 'customers', 'delivery-boys', 'deliveries', 'routes', 'zones',
-  'daily-requirements', 'bills', 'monthly-bill-generate', 'payments',
+  'daily-requirements', 'bills', 'monthly-bill-generate', 'coupons', 'payments',
   'expenses', 'products', 'reports', 'profile', 'settings'
 ];
 
@@ -163,6 +165,8 @@ function MainApplication() {
         return <BillsPage />;
       case 'monthly-bill-generate':
         return <MonthlyBillGeneratePage />;
+      case 'coupons':
+        return <CouponsPage onNavigate={handleNavigate} initialCustomerId={navParams.customerId} />;
       case 'payments':
         return <PaymentsPage initialOpenAdd={navParams.openAdd} />;
       case 'expenses':

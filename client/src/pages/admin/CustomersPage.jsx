@@ -25,8 +25,32 @@ import {
   ArrowRight,
   FileSpreadsheet,
   Download,
-  Upload
+  Upload,
+  Ticket,
+  Calendar
 } from 'lucide-react';
+
+function renderBillingBadge(c) {
+  if (c.billing_type === 'COUPON') {
+    return (
+      <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        <Ticket size={11} />
+        Coupon ({c.coupon_balance || 0} left)
+      </span>
+    );
+  }
+  if (c.billing_type === 'WEEKLY') {
+    return (
+      <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe' }}>
+        Weekly (Actual)
+      </span>
+    );
+  }
+  if (c.billing_type === 'PREPAID') {
+    return <span className="badge badge-success">Prepaid (Advance)</span>;
+  }
+  return <span className="badge badge-warning">Postpaid</span>;
+}
 
 function ZoneBuildingThumbnail({ name = '', index = 0 }) {
   const lower = (name || '').toLowerCase();
@@ -1101,6 +1125,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                   <option value="">All Billing Types</option>
                   <option value="PREPAID">Prepaid (Advance)</option>
                   <option value="POSTPAID">Postpaid</option>
+                  <option value="WEEKLY">Weekly (Actual Delivery)</option>
+                  <option value="COUPON">Coupon Based</option>
                 </select>
               </div>
 
@@ -1258,9 +1284,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                           </span>
                         </td>
                         <td>
-                          <span className={`badge ${c.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                            {c.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                          </span>
+                          {renderBillingBadge(c)}
                         </td>
                         <td>
                           <div style={{ fontWeight: '600' }}>{c.phone}</div>
@@ -1380,9 +1404,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                     )}
 
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
-                      <span className={`badge ${c.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                        {c.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                      </span>
+                      {renderBillingBadge(c)}
 
                       {c.phone && (
                         <a
@@ -1395,11 +1417,18 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       )}
                     </div>
 
+                    {/* Balance Information */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '2px' }}>
                       <div>
                         <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Balance</div>
                         <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
                       </div>
+                      {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700', textTransform: 'uppercase' }}>Coupons Left</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#d97706' }}>{c.coupon_balance || 0}</div>
+                        </div>
+                      )}
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Pending Amount</div>
                         <div style={{ fontSize: '0.95rem', fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{c.pending_balance?.toFixed(2) || '0.00'}</div>
@@ -1431,6 +1460,17 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       >
                         Subscriptions ({c.subscriptions?.length || 0})
                       </button>
+
+                      {c.billing_type === 'COUPON' && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProfile(c.id, 'coupons')}
+                          className="btn btn-outline btn-sm"
+                          style={{ flex: '1 1 100px', minHeight: '38px', fontSize: '0.8rem', color: '#92400e', borderColor: '#fde68a', background: '#fef3c7' }}
+                        >
+                          <Ticket size={13} /> {c.coupon_balance || 0} Coupons
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -1667,9 +1707,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                           </span>
                         </td>
                         <td>
-                          <span className={`badge ${c.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                            {c.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                          </span>
+                          {renderBillingBadge(c)}
                         </td>
                         <td>
                           <div style={{ fontWeight: '600' }}>{c.phone}</div>
@@ -1684,6 +1722,11 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                           <span style={{ fontWeight: '800', color: '#16a34a' }}>
                             ₹{c.advance_balance?.toFixed(2) || '0.00'}
                           </span>
+                          {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
+                            <div style={{ fontSize: '0.72rem', color: '#92400e', fontWeight: '700', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <Ticket size={11} /> {c.coupon_balance || 0} coupons
+                            </div>
+                          )}
                         </td>
                         <td>
                           <span style={{ fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>
@@ -1713,6 +1756,16 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                             >
                               <Eye size={15} />
                             </button>
+                            {c.billing_type === 'COUPON' && (
+                              <button
+                                onClick={() => handleOpenProfile(c.id, 'coupons')}
+                                className="btn btn-outline btn-sm"
+                                style={{ padding: '6px 10px', color: '#92400e', borderColor: '#fde68a', background: '#fef3c7' }}
+                                title={`Coupons: ${c.coupon_balance || 0} remaining. Click to manage/issue coupon books.`}
+                              >
+                                <Ticket size={15} />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleOpenEdit(c)}
                               className="btn btn-outline btn-sm"
@@ -1796,9 +1849,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                     )}
 
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
-                      <span className={`badge ${c.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
-                        {c.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                      </span>
+                      {renderBillingBadge(c)}
 
                       {c.phone && (
                         <a
@@ -1816,6 +1867,12 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                         <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Balance</div>
                         <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
                       </div>
+                      {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700', textTransform: 'uppercase' }}>Coupons Left</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#d97706' }}>{c.coupon_balance || 0}</div>
+                        </div>
+                      )}
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Pending Amount</div>
                         <div style={{ fontSize: '0.95rem', fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{c.pending_balance?.toFixed(2) || '0.00'}</div>
@@ -1847,6 +1904,17 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       >
                         Subscriptions ({c.subscriptions?.length || 0})
                       </button>
+
+                      {c.billing_type === 'COUPON' && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProfile(c.id, 'coupons')}
+                          className="btn btn-outline btn-sm"
+                          style={{ flex: '1 1 100px', minHeight: '38px', fontSize: '0.8rem', color: '#92400e', borderColor: '#fde68a', background: '#fef3c7' }}
+                        >
+                          <Ticket size={13} /> {c.coupon_balance || 0} Coupons
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -2040,11 +2108,60 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 value={formData.billing_type}
                 onChange={(e) => setFormData({ ...formData, billing_type: e.target.value })}
               >
-                <option value="PREPAID">Prepaid / Advance (Auto generated monthly)</option>
-                <option value="POSTPAID">Postpaid (Based on actual deliveries)</option>
+                <option value="PREPAID">Prepaid / Monthly Advance (Auto-generated monthly)</option>
+                <option value="POSTPAID">Postpaid (Monthly based on actual deliveries)</option>
+                <option value="WEEKLY">Weekly Bill (Based on actual deliveries)</option>
+                <option value="COUPON">Coupon System (Pre-purchased coupon book)</option>
               </select>
             </div>
           </div>
+
+          {formData.billing_type === 'COUPON' && (
+            <div style={{
+              background: '#fef3c7',
+              border: '1px solid #fde68a',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 14px',
+              marginBottom: '16px',
+              fontSize: '0.82rem',
+              color: '#92400e',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '8px'
+            }}>
+              <Ticket size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
+              <div>
+                <strong>Coupon-based Customer:</strong> Customer purchases coupon books in advance (e.g. 30 or 60 coupons).
+                Each delivered packet automatically deducts 1 coupon. No monthly monetary bill is generated.
+                {editingCustomer && (
+                  <div style={{ marginTop: '4px', fontWeight: '600' }}>
+                    Active Coupon Balance: <span style={{ color: '#b45309', fontWeight: '800' }}>{editingCustomer.coupon_balance || 0} coupons remaining</span>.
+                    You can issue new coupon books or adjust balances anytime in the <strong>Coupons</strong> tab or dedicated Coupons page.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {formData.billing_type === 'WEEKLY' && (
+            <div style={{
+              background: '#e0e7ff',
+              border: '1px solid #c7d2fe',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 14px',
+              marginBottom: '16px',
+              fontSize: '0.82rem',
+              color: '#3730a3',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '8px'
+            }}>
+              <Calendar size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
+              <div>
+                <strong>Weekly Billing Customer:</strong> Bills are generated weekly based strictly on actual milk delivered during that 7-day period (e.g. Mon–Sun).
+              </div>
+            </div>
+          )}
 
           <div className="form-row">
             <div className="form-group">

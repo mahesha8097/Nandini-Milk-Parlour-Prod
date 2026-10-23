@@ -89,6 +89,49 @@ router.post('/generate-advance-monthly', requireAdmin, async (req, res) => {
   }
 });
 
+// Generate Weekly Bill (Admin only - accepts startDate, endDate, customer_id, forceRegenerate)
+router.post('/generate-weekly', requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate, customer_id, forceRegenerate } = req.body;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required for weekly billing' });
+    }
+
+    const { generateWeeklyBillForCustomer, generateWeeklyBillsForPeriod } = require('../services/billingService');
+
+    if (customer_id) {
+      const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
+      if (!customer) {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      const bill = await generateWeeklyBillForCustomer(customer, startDate, endDate, Boolean(forceRegenerate));
+      if (!bill) {
+        return res.status(400).json({ error: `No delivered records found for ${customer.name} between ${startDate} and ${endDate}` });
+      }
+
+      return res.json({
+        message: `Weekly bill #${bill.bill_number} generated successfully for ${customer.name}`,
+        bill
+      });
+    }
+
+    // Generate for all weekly customers
+    const result = await generateWeeklyBillsForPeriod(startDate, endDate, {
+      forceRegenerate: Boolean(forceRegenerate),
+      agentId: req.agentId || 1
+    });
+
+    res.json({
+      message: `Weekly bills generated for period ${startDate} to ${endDate}`,
+      summary: result
+    });
+  } catch (err) {
+    console.error('Generate weekly bill error:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate weekly bill' });
+  }
+});
+
 // Get single bill with invoice details and business profile (Admin only)
 router.get('/:id', requireAdmin, async (req, res) => {
   try {

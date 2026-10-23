@@ -91,9 +91,64 @@ if (isProduction && process.env.DATABASE_URL) {
             ALTER TABLE customers ADD COLUMN IF NOT EXISTS serial_no INTEGER DEFAULT 0;
             ALTER TABLE customers ADD COLUMN IF NOT EXISTS flat_no TEXT;
             ALTER TABLE customers ADD COLUMN IF NOT EXISTS zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL;
+            ALTER TABLE customers ADD COLUMN IF NOT EXISTS coupon_balance INTEGER DEFAULT 0;
+            ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_billing_type_check;
+            ALTER TABLE customers ADD CONSTRAINT customers_billing_type_check CHECK(billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON'));
           `);
         } catch (e) {
           console.warn('Postgres customers columns init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
+            ALTER TABLE bills ADD COLUMN IF NOT EXISTS start_date TEXT;
+            ALTER TABLE bills ADD COLUMN IF NOT EXISTS end_date TEXT;
+            ALTER TABLE bills DROP CONSTRAINT IF EXISTS bills_billing_type_check;
+            ALTER TABLE bills ADD CONSTRAINT bills_billing_type_check CHECK(billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON'));
+          `);
+        } catch (e) {
+          console.warn('Postgres bills columns init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
+            CREATE TABLE IF NOT EXISTS coupon_books (
+              id SERIAL PRIMARY KEY,
+              customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+              book_number TEXT NOT NULL,
+              total_coupons INTEGER NOT NULL,
+              used_coupons INTEGER NOT NULL DEFAULT 0,
+              remaining_coupons INTEGER NOT NULL,
+              price_paid DOUBLE PRECISION DEFAULT 0.0,
+              payment_method TEXT DEFAULT 'CASH',
+              issue_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'EXHAUSTED', 'CANCELLED')),
+              notes TEXT,
+              agent_id INTEGER DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+              updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+
+            CREATE TABLE IF NOT EXISTS coupon_transactions (
+              id SERIAL PRIMARY KEY,
+              customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+              coupon_book_id INTEGER REFERENCES coupon_books(id) ON DELETE SET NULL,
+              delivery_id INTEGER REFERENCES deliveries(id) ON DELETE SET NULL,
+              change_amount INTEGER NOT NULL,
+              balance_after INTEGER NOT NULL,
+              transaction_type TEXT NOT NULL CHECK(transaction_type IN ('BOOK_PURCHASE', 'DELIVERY_USAGE', 'MANUAL_ADJUSTMENT', 'DELIVERY_REVERTED')),
+              transaction_date TEXT NOT NULL,
+              notes TEXT,
+              agent_id INTEGER DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_coupon_books_cust ON coupon_books(customer_id);
+            CREATE INDEX IF NOT EXISTS idx_coupon_tx_cust ON coupon_transactions(customer_id);
+            CREATE INDEX IF NOT EXISTS idx_coupon_tx_date ON coupon_transactions(transaction_date);
+          `);
+        } catch (e) {
+          console.warn('Postgres coupon tables init note:', e.message);
         }
 
         try {
@@ -139,7 +194,8 @@ if (isProduction && process.env.DATABASE_URL) {
 
         const pgTenantTables = [
           'users', 'routes', 'zones', 'customers', 'products', 'deliveries', 'bills',
-          'payments', 'expenses', 'daily_delivery_requirements', 'delivery_corrections', 'business_profile'
+          'payments', 'expenses', 'daily_delivery_requirements', 'delivery_corrections',
+          'coupon_books', 'coupon_transactions', 'business_profile'
         ];
         for (const tbl of pgTenantTables) {
           try {
@@ -335,13 +391,15 @@ if (isProduction && process.env.DATABASE_URL) {
         flat_no TEXT,
         zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL,
         customer_category TEXT NOT NULL CHECK(customer_category IN ('HOUSE', 'BULK_HOTEL')),
-        billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID')),
+        billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON')),
         delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
         route TEXT,
         status TEXT DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'INACTIVE')),
         notes TEXT,
         advance_balance REAL DEFAULT 0.0,
         pending_balance REAL DEFAULT 0.0,
+        coupon_balance INTEGER DEFAULT 0,
+        agent_id INTEGER DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -384,15 +442,17 @@ if (isProduction && process.env.DATABASE_URL) {
         UNIQUE (customer_id, product_id, delivery_date)
       );
 
-      -- Monthly Bills table (Advance for PREPAID or Actual Deliveries for POSTPAID)
+      -- Monthly & Weekly Bills table
       CREATE TABLE IF NOT EXISTS bills (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         bill_number TEXT UNIQUE NOT NULL,
         customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
         billing_month TEXT NOT NULL,
-        billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID')),
+        billing_type TEXT NOT NULL CHECK(billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON')),
         bill_date TEXT NOT NULL,
         due_date TEXT,
+        start_date TEXT,
+        end_date TEXT,
         total_deliveries_count INTEGER DEFAULT 0,
         product_subtotal REAL NOT NULL DEFAULT 0,
         delivery_charges_total REAL NOT NULL DEFAULT 0,
@@ -405,9 +465,43 @@ if (isProduction && process.env.DATABASE_URL) {
         lifecycle_stage TEXT DEFAULT 'FINALIZED' CHECK(lifecycle_stage IN ('DRAFT', 'REVIEW', 'FINALIZED')),
         items_json TEXT,
         notes TEXT,
+        agent_id INTEGER DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE (customer_id, billing_month, billing_type)
+      );
+
+      -- Coupon Books table
+      CREATE TABLE IF NOT EXISTS coupon_books (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        book_number TEXT NOT NULL,
+        total_coupons INTEGER NOT NULL,
+        used_coupons INTEGER NOT NULL DEFAULT 0,
+        remaining_coupons INTEGER NOT NULL,
+        price_paid REAL DEFAULT 0.0,
+        payment_method TEXT DEFAULT 'CASH',
+        issue_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'EXHAUSTED', 'CANCELLED')),
+        notes TEXT,
+        agent_id INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      -- Coupon Transactions table
+      CREATE TABLE IF NOT EXISTS coupon_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        coupon_book_id INTEGER REFERENCES coupon_books(id) ON DELETE SET NULL,
+        delivery_id INTEGER REFERENCES deliveries(id) ON DELETE SET NULL,
+        change_amount INTEGER NOT NULL,
+        balance_after INTEGER NOT NULL,
+        transaction_type TEXT NOT NULL CHECK(transaction_type IN ('BOOK_PURCHASE', 'DELIVERY_USAGE', 'MANUAL_ADJUSTMENT', 'DELIVERY_REVERTED')),
+        transaction_date TEXT NOT NULL,
+        notes TEXT,
+        agent_id INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL
       );
 
       -- Payments table
@@ -590,8 +684,27 @@ if (isProduction && process.env.DATABASE_URL) {
       if (!hasFlatNo) {
         db.prepare("ALTER TABLE customers ADD COLUMN flat_no TEXT").run();
       }
+      const hasCouponBal = custTableInfo.some(col => col.name === 'coupon_balance');
+      if (!hasCouponBal) {
+        db.prepare("ALTER TABLE customers ADD COLUMN coupon_balance INTEGER DEFAULT 0").run();
+      }
     } catch (mErr) {
       console.warn('Migration note for customers columns:', mErr.message);
+    }
+
+    // Ensure start_date and end_date columns exist on bills in SQLite
+    try {
+      const billTableInfo = db.prepare("PRAGMA table_info(bills)").all();
+      const hasStartDate = billTableInfo.some(col => col.name === 'start_date');
+      if (!hasStartDate) {
+        db.prepare("ALTER TABLE bills ADD COLUMN start_date TEXT").run();
+      }
+      const hasEndDate = billTableInfo.some(col => col.name === 'end_date');
+      if (!hasEndDate) {
+        db.prepare("ALTER TABLE bills ADD COLUMN end_date TEXT").run();
+      }
+    } catch (bErr) {
+      console.warn('Migration note for bills columns:', bErr.message);
     }
 
     // Seed default zones if table is empty

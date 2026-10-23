@@ -14,10 +14,10 @@ client/node_modules/
 
 # Local SQLite Database Files (Do not commit local test databases to production)
 server/data/*.db
-server/data/*.db-wal
-server/data/*.db-shm
+server/data/*.db*
 server/data/*.sqlite
 server/data/*.sqlite3
+server/data/*.backup
 
 # Local Uploads (In production, Supabase Storage is used)
 server/uploads/*
@@ -40,3 +40,5 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+~$*.xlsx
+~$*.xls
