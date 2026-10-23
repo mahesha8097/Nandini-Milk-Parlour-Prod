@@ -603,7 +603,8 @@ router.post('/:id/subscriptions', requireAdmin, async (req, res) => {
       const pid = item.product_id;
       const qty = parseInt(item.quantity);
       const sDate = item.start_date || start_date;
-      const eDate = item.end_date !== undefined ? item.end_date : (end_date || null);
+      const rawEndDate = item.end_date !== undefined ? item.end_date : end_date;
+      const eDate = (rawEndDate && typeof rawEndDate === 'string' && rawEndDate.trim() !== '') ? rawEndDate.trim() : null;
       const freq = item.frequency || frequency || 'DAILY';
       const cDays = item.custom_days || custom_days || null;
 
@@ -664,6 +665,10 @@ router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) =
       return res.status(404).json({ error: 'Subscription not found' });
     }
 
+    const sanitizedEndDate = end_date !== undefined
+      ? (end_date && typeof end_date === 'string' && end_date.trim() !== '' ? end_date.trim() : null)
+      : existing.end_date;
+
     await db.prepare(`
       UPDATE subscriptions
       SET product_id = ?, quantity = ?, frequency = ?, custom_days = ?, start_date = ?,
@@ -675,7 +680,7 @@ router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) =
       frequency || existing.frequency,
       custom_days ? JSON.stringify(custom_days) : existing.custom_days,
       start_date || existing.start_date,
-      end_date !== undefined ? end_date : existing.end_date,
+      sanitizedEndDate,
       is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
       subId
     );

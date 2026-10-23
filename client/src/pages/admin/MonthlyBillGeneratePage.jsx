@@ -84,64 +84,92 @@ export default function MonthlyBillGeneratePage() {
     }
   };
 
-  const calculateDefaultDaysForCustomer = (cust, yearMonth = selectedMonth) => {
+  const calculateSubscriptionDaysForMonth = (sub, yearMonth = selectedMonth) => {
     const [year, month] = yearMonth.split('-').map(Number);
     const totalDaysInMonth = new Date(year, month, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+    const monthStart = `${yearMonth}-01`;
+    const monthEnd = `${yearMonth}-${pad(totalDaysInMonth)}`;
 
-    // Check if customer has subscription start_date in this month
+    const startDate = sub?.start_date ? sub.start_date.substring(0, 10) : null;
+    const endDate = sub?.end_date && sub.end_date.trim() !== '' ? sub.end_date.substring(0, 10) : null;
+
+    // 1. Subscription starts after the end of this month -> 0 days
+    if (startDate && startDate > monthEnd) {
+      return {
+        days: 0,
+        startDate: null,
+        endDate: null,
+        selectedDays: []
+      };
+    }
+
+    // 2. Subscription ended before this month starts -> 0 days
+    if (endDate && endDate < monthStart) {
+      return {
+        days: 0,
+        startDate: null,
+        endDate: null,
+        selectedDays: []
+      };
+    }
+
+    // 3. Determine active range in this month
     let startDay = 1;
-    let endDay = totalDaysInMonth;
+    if (startDate && startDate > monthStart) {
+      startDay = parseInt(startDate.split('-')[2], 10);
+    }
 
-    if (cust && cust.subscriptions && cust.subscriptions.length > 0) {
-      const sub = cust.subscriptions[0];
-      if (sub.start_date && sub.start_date.startsWith(yearMonth)) {
-        const d = parseInt(sub.start_date.split('-')[2], 10);
-        if (d >= 1 && d <= totalDaysInMonth) {
-          startDay = d;
-        }
-      }
+    let endDay = totalDaysInMonth;
+    if (endDate && endDate < monthEnd) {
+      endDay = parseInt(endDate.split('-')[2], 10);
     }
 
     const selectedDays = [];
-    for (let d = startDay; d <= endDay; d++) {
-      selectedDays.push(d);
+    if (startDay <= endDay && startDay <= totalDaysInMonth && endDay >= 1) {
+      const actualStart = Math.max(1, startDay);
+      const actualEnd = Math.min(totalDaysInMonth, endDay);
+      for (let d = actualStart; d <= actualEnd; d++) {
+        selectedDays.push(d);
+      }
     }
 
-    const pad = (n) => String(n).padStart(2, '0');
     return {
       days: selectedDays.length,
-      startDate: `${yearMonth}-${pad(startDay)}`,
-      endDate: `${yearMonth}-${pad(endDay)}`,
+      startDate: selectedDays.length > 0 ? `${yearMonth}-${pad(selectedDays[0])}` : null,
+      endDate: selectedDays.length > 0 ? `${yearMonth}-${pad(selectedDays[selectedDays.length - 1])}` : null,
       selectedDays
     };
   };
 
-  const handleSelectCustomer = (custId, custList = customers, prodList = products) => {
+  const calculateDefaultDaysForCustomer = (cust, yearMonth = selectedMonth) => {
+    if (cust && cust.subscriptions && cust.subscriptions.length > 0) {
+      return calculateSubscriptionDaysForMonth(cust.subscriptions[0], yearMonth);
+    }
+    const [year, month] = yearMonth.split('-').map(Number);
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+    const allDays = [];
+    for (let d = 1; d <= totalDaysInMonth; d++) allDays.push(d);
+    return {
+      days: totalDaysInMonth,
+      startDate: `${yearMonth}-01`,
+      endDate: `${yearMonth}-${pad(totalDaysInMonth)}`,
+      selectedDays: allDays
+    };
+  };
+
+  const handleSelectCustomer = (custId, custList = customers, prodList = products, targetMonth = selectedMonth) => {
     setSelectedCustomerId(custId);
     const cust = custList.find(c => String(c.id) === String(custId));
     if (!cust) return;
 
-    const defaultDayInfo = calculateDefaultDaysForCustomer(cust, selectedMonth);
+    const defaultDayInfo = calculateDefaultDaysForCustomer(cust, targetMonth);
 
     if (cust.subscriptions && cust.subscriptions.length > 0) {
       const mapped = cust.subscriptions.map(s => {
         const prod = prodList.find(p => p.id === s.product_id) || {};
-
-        let itemDayInfo = defaultDayInfo;
-        if (s.start_date && s.start_date.startsWith(selectedMonth)) {
-          const d = parseInt(s.start_date.split('-')[2], 10);
-          const [year, month] = selectedMonth.split('-').map(Number);
-          const totalDays = new Date(year, month, 0).getDate();
-          const subDays = [];
-          for (let day = d; day <= totalDays; day++) subDays.push(day);
-          const pad = (n) => String(n).padStart(2, '0');
-          itemDayInfo = {
-            days: subDays.length,
-            startDate: `${selectedMonth}-${pad(d)}`,
-            endDate: `${selectedMonth}-${pad(totalDays)}`,
-            selectedDays: subDays
-          };
-        }
+        const itemDayInfo = calculateSubscriptionDaysForMonth(s, targetMonth);
 
         const chargeType = s.delivery_charge_type || prod.delivery_charge_type || 'MILK_RULE';
         const fixedCharge = s.fixed_delivery_charge !== undefined
@@ -192,16 +220,42 @@ export default function MonthlyBillGeneratePage() {
     setDefaultMonthDays(totalDays);
 
     const cust = customers.find(c => String(c.id) === String(selectedCustomerId));
-    const dayInfo = calculateDefaultDaysForCustomer(cust, newMonth);
+    if (cust && cust.subscriptions && cust.subscriptions.length > 0) {
+      const mapped = cust.subscriptions.map(s => {
+        const prod = products.find(p => p.id === s.product_id) || {};
+        const itemDayInfo = calculateSubscriptionDaysForMonth(s, newMonth);
+        const chargeType = s.delivery_charge_type || prod.delivery_charge_type || 'MILK_RULE';
+        const fixedCharge = s.fixed_delivery_charge !== undefined
+          ? s.fixed_delivery_charge
+          : (prod.fixed_delivery_charge !== undefined ? prod.fixed_delivery_charge : 0);
 
-    // Update all items for new month default
-    setItems(prev => prev.map(it => ({
-      ...it,
-      days: dayInfo.days,
-      startDate: dayInfo.startDate,
-      endDate: dayInfo.endDate,
-      selectedDays: dayInfo.selectedDays
-    })));
+        return {
+          productId: s.product_id,
+          productName: s.product_name || prod.name || 'Milk Product',
+          variantLabel: s.variant_label || prod.variant_label || 'Pkt',
+          unitVolumeLitres: prod.unit_volume_litres || s.unit_volume_litres || 0.5,
+          unitPrice: s.selling_price || prod.selling_price || 0,
+          quantity: s.quantity || 1,
+          category: s.category || prod.category || 'Milk',
+          deliveryChargeType: chargeType,
+          fixedDeliveryCharge: fixedCharge,
+          days: itemDayInfo.days,
+          startDate: itemDayInfo.startDate,
+          endDate: itemDayInfo.endDate,
+          selectedDays: itemDayInfo.selectedDays
+        };
+      });
+      setItems(mapped);
+    } else {
+      const dayInfo = calculateDefaultDaysForCustomer(cust, newMonth);
+      setItems(prev => prev.map(it => ({
+        ...it,
+        days: dayInfo.days,
+        startDate: dayInfo.startDate,
+        endDate: dayInfo.endDate,
+        selectedDays: dayInfo.selectedDays
+      })));
+    }
   };
 
   const handleAddItem = () => {
@@ -267,7 +321,8 @@ export default function MonthlyBillGeneratePage() {
   const handleItemDaysDirectChange = (index, daysVal) => {
     const [year, month] = selectedMonth.split('-').map(Number);
     const maxDays = new Date(year, month, 0).getDate();
-    const num = Math.max(1, Math.min(maxDays, parseInt(daysVal) || 1));
+    const parsed = parseInt(daysVal, 10);
+    const num = isNaN(parsed) ? 0 : Math.max(0, Math.min(maxDays, parsed));
     const pad = (n) => String(n).padStart(2, '0');
 
     // Default to first N days
@@ -279,8 +334,8 @@ export default function MonthlyBillGeneratePage() {
       return {
         ...item,
         days: num,
-        startDate: `${selectedMonth}-01`,
-        endDate: `${selectedMonth}-${pad(num)}`,
+        startDate: num > 0 ? `${selectedMonth}-01` : null,
+        endDate: num > 0 ? `${selectedMonth}-${pad(num)}` : null,
         selectedDays: newSelectedDays
       };
     }));
@@ -294,7 +349,8 @@ export default function MonthlyBillGeneratePage() {
     if (!item) return;
 
     setActiveItemIndex(index);
-    setTempSelectedDays([...(item.selectedDays || getDaysArray(item.days || defaultMonthDays))]);
+    const itemDays = item.days !== undefined ? item.days : defaultMonthDays;
+    setTempSelectedDays([...(item.selectedDays || getDaysArray(itemDays))]);
     setTempStartDate(item.startDate || `${selectedMonth}-01`);
     setTempEndDate(item.endDate || `${selectedMonth}-${String(defaultMonthDays).padStart(2, '0')}`);
     setCalendarModalOpen(true);
@@ -402,7 +458,7 @@ export default function MonthlyBillGeneratePage() {
       const activeIndices = [];
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
-        const days = it.days || defaultMonthDays;
+        const days = it.days !== undefined ? it.days : defaultMonthDays;
         const isDayActive = Array.isArray(it.selectedDays) && it.selectedDays.length > 0
           ? it.selectedDays.includes(d)
           : d <= days;
@@ -487,7 +543,7 @@ export default function MonthlyBillGeneratePage() {
   }
 
   const calculatedItems = items.map((item, idx) => {
-    const itemDays = item.days || defaultMonthDays;
+    const itemDays = item.days !== undefined ? item.days : defaultMonthDays;
     const totalQty = (item.quantity || 1) * itemDays;
     const milkSubtotal = parseFloat(((item.unitPrice || 0) * (item.quantity || 1) * itemDays).toFixed(2));
     const deliveryChargeTotal = parseFloat((itemDelCharges[idx] || 0).toFixed(2));
@@ -984,7 +1040,7 @@ export default function MonthlyBillGeneratePage() {
 
           {items.map((item, idx) => {
             const calculated = calculatedItems[idx] || {};
-            const itemDays = item.days || defaultMonthDays;
+            const itemDays = item.days !== undefined ? item.days : defaultMonthDays;
 
             return (
               <div
@@ -1048,13 +1104,13 @@ export default function MonthlyBillGeneratePage() {
                       <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#475569' }}>Days:</span>
                       <input
                         type="number"
-                        min="1"
+                        min="0"
                         max={defaultMonthDays}
                         className="form-input"
                         style={{ width: '52px', padding: '4px 6px', textAlign: 'center', fontWeight: '800', color: '#0054a6', borderColor: '#93c5fd' }}
                         value={itemDays}
                         onChange={(e) => handleItemDaysDirectChange(idx, e.target.value)}
-                        title={`Enter number of days (1-${defaultMonthDays}) for this product`}
+                        title={`Enter number of days (0-${defaultMonthDays}) for this product`}
                       />
                     </div>
 

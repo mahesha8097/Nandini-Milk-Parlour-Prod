@@ -35,7 +35,7 @@ async function updatePendingDeliveryForRequirement(customerId, productId, delive
     JOIN products p ON s.product_id = p.id
     WHERE s.customer_id = ? AND s.is_active = 1
       AND s.start_date <= ?
-      AND (s.end_date IS NULL OR s.end_date >= ?)
+      AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
   `);
   const subs = await getActiveSubs.all(customerId, deliveryDate, deliveryDate);
 

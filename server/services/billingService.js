@@ -1055,6 +1055,8 @@ async function calculateAdvanceProjectionForMonth(billingMonth, agentId = null) 
   let totalProjectedPayable = 0;
 
   for (const customer of customers) {
+    if (customer.billing_type === 'COUPON') continue;
+
     const subs = await db.prepare(`
       SELECT s.*, p.name as product_name, p.category, p.variant_label, p.unit_volume_litres,
              p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge

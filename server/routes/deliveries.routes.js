@@ -46,7 +46,7 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
     JOIN customers c ON s.customer_id = c.id
     WHERE s.is_active = 1
       AND s.start_date <= ?
-      AND (s.end_date IS NULL OR s.end_date >= ?)
+      AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
       AND c.status = 'ACTIVE'
       AND c.customer_category != 'BULK_HOTEL'
   `;
@@ -114,7 +114,7 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
     JOIN products p ON s.product_id = p.id
     WHERE s.customer_id = ? AND s.is_active = 1
       AND s.start_date <= ?
-      AND (s.end_date IS NULL OR s.end_date >= ?)
+      AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
   `);
 
   const checkExisting = db.prepare(`
@@ -320,7 +320,7 @@ router.get('/', verifyToken, async (req, res) => {
         AND (s.product_id = d.product_id OR (r.product_id IS NOT NULL AND s.product_id = r.product_id))
         AND s.is_active = 1
         AND s.start_date <= d.delivery_date
-        AND (s.end_date IS NULL OR s.end_date >= d.delivery_date)
+        AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= d.delivery_date)
       WHERE d.delivery_date = ? AND (d.agent_id = ? OR c.agent_id = ?)
     `;
     const params = [targetDate, agentId, agentId];
@@ -953,7 +953,7 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
     const sub = await db.prepare(`
       SELECT * FROM subscriptions 
       WHERE customer_id = ? AND product_id = ? AND is_active = 1
-        AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)
+        AND start_date <= ? AND (end_date IS NULL OR end_date = '' OR end_date >= ?)
     `).get(customer.id, baseProduct.id, targetDate, targetDate);
 
     const normalQuantity = sub ? sub.quantity : qty;
