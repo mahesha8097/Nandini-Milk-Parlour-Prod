@@ -557,11 +557,15 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
-    // Clean up dependent child records safely
+    // Clean up dependent child records safely (in correct dependency order)
     await db.prepare('DELETE FROM daily_delivery_requirements WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM customer_vacations WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM coupon_transactions WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM coupon_books WHERE customer_id = ?').run(customerId);
     await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ?').run(customerId);
     await db.prepare('DELETE FROM payments WHERE customer_id = ?').run(customerId);
     await db.prepare('DELETE FROM bills WHERE customer_id = ?').run(customerId);
+    await db.prepare('DELETE FROM delivery_corrections WHERE customer_id = ?').run(customerId);
     await db.prepare('DELETE FROM deliveries WHERE customer_id = ?').run(customerId);
     await db.prepare('DELETE FROM subscriptions WHERE customer_id = ?').run(customerId);
     await db.prepare('DELETE FROM customers WHERE id = ?').run(customerId);
@@ -698,6 +702,64 @@ router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) =
   } catch (err) {
     console.error('Update subscription error:', err);
     res.status(500).json({ error: 'Failed to update subscription' });
+  }
+});
+
+// Cancel / Delete Subscription (Admin only) - Past completed deliveries remain intact!
+router.delete('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) => {
+  try {
+    const { customerId, subId } = req.params;
+    const sub = await db.prepare('SELECT * FROM subscriptions WHERE id = ? AND customer_id = ?').get(subId, customerId);
+    if (!sub) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    // 1. Remove future PENDING deliveries for this customer & product so that recurring deliveries stop immediately
+    await db.prepare(`
+      DELETE FROM deliveries 
+      WHERE customer_id = ? AND product_id = ? AND status = 'PENDING' AND delivery_date >= date('now', 'localtime')
+    `).run(customerId, sub.product_id);
+
+    // 2. Delete the subscription itself
+    await db.prepare('DELETE FROM subscriptions WHERE id = ? AND customer_id = ?').run(subId, customerId);
+
+    // Audit log
+    try {
+      await db.prepare(`
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+        VALUES (?, 'CANCEL_SUBSCRIPTION', 'subscriptions', ?, ?, datetime('now', 'localtime'))
+      `).run(req.user?.id || null, subId, `Cancelled subscription #${subId} for customer #${customerId}`);
+    } catch (auditErr) {
+      console.warn('Audit log notice (non-fatal):', auditErr.message);
+    }
+
+    res.json({ success: true, message: 'Subscription cancelled successfully. Future pending deliveries removed; past completed deliveries remain intact.' });
+  } catch (err) {
+    console.error('Cancel subscription error:', err);
+    res.status(500).json({ error: err.message || 'Failed to cancel subscription' });
+  }
+});
+
+// Also support direct /subscriptions/:id delete for versatility
+router.delete('/subscriptions/:id', requireAdmin, async (req, res) => {
+  try {
+    const subId = req.params.id;
+    const sub = await db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(subId);
+    if (!sub) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    await db.prepare(`
+      DELETE FROM deliveries 
+      WHERE customer_id = ? AND product_id = ? AND status = 'PENDING' AND delivery_date >= date('now', 'localtime')
+    `).run(sub.customer_id, sub.product_id);
+
+    await db.prepare('DELETE FROM subscriptions WHERE id = ?').run(subId);
+
+    res.json({ success: true, message: 'Subscription cancelled successfully' });
+  } catch (err) {
+    console.error('Cancel subscription error:', err);
+    res.status(500).json({ error: err.message || 'Failed to cancel subscription' });
   }
 });
 

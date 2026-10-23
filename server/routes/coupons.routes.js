@@ -15,7 +15,6 @@ const {
 router.get('/books', requireAdmin, async (req, res) => {
   try {
     const agentId = req.agentId || 1;
-    await reconcileAllCustomerCoupons(agentId);
     const { status, customer_id, product_id, search } = req.query;
 
     let query = `
@@ -199,38 +198,31 @@ router.delete('/books/:id', requireAdmin, async (req, res) => {
 
     const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(book.customer_id);
 
-    // Delete the book
+    // 1. Delete all transactions linked to this book
+    await db.prepare('DELETE FROM coupon_transactions WHERE coupon_book_id = ?').run(bookId);
+
+    // 2. Delete the book itself
     await db.prepare('DELETE FROM coupon_books WHERE id = ?').run(bookId);
 
-    // Recalculate customer aggregate active balance
+    // 3. Recalculate customer aggregate active balance
     if (customer) {
       const sumRow = await db.prepare(`
-        SELECT COALESCE(SUM(remaining_coupons), 0) as total_remaining
+        SELECT COALESCE(SUM(remaining_coupons), 0) as total_remaining,
+               COUNT(*) as total_active_books
         FROM coupon_books
         WHERE customer_id = ? AND status = 'ACTIVE'
       `).get(customer.id);
       const newBal = parseInt(sumRow?.total_remaining, 10) || 0;
+      const totalBooks = parseInt(sumRow?.total_active_books, 10) || 0;
+
+      // If customer has no more books, wipe any dangling coupon transactions for a clean fresh slate
+      if (totalBooks === 0) {
+        await db.prepare('DELETE FROM coupon_transactions WHERE customer_id = ?').run(customer.id);
+      }
 
       await db.prepare(`
         UPDATE customers SET coupon_balance = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
       `).run(newBal, customer.id);
-
-      // Record transaction
-      await db.prepare(`
-        INSERT INTO coupon_transactions (
-          customer_id, coupon_book_id, delivery_id, change_amount, balance_after,
-          transaction_type, transaction_date, notes, agent_id, created_at
-        ) VALUES (
-          ?, NULL, NULL, ?, ?,
-          'MANUAL_ADJUSTMENT', date('now', 'localtime'), ?, ?, datetime('now', 'localtime')
-        )
-      `).run(
-        customer.id,
-        -book.remaining_coupons,
-        newBal,
-        `Voided Coupon Book #${book.book_number}`,
-        customer.agent_id || 1
-      );
     }
 
     res.json({ success: true, message: `Coupon Book #${book.book_number} deleted successfully` });

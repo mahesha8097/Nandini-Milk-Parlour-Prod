@@ -218,11 +218,10 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
   if (!customer) return null;
 
   const hasBooks = await db.prepare('SELECT 1 FROM coupon_books WHERE customer_id = ? LIMIT 1').get(customer.id);
-  const isCouponBilling = customer.billing_type === 'COUPON';
   const hasCoupons = (parseInt(customer.coupon_balance, 10) || 0) > 0;
 
-  if (!isCouponBilling && !hasCoupons && !hasBooks) {
-    return null; // Not a coupon customer
+  if (!hasBooks && !hasCoupons) {
+    return null; // Not a coupon customer or no books issued
   }
 
   // 1. Determine target coupons to deduct for this delivery
@@ -279,15 +278,20 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
       `).all(customer.id);
     }
 
+    if (activeBooks.length === 0) {
+      return { inSync: true, netDeducted: currentNetDeducted, balanceAfter: currentBal, deducted: 0, restored: 0 };
+    }
+
     let remainingToDeduct = qtyToDeduct;
     let bookToLink = null;
 
     for (const book of activeBooks) {
       if (remainingToDeduct <= 0) break;
-      bookToLink = book.id;
       const canDeduct = Math.min(book.remaining_coupons, remainingToDeduct);
+      if (canDeduct <= 0) continue;
+      bookToLink = book.id;
       const newUsed = book.used_coupons + canDeduct;
-      const newRemaining = book.remaining_coupons - canDeduct;
+      const newRemaining = Math.max(0, book.total_coupons - newUsed);
       const newStatus = newRemaining === 0 ? 'EXHAUSTED' : 'ACTIVE';
 
       await db.prepare(`
@@ -299,23 +303,24 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
       remainingToDeduct -= canDeduct;
     }
 
+    const actualDeducted = qtyToDeduct - remainingToDeduct;
+    if (actualDeducted <= 0) {
+      return { inSync: true, netDeducted: currentNetDeducted, balanceAfter: currentBal, deducted: 0, restored: 0 };
+    }
+
     const sumRow = await db.prepare(`
       SELECT COALESCE(SUM(remaining_coupons), 0) as total_remaining
       FROM coupon_books
       WHERE customer_id = ? AND status = 'ACTIVE'
     `).get(customer.id);
 
-    const hasActiveBooks = activeBooks.length > 0;
-    const actualDeducted = hasActiveBooks ? (qtyToDeduct - remainingToDeduct) : 0;
-    const newBal = hasActiveBooks ? (parseInt(sumRow?.total_remaining, 10) || 0) : Math.max(0, currentBal - qtyToDeduct);
+    const newBal = parseInt(sumRow?.total_remaining, 10) || 0;
 
-    if (hasActiveBooks) {
-      await db.prepare(`
-        UPDATE customers
-        SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
-        WHERE id = ?
-      `).run(newBal, customer.id);
-    }
+    await db.prepare(`
+      UPDATE customers
+      SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(newBal, customer.id);
 
     await db.prepare(`
       INSERT INTO coupon_transactions (
@@ -340,6 +345,9 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
   } else {
     // diff < 0: Need to restore `Math.abs(diff)` coupons back
     const restoreQty = Math.abs(diff);
+    if (restoreQty <= 0) {
+      return { inSync: true, netDeducted: currentNetDeducted, balanceAfter: currentBal, deducted: 0, restored: 0 };
+    }
 
     const lastUsageTx = await db.prepare(`
       SELECT coupon_book_id FROM coupon_transactions
@@ -351,13 +359,14 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
     if (bookId) {
       const book = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(bookId);
       if (book) {
-        const restoredRemaining = book.remaining_coupons + restoreQty;
         const restoredUsed = Math.max(0, book.used_coupons - restoreQty);
+        const restoredRemaining = Math.min(book.total_coupons, book.total_coupons - restoredUsed);
+        const restoredStatus = restoredRemaining > 0 ? 'ACTIVE' : 'EXHAUSTED';
         await db.prepare(`
           UPDATE coupon_books
-          SET remaining_coupons = ?, used_coupons = ?, status = 'ACTIVE', updated_at = datetime('now', 'localtime')
+          SET remaining_coupons = ?, used_coupons = ?, status = ?, updated_at = datetime('now', 'localtime')
           WHERE id = ?
-        `).run(restoredRemaining, restoredUsed, bookId);
+        `).run(restoredRemaining, restoredUsed, restoredStatus, bookId);
       }
     }
 
@@ -591,12 +600,6 @@ async function updateCouponBook({
 async function getCustomerCouponDetails(customerId) {
   if (!customerId) return null;
 
-  // Reconcile all deliveries for this customer to ensure 100% accurate profile
-  const custDelivs = await db.prepare('SELECT id FROM deliveries WHERE customer_id = ?').all(customerId);
-  for (const cd of (custDelivs || [])) {
-    await syncCouponsForDelivery(cd.id);
-  }
-
   const customer = await db.prepare(`
     SELECT c.id, c.name, c.phone, c.address, c.customer_category, c.billing_type,
            c.coupon_balance, c.advance_balance, c.pending_balance, z.name as zone_name
@@ -669,9 +672,6 @@ async function getCustomerCouponDetails(customerId) {
 async function getCouponMonthEndSummary(agentId = 1, month = null) {
   const targetMonth = month || new Date().toISOString().slice(0, 7);
 
-  // Self-heal and reconcile all deliveries for coupon customers
-  await reconcileAllCustomerCoupons(agentId);
-
   // Get all customers who either:
   // 1. Have billing_type = 'COUPON'
   // 2. OR have coupon_balance > 0
@@ -698,34 +698,38 @@ async function getCouponMonthEndSummary(agentId = 1, month = null) {
       FROM coupon_books WHERE customer_id = ?
     `).get(cust.id);
 
-    // Coupons used in this specific month (net of any delivery reverts)
-    const monthUsage = await db.prepare(`
+    const hasBooks = (parseInt(books?.book_count, 10) || 0) > 0;
+
+    // Coupons used in this specific month (net of any delivery reverts, tied to valid books)
+    const monthUsage = hasBooks ? await db.prepare(`
       SELECT COALESCE(SUM(
         CASE 
-          WHEN transaction_type = 'DELIVERY_USAGE' THEN ABS(change_amount)
-          WHEN transaction_type = 'DELIVERY_REVERTED' THEN -ABS(change_amount)
+          WHEN ct.transaction_type = 'DELIVERY_USAGE' THEN ABS(ct.change_amount)
+          WHEN ct.transaction_type = 'DELIVERY_REVERTED' THEN -ABS(ct.change_amount)
           ELSE 0
         END
       ), 0) as used_in_month
-      FROM coupon_transactions
-      WHERE customer_id = ? 
-        AND transaction_type IN ('DELIVERY_USAGE', 'DELIVERY_REVERTED')
-        AND transaction_date LIKE ?
-    `).get(cust.id, `${targetMonth}%`);
+      FROM coupon_transactions ct
+      JOIN coupon_books cb ON ct.coupon_book_id = cb.id
+      WHERE ct.customer_id = ? 
+        AND ct.transaction_type IN ('DELIVERY_USAGE', 'DELIVERY_REVERTED')
+        AND ct.transaction_date LIKE ?
+    `).get(cust.id, `${targetMonth}%`) : { used_in_month: 0 };
 
-    // All time coupons used (net of any delivery reverts)
-    const allTimeUsage = await db.prepare(`
+    // All time coupons used (net of any delivery reverts, tied to valid books)
+    const allTimeUsage = hasBooks ? await db.prepare(`
       SELECT COALESCE(SUM(
         CASE 
-          WHEN transaction_type = 'DELIVERY_USAGE' THEN ABS(change_amount)
-          WHEN transaction_type = 'DELIVERY_REVERTED' THEN -ABS(change_amount)
+          WHEN ct.transaction_type = 'DELIVERY_USAGE' THEN ABS(ct.change_amount)
+          WHEN ct.transaction_type = 'DELIVERY_REVERTED' THEN -ABS(ct.change_amount)
           ELSE 0
         END
       ), 0) as total_used
-      FROM coupon_transactions
-      WHERE customer_id = ? 
-        AND transaction_type IN ('DELIVERY_USAGE', 'DELIVERY_REVERTED')
-    `).get(cust.id);
+      FROM coupon_transactions ct
+      JOIN coupon_books cb ON ct.coupon_book_id = cb.id
+      WHERE ct.customer_id = ? 
+        AND ct.transaction_type IN ('DELIVERY_USAGE', 'DELIVERY_REVERTED')
+    `).get(cust.id) : { total_used: 0 };
 
     // Active product coupon breakdown
     const activeProductRows = await db.prepare(`
