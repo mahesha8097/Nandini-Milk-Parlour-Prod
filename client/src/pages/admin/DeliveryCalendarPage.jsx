@@ -51,6 +51,9 @@ export default function DeliveryCalendarPage() {
 
   // Schedule Vacation Modal state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState('RANGE'); // 'RANGE' | 'CUSTOM_DATES'
+  const [selectedCustomDates, setSelectedCustomDates] = useState([]); // array of 'YYYY-MM-DD'
+  const [customPickerMonth, setCustomPickerMonth] = useState(() => todayStr.slice(0, 7)); // 'YYYY-MM'
   const [scheduleForm, setScheduleForm] = useState({
     customer_id: '',
     start_date: todayStr,
@@ -70,6 +73,97 @@ export default function DeliveryCalendarPage() {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 4500);
   };
+
+  // ----------------------------------------------------
+  // CUSTOM DATES PICKER HELPERS
+  // ----------------------------------------------------
+  const toggleCustomDate = (dateStr) => {
+    setSelectedCustomDates(prev => {
+      if (prev.includes(dateStr)) {
+        return prev.filter(d => d !== dateStr);
+      } else {
+        return [...prev, dateStr].sort();
+      }
+    });
+  };
+
+  const handlePrevPickerMonth = () => {
+    const [y, m] = customPickerMonth.split('-').map(Number);
+    const prevDate = new Date(y, m - 2, 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    setCustomPickerMonth(`${prevDate.getFullYear()}-${pad(prevDate.getMonth() + 1)}`);
+  };
+
+  const handleNextPickerMonth = () => {
+    const [y, m] = customPickerMonth.split('-').map(Number);
+    const nextDate = new Date(y, m, 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    setCustomPickerMonth(`${nextDate.getFullYear()}-${pad(nextDate.getMonth() + 1)}`);
+  };
+
+  const handleSelectSundays = () => {
+    const [y, m] = customPickerMonth.split('-').map(Number);
+    const totalDays = new Date(y, m, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+    const sundays = [];
+    for (let d = 1; d <= totalDays; d++) {
+      const dayOfWeek = new Date(y, m - 1, d).getDay();
+      if (dayOfWeek === 0) {
+        sundays.push(`${customPickerMonth}-${pad(d)}`);
+      }
+    }
+    setSelectedCustomDates(prev => [...new Set([...prev, ...sundays])].sort());
+  };
+
+  const handleSelectWeekends = () => {
+    const [y, m] = customPickerMonth.split('-').map(Number);
+    const totalDays = new Date(y, m, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+    const weekends = [];
+    for (let d = 1; d <= totalDays; d++) {
+      const dayOfWeek = new Date(y, m - 1, d).getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        weekends.push(`${customPickerMonth}-${pad(d)}`);
+      }
+    }
+    setSelectedCustomDates(prev => [...new Set([...prev, ...weekends])].sort());
+  };
+
+  const handleClearCustomDates = () => {
+    setSelectedCustomDates([]);
+  };
+
+  // Custom calendar picker grid data
+  const customCalendarGridData = useMemo(() => {
+    const [year, month] = customPickerMonth.split('-').map(Number);
+    const firstDayIndex = new Date(year, month - 1, 1).getDay(); // 0 = Sun
+    const totalDays = new Date(year, month, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+
+    const cells = [];
+    for (let i = 0; i < firstDayIndex; i++) {
+      cells.push({ blank: true, key: `picker-blank-${i}` });
+    }
+
+    for (let d = 1; d <= totalDays; d++) {
+      const dateStr = `${customPickerMonth}-${pad(d)}`;
+      const dayOfWeek = new Date(year, month - 1, d).getDay();
+      const isSelected = selectedCustomDates.includes(dateStr);
+      const isToday = dateStr === todayStr;
+
+      cells.push({
+        blank: false,
+        dayNumber: d,
+        dateStr,
+        dayOfWeek,
+        isSelected,
+        isToday,
+        key: `picker-day-${dateStr}`
+      });
+    }
+
+    return cells;
+  }, [customPickerMonth, selectedCustomDates, todayStr]);
 
   // ----------------------------------------------------
   // DATA FETCHING
@@ -133,8 +227,16 @@ export default function DeliveryCalendarPage() {
   // ----------------------------------------------------
   // SCHEDULE VACATION HANDLER
   // ----------------------------------------------------
-  const handleOpenScheduleModal = (presetDate = null) => {
+  const handleOpenScheduleModal = (presetDate = null, defaultMode = 'RANGE') => {
     setScheduleError('');
+    setScheduleMode(defaultMode);
+    if (presetDate) {
+      setSelectedCustomDates([presetDate]);
+      setCustomPickerMonth(presetDate.slice(0, 7));
+    } else {
+      setSelectedCustomDates([]);
+      setCustomPickerMonth(selectedMonth || todayStr.slice(0, 7));
+    }
     setScheduleForm({
       customer_id: customers[0]?.id ? String(customers[0].id) : '',
       start_date: presetDate || todayStr,
@@ -154,13 +256,21 @@ export default function DeliveryCalendarPage() {
       setScheduleError('Please select a customer');
       return;
     }
-    if (!scheduleForm.start_date || !scheduleForm.end_date) {
-      setScheduleError('Start date and end date are required');
-      return;
-    }
-    if (scheduleForm.start_date > scheduleForm.end_date) {
-      setScheduleError('Start date cannot be after end date');
-      return;
+
+    if (scheduleMode === 'CUSTOM_DATES') {
+      if (!selectedCustomDates || selectedCustomDates.length === 0) {
+        setScheduleError('Please click and select at least one date on the calendar where no milk is required.');
+        return;
+      }
+    } else {
+      if (!scheduleForm.start_date || !scheduleForm.end_date) {
+        setScheduleError('Start date and end date are required');
+        return;
+      }
+      if (scheduleForm.start_date > scheduleForm.end_date) {
+        setScheduleError('Start date cannot be after end date');
+        return;
+      }
     }
 
     const effectiveReason = scheduleForm.reason === 'Other'
@@ -169,12 +279,19 @@ export default function DeliveryCalendarPage() {
 
     try {
       setSubmittingSchedule(true);
-      const res = await api.post('/calendar/vacations', {
+      const payload = {
         customer_id: parseInt(scheduleForm.customer_id, 10),
-        start_date: scheduleForm.start_date,
-        end_date: scheduleForm.end_date,
         reason: effectiveReason
-      });
+      };
+
+      if (scheduleMode === 'CUSTOM_DATES') {
+        payload.dates = selectedCustomDates;
+      } else {
+        payload.start_date = scheduleForm.start_date;
+        payload.end_date = scheduleForm.end_date;
+      }
+
+      const res = await api.post('/calendar/vacations', payload);
 
       setIsScheduleModalOpen(false);
       showToast(`✅ ${res.message || 'Milk pause scheduled successfully!'}`);
@@ -324,7 +441,28 @@ export default function DeliveryCalendarPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             type="button"
-            onClick={() => handleOpenScheduleModal()}
+            onClick={() => handleOpenScheduleModal(null, 'CUSTOM_DATES')}
+            className="btn btn-outline"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: 800,
+              padding: '10px 16px',
+              color: '#b91c1c',
+              borderColor: '#fca5a5',
+              background: '#fef2f2',
+              boxShadow: '0 2px 8px rgba(220,38,38,0.1)'
+            }}
+            title="Mark specific dates when customer requests no milk"
+          >
+            <Calendar size={18} color="#dc2626" />
+            <span>Mark "No Milk" Dates</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleOpenScheduleModal(null, 'RANGE')}
             className="btn btn-primary"
             style={{
               display: 'inline-flex',
@@ -733,23 +871,25 @@ export default function DeliveryCalendarPage() {
 
                   {/* Empty Cell Quick Add on Hover */}
                   {!hasEvents && (
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: '4px' }}>
                       <span
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleOpenScheduleModal(cell.dateStr);
+                          handleOpenScheduleModal(cell.dateStr, 'CUSTOM_DATES');
                         }}
                         style={{
-                          fontSize: '0.7rem',
-                          color: '#94a3b8',
-                          fontWeight: 700,
-                          opacity: 0.6,
-                          padding: '2px 4px',
-                          borderRadius: '4px'
+                          fontSize: '0.68rem',
+                          color: '#b91c1c',
+                          fontWeight: 800,
+                          padding: '2px 5px',
+                          borderRadius: '4px',
+                          background: '#fef2f2',
+                          border: '1px solid #fecaca',
+                          cursor: 'pointer'
                         }}
-                        title="Click to schedule pause for this date"
+                        title="Click to mark this day as No Milk for a customer"
                       >
-                        + Pause
+                        + No Milk
                       </span>
                     </div>
                   )}
@@ -881,14 +1021,14 @@ export default function DeliveryCalendarPage() {
       )}
 
       {/* ------------------------------------------------------------------------- */}
-      {/* MODAL 1: SCHEDULE MILK PAUSE / VACATION                                    */}
+      {/* MODAL 1: SCHEDULE MILK PAUSE / CUSTOM "NO MILK" DAYS                       */}
       {/* ------------------------------------------------------------------------- */}
       {isScheduleModalOpen && (
         <Modal
           isOpen={isScheduleModalOpen}
           onClose={() => setIsScheduleModalOpen(false)}
           title="Schedule Customer Milk Pause / Vacation"
-          maxWidth="560px"
+          maxWidth="660px"
         >
           <form onSubmit={handleSubmitSchedule} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {scheduleError && (
@@ -946,32 +1086,289 @@ export default function DeliveryCalendarPage() {
               </select>
             </div>
 
-            {/* Date Range: From -> To */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div>
-                <label className="form-label" style={{ fontWeight: 800 }}>Stop Delivery From:</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  style={{ fontWeight: 700 }}
-                  value={scheduleForm.start_date}
-                  onChange={(e) => setScheduleForm(prev => ({ ...prev, start_date: e.target.value }))}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="form-label" style={{ fontWeight: 800 }}>Stop Delivery Until (Inclusive):</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  style={{ fontWeight: 700 }}
-                  value={scheduleForm.end_date}
-                  onChange={(e) => setScheduleForm(prev => ({ ...prev, end_date: e.target.value }))}
-                  required
-                />
-              </div>
+            {/* Selection Mode Switcher: Continuous Range vs Custom Dates */}
+            <div style={{
+              display: 'flex',
+              background: '#f1f5f9',
+              padding: '4px',
+              borderRadius: '10px',
+              gap: '4px'
+            }}>
+              <button
+                type="button"
+                onClick={() => setScheduleMode('RANGE')}
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: scheduleMode === 'RANGE' ? '#ffffff' : 'transparent',
+                  color: scheduleMode === 'RANGE' ? '#0054a6' : '#64748b',
+                  fontWeight: scheduleMode === 'RANGE' ? 900 : 700,
+                  fontSize: '0.86rem',
+                  cursor: 'pointer',
+                  boxShadow: scheduleMode === 'RANGE' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Calendar size={15} />
+                <span>Continuous Date Range</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleMode('CUSTOM_DATES')}
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: scheduleMode === 'CUSTOM_DATES' ? '#ffffff' : 'transparent',
+                  color: scheduleMode === 'CUSTOM_DATES' ? '#dc2626' : '#64748b',
+                  fontWeight: scheduleMode === 'CUSTOM_DATES' ? 900 : 700,
+                  fontSize: '0.86rem',
+                  cursor: 'pointer',
+                  boxShadow: scheduleMode === 'CUSTOM_DATES' ? '0 2px 6px rgba(220,38,38,0.12)' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>🗓️ Pick Specific "No Milk" Days</span>
+                {selectedCustomDates.length > 0 && (
+                  <span style={{
+                    background: '#dc2626',
+                    color: 'white',
+                    fontSize: '0.72rem',
+                    fontWeight: 900,
+                    padding: '1px 7px',
+                    borderRadius: '999px'
+                  }}>
+                    {selectedCustomDates.length}
+                  </span>
+                )}
+              </button>
             </div>
+
+            {/* MODE 1: CONTINUOUS DATE RANGE */}
+            {scheduleMode === 'RANGE' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="form-label" style={{ fontWeight: 800 }}>Stop Delivery From:</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    style={{ fontWeight: 700 }}
+                    value={scheduleForm.start_date}
+                    onChange={(e) => setScheduleForm(prev => ({ ...prev, start_date: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 800 }}>Stop Delivery Until (Inclusive):</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    style={{ fontWeight: 700 }}
+                    value={scheduleForm.end_date}
+                    onChange={(e) => setScheduleForm(prev => ({ ...prev, end_date: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* MODE 2: CUSTOM SPECIFIC DATES (INTERACTIVE CALENDAR GRID) */}
+            {scheduleMode === 'CUSTOM_DATES' && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1.5px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                {/* Header: Month Navigator + Quick Presets */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={handlePrevPickerMonth}
+                      className="btn btn-outline btn-sm"
+                      style={{ padding: '4px 8px' }}
+                      title="Previous Month"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span style={{ fontWeight: 900, fontSize: '0.92rem', color: '#0f172a', minWidth: '120px', textAlign: 'center' }}>
+                      {new Date(parseInt(customPickerMonth.split('-')[0], 10), parseInt(customPickerMonth.split('-')[1], 10) - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleNextPickerMonth}
+                      className="btn btn-outline btn-sm"
+                      style={{ padding: '4px 8px' }}
+                      title="Next Month"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={handleSelectSundays}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: '0.74rem', padding: '3px 8px', fontWeight: 700 }}
+                      title="Mark all Sundays of this month as No Milk"
+                    >
+                      + Sundays
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSelectWeekends}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: '0.74rem', padding: '3px 8px', fontWeight: 700 }}
+                      title="Mark all Saturdays & Sundays as No Milk"
+                    >
+                      + Weekends
+                    </button>
+                    {selectedCustomDates.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleClearCustomDates}
+                        className="btn btn-outline btn-sm"
+                        style={{ fontSize: '0.74rem', padding: '3px 8px', fontWeight: 700, color: '#dc2626', borderColor: '#fca5a5' }}
+                      >
+                        Clear ({selectedCustomDates.length})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Day of Week Labels */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dw, i) => (
+                    <div key={dw} style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 900,
+                      color: i === 0 ? '#dc2626' : '#64748b',
+                      textTransform: 'uppercase'
+                    }}>
+                      {dw}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Interactive Day Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
+                  {customCalendarGridData.map((cell) => {
+                    if (cell.blank) {
+                      return <div key={cell.key} style={{ height: '44px', background: 'transparent' }} />;
+                    }
+
+                    return (
+                      <button
+                        key={cell.key}
+                        type="button"
+                        onClick={() => toggleCustomDate(cell.dateStr)}
+                        style={{
+                          height: '46px',
+                          background: cell.isSelected ? '#dc2626' : (cell.isToday ? '#f0fdf4' : '#ffffff'),
+                          color: cell.isSelected ? '#ffffff' : (cell.isToday ? '#15803d' : '#1e293b'),
+                          border: cell.isSelected
+                            ? '2px solid #b91c1c'
+                            : (cell.isToday ? '1.5px solid #22c55e' : '1px solid #e2e8f0'),
+                          borderRadius: '8px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          boxShadow: cell.isSelected ? '0 2px 6px rgba(220,38,38,0.35)' : 'none',
+                          transition: 'all 0.12s ease',
+                          position: 'relative'
+                        }}
+                        title={cell.isSelected ? `Click to unmark ${cell.dateStr}` : `Click to mark ${cell.dateStr} as No Milk`}
+                      >
+                        <span style={{ fontSize: '0.86rem', fontWeight: cell.isSelected || cell.isToday ? 900 : 700 }}>
+                          {cell.dayNumber}
+                        </span>
+                        {cell.isSelected ? (
+                          <span style={{ fontSize: '0.58rem', fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1 }}>
+                            🚫 No Milk
+                          </span>
+                        ) : cell.isToday ? (
+                          <span style={{ fontSize: '0.55rem', fontWeight: 800, color: '#15803d', lineHeight: 1 }}>
+                            Today
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Dates Summary Tray */}
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#334155' }}>
+                      Selected Dates ({selectedCustomDates.length}):
+                    </span>
+                    {selectedCustomDates.length > 0 && (
+                      <span style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                        Click any date above or chip below to remove
+                      </span>
+                    )}
+                  </div>
+
+                  {selectedCustomDates.length === 0 ? (
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic', padding: '4px 0' }}>
+                      No dates marked yet. Click any day on the calendar above to mark it as "No Milk".
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', maxHeight: '90px', overflowY: 'auto' }}>
+                      {selectedCustomDates.map(dStr => (
+                        <span
+                          key={dStr}
+                          onClick={() => toggleCustomDate(dStr)}
+                          style={{
+                            background: '#fee2e2',
+                            border: '1px solid #fca5a5',
+                            borderRadius: '6px',
+                            color: '#b91c1c',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            cursor: 'pointer'
+                          }}
+                          title={`Click to remove ${dStr}`}
+                        >
+                          <span>{formatDisplayDate(dStr)}</span>
+                          <span style={{ fontWeight: 900, fontSize: '0.85rem' }}>×</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Dynamic Summary Box */}
             <div style={{
@@ -985,9 +1382,19 @@ export default function DeliveryCalendarPage() {
               flexDirection: 'column',
               gap: '4px'
             }}>
-              <div><strong>⛔ Delivery Status:</strong> Will be marked <strong>SKIPPED (₹0 billed)</strong> from {scheduleForm.start_date} to {scheduleForm.end_date}.</div>
-              <div><strong>✅ Deliveries Resume On:</strong> <strong style={{ color: '#15803d' }}>{calculatedResumeDate}</strong></div>
-              <div><strong>🔔 Prior Notification for Agent:</strong> Alert triggers on <strong>{calculatedAlertDate} (1 day before)</strong> so milk is procured on time!</div>
+              {scheduleMode === 'CUSTOM_DATES' ? (
+                <>
+                  <div><strong>⛔ Delivery Status:</strong> <strong>{selectedCustomDates.length} selected day(s)</strong> will be marked <strong>SKIPPED (₹0 billed)</strong>.</div>
+                  <div><strong>🔔 Delivery Boy Alert:</strong> Daily delivery screen will show <strong>"DO NOT DELIVER"</strong> on each selected date.</div>
+                  <div><strong>📢 Procurement Alert:</strong> Agent gets prior reminders 1 day before normal deliveries resume.</div>
+                </>
+              ) : (
+                <>
+                  <div><strong>⛔ Delivery Status:</strong> Will be marked <strong>SKIPPED (₹0 billed)</strong> from {scheduleForm.start_date} to {scheduleForm.end_date}.</div>
+                  <div><strong>✅ Deliveries Resume On:</strong> <strong style={{ color: '#15803d' }}>{calculatedResumeDate}</strong></div>
+                  <div><strong>🔔 Prior Notification for Agent:</strong> Alert triggers on <strong>{calculatedAlertDate} (1 day before)</strong> so milk is procured on time!</div>
+                </>
+              )}
             </div>
 
             {/* Reason Selector */}
@@ -1045,9 +1452,13 @@ export default function DeliveryCalendarPage() {
                 type="submit"
                 className="btn btn-primary"
                 style={{ fontWeight: 800, padding: '8px 20px' }}
-                disabled={submittingSchedule}
+                disabled={submittingSchedule || (scheduleMode === 'CUSTOM_DATES' && selectedCustomDates.length === 0)}
               >
-                {submittingSchedule ? 'Saving Pause...' : 'Confirm Milk Pause'}
+                {submittingSchedule
+                  ? 'Saving Pause...'
+                  : (scheduleMode === 'CUSTOM_DATES'
+                      ? (selectedCustomDates.length > 0 ? `Confirm ${selectedCustomDates.length} Days "No Milk" (₹0 Billed)` : 'Select Dates on Calendar')
+                      : 'Confirm Milk Pause')}
               </button>
             </div>
           </form>

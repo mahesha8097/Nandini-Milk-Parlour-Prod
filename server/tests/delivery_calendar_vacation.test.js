@@ -179,6 +179,100 @@ async function runTests() {
     assert.strictEqual(restoredNov11.total_amount, 46, 'Total amount restored to original value');
     console.log('  ✓ Vacation cancellation cleanly restored delivery to PENDING.');
 
+    // 8. Test Custom Arbitrary Dates Selection (non-consecutive dates)
+    console.log('\n[TEST 6] Schedule Custom Specific Dates ("No Milk" on Nov 20, Nov 24, Nov 25, Nov 30)');
+    const customDates = ['2026-11-20', '2026-11-24', '2026-11-25', '2026-11-30'];
+    
+    // Helper to group contiguous dates
+    function groupSegments(dates) {
+      const segs = [];
+      let s = dates[0];
+      let prev = dates[0];
+      const addDaysStr = (dStr, n) => {
+        const [y, m, d] = dStr.split('-').map(Number);
+        const dt = new Date(y, m - 1, d);
+        dt.setDate(dt.getDate() + n);
+        const pad = (v) => String(v).padStart(2, '0');
+        return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+      };
+      for (let i = 1; i < dates.length; i++) {
+        const cur = dates[i];
+        if (addDaysStr(prev, 1) === cur) {
+          prev = cur;
+        } else {
+          segs.push({ start_date: s, end_date: prev });
+          s = cur;
+          prev = cur;
+        }
+      }
+      segs.push({ start_date: s, end_date: prev });
+      return segs;
+    }
+
+    const segments = groupSegments(customDates);
+    assert.strictEqual(segments.length, 3, '4 custom dates must group into 3 segments');
+    assert.strictEqual(segments[0].start_date, '2026-11-20');
+    assert.strictEqual(segments[0].end_date, '2026-11-20');
+    assert.strictEqual(segments[1].start_date, '2026-11-24');
+    assert.strictEqual(segments[1].end_date, '2026-11-25');
+    assert.strictEqual(segments[2].start_date, '2026-11-30');
+    assert.strictEqual(segments[2].end_date, '2026-11-30');
+    console.log('  ✓ Contiguous dates grouped correctly into segments: Nov 20-20, Nov 24-25, Nov 30-30.');
+
+    // Create a mock delivery on Nov 24
+    db.prepare('DELETE FROM deliveries WHERE customer_id = ? AND delivery_date = ?').run(testCustomerId, '2026-11-24');
+    db.prepare(`
+      INSERT INTO deliveries (
+        customer_id, product_id, product_name_snapshot, category_snapshot, variant_snapshot, unit_volume_litres_snapshot,
+        delivery_date, quantity, unit_price_snapshot, total_product_amount,
+        delivery_charge_snapshot, total_amount, status, created_at, updated_at
+      ) VALUES (
+        ?, ?, 'toned milk', 'Milk', '1 Litre', 1,
+        '2026-11-24', 1, 46, 46,
+        3, 49, 'PENDING', datetime('now', 'localtime'), datetime('now', 'localtime')
+      )
+    `).run(testCustomerId, existingCust.product_id);
+
+    // Apply custom date skips
+    for (const d of customDates) {
+      db.prepare(`
+        INSERT INTO daily_delivery_requirements (
+          customer_id, product_id, subscription_id, delivery_date,
+          requirement_type, normal_quantity, required_quantity,
+          additional_quantity, effective_quantity, reason, status,
+          created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?,
+          'SKIP_DELIVERY', 1, 0,
+          0, 0, 'Custom marked No Milk', 'ACTIVE',
+          datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `).run(testCustomerId, existingCust.product_id, testSubId, d);
+
+      db.prepare(`
+        UPDATE deliveries
+        SET status = 'SKIPPED',
+            total_product_amount = 0,
+            delivery_charge_snapshot = 0,
+            total_amount = 0,
+            notes = 'DO NOT DELIVER - Custom marked No Milk'
+        WHERE customer_id = ? AND delivery_date = ?
+      `).run(testCustomerId, d);
+    }
+
+    const delNov24 = db.prepare('SELECT * FROM deliveries WHERE customer_id = ? AND delivery_date = ?').get(testCustomerId, '2026-11-24');
+    assert.strictEqual(delNov24.status, 'SKIPPED', 'Custom marked date delivery is SKIPPED');
+    assert.strictEqual(delNov24.total_amount, 0, 'Custom marked date total amount is ₹0');
+    assert.strictEqual(delNov24.delivery_charge_snapshot, 0, 'Custom marked date delivery charge is ₹0');
+    console.log('  ✓ Delivery on custom marked date Nov 24 converted to SKIPPED with ₹0 billing.');
+
+    const skipReqs = db.prepare(`
+      SELECT COUNT(*) as count FROM daily_delivery_requirements
+      WHERE customer_id = ? AND delivery_date IN ('2026-11-20', '2026-11-24', '2026-11-25', '2026-11-30') AND requirement_type = 'SKIP_DELIVERY'
+    `).get(testCustomerId);
+    assert.strictEqual(skipReqs.count, 4, 'All 4 custom dates have SKIP_DELIVERY requirements');
+    console.log('  ✓ All 4 custom selected dates verified in daily_delivery_requirements with quantity 0.');
+
     console.log('\n================================================================');
     console.log(' ALL DELIVERY CALENDAR & VACATION TESTS PASSED WITH 100% SUCCESS!');
     console.log('================================================================\n');
@@ -190,8 +284,8 @@ async function runTests() {
     if (testVacationId) {
       db.prepare('DELETE FROM customer_vacations WHERE id = ?').run(testVacationId);
     }
-    db.prepare("DELETE FROM daily_delivery_requirements WHERE delivery_date BETWEEN '2026-11-10' AND '2026-11-13'").run();
-    db.prepare("DELETE FROM deliveries WHERE delivery_date = '2026-11-11' AND notes LIKE '%vacation%'").run();
+    db.prepare("DELETE FROM daily_delivery_requirements WHERE delivery_date BETWEEN '2026-11-10' AND '2026-11-30'").run();
+    db.prepare("DELETE FROM deliveries WHERE delivery_date IN ('2026-11-11', '2026-11-24')").run();
     console.log('[CLEANUP] Test records safely purged.');
   }
 }

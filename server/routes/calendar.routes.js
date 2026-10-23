@@ -240,14 +240,10 @@ router.get('/events', verifyToken, async (req, res) => {
  */
 router.post('/vacations', verifyToken, async (req, res) => {
   try {
-    const { customer_id, start_date, end_date, reason } = req.body;
+    const { customer_id, start_date, end_date, dates, reason } = req.body;
 
-    if (!customer_id || !start_date || !end_date) {
-      return res.status(400).json({ error: 'Customer ID, start date, and end date are required' });
-    }
-
-    if (start_date > end_date) {
-      return res.status(400).json({ error: 'Start date cannot be after end date' });
+    if (!customer_id) {
+      return res.status(400).json({ error: 'Customer ID is required' });
     }
 
     const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
@@ -255,31 +251,45 @@ router.post('/vacations', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
-    // Calculate resume date (day after end_date) and prior notification date (day before resume_date)
-    const resumeDate = addDays(end_date, 1);
-    const notifyAgentDate = addDays(resumeDate, -1); // which is end_date
+    // Determine target dates list: custom dates array OR continuous start_date -> end_date range
+    let targetDates = [];
+    if (dates && (Array.isArray(dates) ? dates.length > 0 : String(dates).trim().length > 0)) {
+      const rawList = Array.isArray(dates) ? dates : String(dates).split(',').map(s => s.trim());
+      targetDates = [...new Set(rawList.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort();
+      if (targetDates.length === 0) {
+        return res.status(400).json({ error: 'Please select at least one valid date' });
+      }
+    } else {
+      if (!start_date || !end_date) {
+        return res.status(400).json({ error: 'Start date and end date are required when specific dates are not provided' });
+      }
+      if (start_date > end_date) {
+        return res.status(400).json({ error: 'Start date cannot be after end date' });
+      }
+      let curr = start_date;
+      while (curr <= end_date) {
+        targetDates.push(curr);
+        curr = addDays(curr, 1);
+      }
+    }
 
-    // 1. Insert into customer_vacations
-    const insertVacation = db.prepare(`
-      INSERT INTO customer_vacations (
-        customer_id, start_date, end_date, resume_date, reason, status,
-        notify_agent_date, agent_id, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
-    `);
+    // Group target dates into contiguous segments for customer_vacations records
+    const segments = [];
+    let segStart = targetDates[0];
+    let segPrev = targetDates[0];
+    for (let i = 1; i < targetDates.length; i++) {
+      const d = targetDates[i];
+      if (addDays(segPrev, 1) === d) {
+        segPrev = d;
+      } else {
+        segments.push({ start_date: segStart, end_date: segPrev });
+        segStart = d;
+        segPrev = d;
+      }
+    }
+    segments.push({ start_date: segStart, end_date: segPrev });
 
-    const vResult = await insertVacation.run(
-      customer.id,
-      start_date,
-      end_date,
-      resumeDate,
-      (reason || 'Customer Vacation / Pause').trim(),
-      notifyAgentDate,
-      customer.agent_id || req.agentId || 1,
-      req.user?.id || null
-    );
-    const vacationId = vResult.lastInsertRowid;
-
-    // 2. Find customer's active subscriptions to create product-specific skips
+    // Customer active subscriptions
     const subs = await db.prepare(`
       SELECT s.*, p.name as product_name, p.category, p.variant_label, p.selling_price
       FROM subscriptions s
@@ -287,15 +297,67 @@ router.post('/vacations', verifyToken, async (req, res) => {
       WHERE s.customer_id = ? AND s.is_active = 1
     `).all(customer.id);
 
-    // 3. For each date from start_date to end_date:
-    let curr = start_date;
-    while (curr <= end_date) {
+    const createdVacations = [];
+    const insertVacation = db.prepare(`
+      INSERT INTO customer_vacations (
+        customer_id, start_date, end_date, resume_date, reason, status,
+        notify_agent_date, agent_id, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+    `);
+
+    // Insert vacation segments
+    for (const seg of segments) {
+      const resumeDate = addDays(seg.end_date, 1);
+      const notifyAgentDate = addDays(resumeDate, -1); // which is seg.end_date
+
+      const vResult = await insertVacation.run(
+        customer.id,
+        seg.start_date,
+        seg.end_date,
+        resumeDate,
+        (reason || 'Customer Vacation / Pause').trim(),
+        notifyAgentDate,
+        customer.agent_id || req.agentId || 1,
+        req.user?.id || null
+      );
+      const vacationId = vResult.lastInsertRowid;
+
+      const created = await db.prepare(`
+        SELECT v.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
+               c.flat_no, c.route as customer_route, z.name as zone_name
+        FROM customer_vacations v
+        JOIN customers c ON v.customer_id = c.id
+        LEFT JOIN zones z ON c.zone_id = z.id
+        WHERE v.id = ?
+      `).get(vacationId);
+
+      const title = `🚫 Milk Paused: ${created.customer_name}${created.flat_no ? ` (${created.flat_no})` : ''}`;
+      const desc = `Customer: ${created.customer_name} (Phone: ${created.customer_phone || 'N/A'})\nAddress: ${created.customer_address}\nReason: ${created.reason || 'Vacation'}\nDeliveries resume on: ${created.resume_date}`;
+      created.google_calendar_url = buildGoogleCalendarUrl({
+        title,
+        startDate: created.start_date,
+        endDate: created.end_date,
+        description: desc,
+        location: created.customer_address
+      });
+      created.google_calendar_resume_url = buildGoogleCalendarResumeReminderUrl({
+        customerName: created.customer_name,
+        resumeDate: created.resume_date,
+        details: `Milk resumes on ${created.resume_date}`,
+        location: created.customer_address
+      });
+
+      createdVacations.push(created);
+    }
+
+    // Now for every date in targetDates, update daily_delivery_requirements and deliveries
+    for (const d of targetDates) {
       for (const s of subs) {
-        // Upsert in daily_delivery_requirements
+        // Upsert daily_delivery_requirements
         const existingReq = await db.prepare(`
           SELECT id FROM daily_delivery_requirements
           WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-        `).get(customer.id, s.product_id, curr);
+        `).get(customer.id, s.product_id, d);
 
         if (existingReq) {
           await db.prepare(`
@@ -311,7 +373,7 @@ router.post('/vacations', verifyToken, async (req, res) => {
             WHERE id = ?
           `).run(
             s.quantity,
-            `Pause / Vacation (${start_date} to ${end_date}): ${reason || 'Customer request'}`,
+            `Pause / No Milk (${d}): ${reason || 'Customer request'}`,
             req.user?.id || null,
             existingReq.id
           );
@@ -326,18 +388,18 @@ router.post('/vacations', verifyToken, async (req, res) => {
             customer.id,
             s.product_id,
             s.id,
-            curr,
+            d,
             s.quantity,
-            `Pause / Vacation (${start_date} to ${end_date}): ${reason || 'Customer request'}`,
+            `Pause / No Milk (${d}): ${reason || 'Customer request'}`,
             req.user?.id || null
           );
         }
 
-        // Update existing delivery record if already created for that day (preserve 0 amount and SKIPPED status)
+        // Update existing delivery record if already created for that day
         const delRow = await db.prepare(`
           SELECT id, status FROM deliveries
           WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-        `).get(customer.id, s.product_id, curr);
+        `).get(customer.id, s.product_id, d);
 
         if (delRow) {
           await db.prepare(`
@@ -350,42 +412,23 @@ router.post('/vacations', verifyToken, async (req, res) => {
                 updated_at = datetime('now', 'localtime')
             WHERE id = ?
           `).run(
-            `DO NOT DELIVER - Milk Paused (${start_date} to ${end_date}): ${reason || 'Customer request'}`,
+            `DO NOT DELIVER - Milk Paused (${d}): ${reason || 'Customer request'}`,
             delRow.id
           );
         }
       }
-      curr = addDays(curr, 1);
     }
 
-    const created = await db.prepare(`
-      SELECT v.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
-             c.flat_no, c.route as customer_route, z.name as zone_name
-      FROM customer_vacations v
-      JOIN customers c ON v.customer_id = c.id
-      LEFT JOIN zones z ON c.zone_id = z.id
-      WHERE v.id = ?
-    `).get(vacationId);
-
-    const title = `🚫 Milk Paused: ${created.customer_name}${created.flat_no ? ` (${created.flat_no})` : ''}`;
-    const desc = `Customer: ${created.customer_name} (Phone: ${created.customer_phone || 'N/A'})\nAddress: ${created.customer_address}\nReason: ${created.reason || 'Vacation'}\nDeliveries resume on: ${created.resume_date}`;
-    created.google_calendar_url = buildGoogleCalendarUrl({
-      title,
-      startDate: created.start_date,
-      endDate: created.end_date,
-      description: desc,
-      location: created.customer_address
-    });
-    created.google_calendar_resume_url = buildGoogleCalendarResumeReminderUrl({
-      customerName: created.customer_name,
-      resumeDate: created.resume_date,
-      details: `Milk resumes on ${created.resume_date}`,
-      location: created.customer_address
-    });
+    const message = segments.length === 1 && segments[0].start_date === segments[0].end_date
+      ? `Milk paused for ${customer.name} on ${segments[0].start_date}. Resumes next day.`
+      : `Milk paused for ${customer.name} across ${targetDates.length} selected day(s).`;
 
     res.status(201).json({
-      message: `Milk paused successfully for ${customer.name} from ${start_date} to ${end_date}. Delivery resumes on ${resumeDate}.`,
-      vacation: created
+      message,
+      vacation: createdVacations[0],
+      vacations: createdVacations,
+      datesCount: targetDates.length,
+      segments
     });
   } catch (err) {
     console.error('Create vacation error:', err);
