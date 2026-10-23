@@ -133,7 +133,8 @@ export default function RoutesPage({ onNavigate }) {
       try {
         setLoadingZoneCustomers(true);
         const res = await api.get('/customers', { params: { zone_id: zoneId } });
-        setZoneCustomers(prev => ({ ...prev, [zoneId]: res || [] }));
+        const filtered = Array.isArray(res) ? res.filter(c => String(c.zone_id) === String(zoneId)) : [];
+        setZoneCustomers(prev => ({ ...prev, [zoneId]: filtered }));
       } catch (err) {
         console.error('Fetch zone customers error:', err);
       } finally {
@@ -759,24 +760,26 @@ export default function RoutesPage({ onNavigate }) {
                     </div>
 
                     {/* Zone Customers Accordion */}
-                    {expandedZoneId === zone.id && (
-                      <div style={{ padding: '16px 20px', background: '#fafbfc' }}>
-                        {loadingZoneCustomers ? (
-                          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                            <RefreshCw size={20} className="spin" style={{ margin: '0 auto 8px' }} />
-                            <div>Loading customers in {zone.name}...</div>
-                          </div>
-                        ) : !zoneCustomers[zone.id] || zoneCustomers[zone.id].length === 0 ? (
-                          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                            No active customers assigned to {zone.name} yet.
-                          </div>
-                        ) : (
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                            gap: '12px'
-                          }}>
-                            {zoneCustomers[zone.id].map(cust => (
+                    {expandedZoneId === zone.id && (() => {
+                      const currentZoneCusts = (zoneCustomers[zone.id] || []).filter(c => String(c.zone_id) === String(zone.id));
+                      return (
+                        <div style={{ padding: '16px 20px', background: '#fafbfc' }}>
+                          {loadingZoneCustomers ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              <RefreshCw size={20} className="spin" style={{ margin: '0 auto 8px' }} />
+                              <div>Loading customers in {zone.name}...</div>
+                            </div>
+                          ) : currentZoneCusts.length === 0 ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                              No active customers assigned to {zone.name} yet.
+                            </div>
+                          ) : (
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                              gap: '12px'
+                            }}>
+                              {currentZoneCusts.map(cust => (
                               <div
                                 key={cust.id}
                                 style={{
@@ -840,7 +843,8 @@ export default function RoutesPage({ onNavigate }) {
                           </div>
                         )}
                       </div>
-                    )}
+                    );
+                  })()}
                   </div>
                 ))}
               </div>
@@ -1450,7 +1454,10 @@ export default function RoutesPage({ onNavigate }) {
             // refresh zone customers if opened
             if (expandedZoneId) {
               api.get('/customers', { params: { zone_id: expandedZoneId } })
-                .then(res => setZoneCustomers(prev => ({ ...prev, [expandedZoneId]: res || [] })))
+                .then(res => {
+                  const filtered = Array.isArray(res) ? res.filter(c => String(c.zone_id) === String(expandedZoneId)) : [];
+                  setZoneCustomers(prev => ({ ...prev, [expandedZoneId]: filtered }));
+                })
                 .catch(() => {});
             }
           }}

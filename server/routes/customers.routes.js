@@ -10,6 +10,10 @@ const {
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const multer = require('multer');
+const upload = multer({ dest: os.tmpdir() });
+const { importCustomers } = require('../../scripts/import_customers_from_excel');
 
 // Download Excel Customer Onboarding Template
 router.get('/download-template', (req, res) => {
@@ -21,10 +25,34 @@ router.get('/download-template', (req, res) => {
   }
 });
 
-// Get all customers (with filters: search, category, billing_type, status, route, route_id, delivery_boy_id)
+// Upload and Import Excel Customers
+router.post('/upload-import-excel', verifyToken, requireAdmin, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Please choose an Excel file to upload (.xlsx)' });
+    }
+    const uploadedPath = req.file.path;
+    const result = await importCustomers(uploadedPath);
+    try { fs.unlinkSync(uploadedPath); } catch (e) {}
+
+    res.json({
+      success: true,
+      message: `Successfully imported ${result.insertedCount} customers (${result.skippedCount} duplicates skipped).`,
+      ...result
+    });
+  } catch (err) {
+    console.error('Import error:', err);
+    if (req.file && req.file.path) {
+      try { fs.unlinkSync(req.file.path); } catch (e) {}
+    }
+    res.status(500).json({ error: err.message || 'Failed to import customers from Excel' });
+  }
+});
+
+// Get all customers (with filters: search, category, billing_type, status, route, route_id, zone_id, delivery_boy_id)
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const { search, category, billing_type, status, delivery_boy_id, route, route_id } = req.query;
+    const { search, category, billing_type, status, delivery_boy_id, route, route_id, zone_id } = req.query;
     const agentId = req.agentId || 1;
 
     let query = `
@@ -64,6 +92,15 @@ router.get('/', verifyToken, async (req, res) => {
     if (route_id) {
       query += ` AND z.route_id = ?`;
       params.push(route_id);
+    }
+
+    if (zone_id) {
+      if (zone_id === 'unassigned' || zone_id === 'null') {
+        query += ` AND (c.zone_id IS NULL OR c.zone_id = 0)`;
+      } else {
+        query += ` AND c.zone_id = ?`;
+        params.push(zone_id);
+      }
     }
 
     if (category) {

@@ -35,6 +35,8 @@ async function migrateData() {
   const tablesInOrder = [
     { name: 'business_profile', hasSerial: false },
     { name: 'users', hasSerial: true },
+    { name: 'routes', hasSerial: true },
+    { name: 'zones', hasSerial: true },
     { name: 'products', hasSerial: true },
     { name: 'customers', hasSerial: true },
     { name: 'subscriptions', hasSerial: true },

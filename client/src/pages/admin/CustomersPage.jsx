@@ -24,7 +24,8 @@ import {
   Layers,
   ArrowRight,
   FileSpreadsheet,
-  Download
+  Download,
+  Upload
 } from 'lucide-react';
 
 function ZoneBuildingThumbnail({ name = '', index = 0 }) {
@@ -169,6 +170,52 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   const [editZoneAddress, setEditZoneAddress] = useState('');
   const [editZoneRouteOrder, setEditZoneRouteOrder] = useState('');
   const [updatingZone, setUpdatingZone] = useState(false);
+
+  // Excel Bulk Import Modal state
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState('');
+  const [importError, setImportError] = useState('');
+
+  const handleImportExcel = async (e) => {
+    e.preventDefault();
+    if (!importFile) {
+      setImportError('Please select a filled Excel file (.xlsx) to import.');
+      return;
+    }
+    try {
+      setImporting(true);
+      setImportError('');
+      setImportMessage('');
+      const formData = new FormData();
+      formData.append('file', importFile);
+
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/customers/upload-import-excel', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to import customers from Excel');
+      }
+      setImportMessage(data.message || `Import completed: ${data.insertedCount} customers added!`);
+      await fetchCustomers();
+      setTimeout(() => {
+        setIsImportModalOpen(false);
+        setImportFile(null);
+        setImportMessage('');
+      }, 3000);
+    } catch (err) {
+      setImportError(err.message || 'Error importing customers.');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const fetchCustomers = async () => {
     try {
@@ -571,11 +618,33 @@ export default function CustomersPage({ initialOpenAdd = false }) {
               gap: '6px',
               textDecoration: 'none'
             }}
-            title="Download Excel Sheet to add all customers at once with zone dropdowns"
+            title="Download Excel Sheet pre-populated with your routes and zones"
           >
             <Download size={15} />
             <span>Download Excel Sheet</span>
           </a>
+          <button
+            onClick={() => {
+              setIsImportModalOpen(true);
+              setImportError('');
+              setImportMessage('');
+              setImportFile(null);
+            }}
+            className="btn btn-outline btn-sm"
+            style={{
+              fontWeight: '700',
+              color: '#0d9488',
+              borderColor: '#99f6e4',
+              background: '#f0fdfa',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            title="Upload your filled Excel file to import all customers in 1 click"
+          >
+            <Upload size={15} />
+            <span>Import Excel</span>
+          </button>
           <button
             onClick={() => setIsCreateZoneModalOpen(true)}
             className="btn btn-outline btn-sm"
@@ -2210,6 +2279,117 @@ export default function CustomersPage({ initialOpenAdd = false }) {
               disabled={updatingZone}
             >
               {updatingZone ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Bulk Excel Import Modal */}
+      <Modal
+        isOpen={isImportModalOpen}
+        onClose={() => !importing && setIsImportModalOpen(false)}
+        title="Bulk Customer Onboarding — Upload Excel"
+      >
+        <form onSubmit={handleImportExcel} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{
+            background: '#f0fdf4',
+            border: '1.5px solid #86efac',
+            borderRadius: '10px',
+            padding: '14px',
+            fontSize: '0.85rem',
+            color: '#166534'
+          }}>
+            <div style={{ fontWeight: '800', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <FileSpreadsheet size={18} color="#16a34a" /> Excel Import Ready
+            </div>
+            <div>
+              Upload your completed <strong>Nandini_Customers_Bulk_Import_Template.xlsx</strong> file. All customer names, phones, apartments, milk subscriptions, and opening advance balances will be imported automatically!
+            </div>
+          </div>
+
+          {importError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1.5px solid #fca5a5',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              color: '#991b1b',
+              fontSize: '0.82rem',
+              fontWeight: '600'
+            }}>
+              {importError}
+            </div>
+          )}
+
+          {importMessage && (
+            <div style={{
+              background: '#f0fdf4',
+              border: '1.5px solid #86efac',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              color: '#166534',
+              fontSize: '0.85rem',
+              fontWeight: '700'
+            }}>
+              ✓ {importMessage}
+            </div>
+          )}
+
+          <div>
+            <label className="form-label" style={{ fontWeight: '700', fontSize: '0.85rem' }}>
+              Select Completed Excel File (.xlsx)
+            </label>
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              disabled={importing}
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  setImportFile(e.target.files[0]);
+                  setImportError('');
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '10px',
+                border: '1.5px dashed #0d9488',
+                borderRadius: '8px',
+                background: '#f8fafc',
+                cursor: 'pointer',
+                marginTop: '6px'
+              }}
+            />
+            {importFile && (
+              <div style={{ fontSize: '0.78rem', color: '#0d9488', fontWeight: '700', marginTop: '6px' }}>
+                Selected: {importFile.name} ({(importFile.size / 1024).toFixed(1)} KB)
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+            <button
+              type="button"
+              disabled={importing}
+              onClick={() => setIsImportModalOpen(false)}
+              className="btn btn-outline btn-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={importing || !importFile}
+              className="btn btn-primary btn-sm"
+              style={{
+                background: '#0d9488',
+                borderColor: '#0d9488',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontWeight: '800'
+              }}
+            >
+              <Upload size={15} />
+              {importing ? 'Importing Customers...' : 'Import Customers Now'}
             </button>
           </div>
         </form>

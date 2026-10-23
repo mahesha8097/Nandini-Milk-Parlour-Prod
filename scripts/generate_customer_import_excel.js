@@ -1,417 +1,507 @@
 const ExcelJS = require('exceljs');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
-const { Pool } = require('pg');
+const db = require('../server/config/db');
 
 async function generateCustomerExcel() {
-  console.log('Fetching zones, routes, and products from database...');
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-  });
-  const client = await pool.connect();
+  console.log('Fetching routes, zones, and products from database...');
 
+  // Fetch routes
   let routes = [];
-  let zones = [];
-  let products = [];
-
   try {
-    const rRes = await client.query('SELECT * FROM routes ORDER BY id ASC');
-    const zRes = await client.query(`
-      SELECT z.*, r.name as route_name 
-      FROM zones z 
-      LEFT JOIN routes r ON z.route_id = r.id 
-      ORDER BY r.name ASC, z.route_order ASC
-    `);
-    const pRes = await client.query('SELECT * FROM products ORDER BY category ASC, selling_price ASC');
-    routes = rRes.rows;
-    zones = zRes.rows;
-    products = pRes.rows;
-  } finally {
-    client.release();
-    await pool.end();
+    routes = await db.prepare('SELECT id, name, description, status FROM routes WHERE agent_id = 1 OR agent_id IS NULL ORDER BY id ASC').all();
+  } catch (e) {
+    console.warn('Routes fetch note:', e.message);
   }
 
-  console.log(`Loaded ${routes.length} routes, ${zones.length} zones, ${products.length} products.`);
+  // Fetch zones with assigned route
+  let zones = [];
+  try {
+    zones = await db.prepare(`
+      SELECT z.id, z.name, z.address, z.route_order, z.route_id, z.agent_id,
+             COALESCE(r.name, 'Unassigned') as route_name
+      FROM zones z
+      LEFT JOIN routes r ON z.route_id = r.id
+      WHERE z.agent_id = 1 OR z.agent_id IS NULL
+      ORDER BY COALESCE(z.route_id, 999), z.route_order ASC, z.name ASC
+    `).all();
+  } catch (e) {
+    console.warn('Zones fetch note:', e.message);
+  }
+
+  // Deduplicate zones by name
+  const seenZones = new Set();
+  const uniqueZones = [];
+  zones.forEach(z => {
+    const key = (z.name || '').trim().toLowerCase();
+    if (!seenZones.has(key)) {
+      seenZones.add(key);
+      uniqueZones.push(z);
+    }
+  });
+  zones = uniqueZones;
+
+  // Fetch products
+  let products = [];
+  try {
+    const rawProds = await db.prepare(`
+      SELECT DISTINCT name, category, selling_price
+      FROM products
+      WHERE is_active = 1 OR is_active IS NULL
+      ORDER BY category ASC, selling_price ASC, name ASC
+    `).all();
+
+    const seenProds = new Set();
+    rawProds.forEach(p => {
+      const key = (p.name || '').trim().toLowerCase();
+      if (!seenProds.has(key)) {
+        seenProds.add(key);
+        products.push(p);
+      }
+    });
+  } catch (e) {
+    console.warn('Products fetch note:', e.message);
+  }
+
+  // Fallback defaults if products empty
+  if (products.length === 0) {
+    products = [
+      { name: 'Special Milk 500ml', category: 'Milk', selling_price: 27 },
+      { name: 'Samrudhi Milk 500ml', category: 'Milk', selling_price: 28 },
+      { name: 'Shubham Milk 500ml', category: 'Milk', selling_price: 27 },
+      { name: 'Toned Milk 500ml', category: 'Milk', selling_price: 24 },
+      { name: 'Cow Milk 500ml', category: 'Milk', selling_price: 26 },
+      { name: 'Special Milk 1ltr', category: 'Milk', selling_price: 52 },
+      { name: 'Shubham Milk 1ltr', category: 'Milk', selling_price: 52 },
+      { name: 'Toned Milk 1ltr', category: 'Milk', selling_price: 46 },
+      { name: 'Nandini Curd 500ml', category: 'Curd', selling_price: 28 },
+      { name: 'Nandini Curd 1ltr', category: 'Curd', selling_price: 54 }
+    ];
+  }
+
+  console.log(`Loaded ${routes.length} routes, ${zones.length} unique zones, ${products.length} unique products.`);
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Nandini Milk Management System';
+  workbook.creator = 'Nandini Milk Parlour System';
   workbook.created = new Date();
 
-  // =========================================================================
-  // 1. MAIN DATA ENTRY SHEET: Customers_Data_Entry
-  // =========================================================================
-  const wsMain = workbook.addWorksheet('Customers_Data_Entry', {
-    views: [{ showGridLines: true, state: 'frozen', xSplit: 0, ySplit: 4 }]
-  });
-
-  // Title Banner
-  wsMain.mergeCells('A1:O1');
-  const titleCell = wsMain.getCell('A1');
-  titleCell.value = 'NANDINI MILK PARLOUR — BULK CUSTOMER ONBOARDING SHEET';
-  titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
-  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF004B87' } }; // Nandini Blue
-  titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
-  wsMain.getRow(1).height = 36;
-
-  // Subtitle / Guidance
-  wsMain.mergeCells('A2:O2');
-  const subCell = wsMain.getCell('A2');
-  subCell.value = 'Fill in your customers below. In the "Zone / Community" and "Milk Product" columns, click the cell to pick from the dropdown list. Once filled, save and upload to import all customers.';
-  subCell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF334155' } };
-  subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
-  subCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-  wsMain.getRow(2).height = 24;
-
-  // Empty separator row 3
-  wsMain.getRow(3).height = 8;
-
-  // Column Headers (Row 4)
-  const headers = [
-    { header: 'Sequence / Stop #', key: 'seq', width: 16 },
+  // Column definitions matching user's Google Sheet layout
+  const standardHeaders = [
+    { header: 'Zone / Community', key: 'zone', width: 28 },
+    { header: 'Stop #', key: 'seq', width: 10 },
+    { header: 'Flat / House #', key: 'flat_no', width: 16 },
     { header: 'Customer Name *', key: 'name', width: 24 },
     { header: 'Phone Number *', key: 'phone', width: 16 },
-    { header: 'Zone / Community (Select Dropdown) *', key: 'zone', width: 34 },
-    { header: 'Flat / Villa / House #', key: 'flat_no', width: 20 },
-    { header: 'Full Address / Landmark *', key: 'address', width: 32 },
-    { header: 'Customer Category *', key: 'category', width: 20 },
-    { header: 'Billing Type *', key: 'billing_type', width: 20 },
-    { header: 'Advance Balance (₹)', key: 'advance', width: 18 },
-    { header: 'Milk Product 1 (Select Dropdown) *', key: 'prod1', width: 28 },
-    { header: 'Product 1 Daily Qty *', key: 'qty1', width: 18 },
-    { header: 'Milk Product 2 (Optional Dropdown)', key: 'prod2', width: 28 },
-    { header: 'Product 2 Daily Qty', key: 'qty2', width: 18 },
-    { header: 'Delivery Start Date (YYYY-MM-DD)', key: 'start_date', width: 26 },
-    { header: 'Delivery Instructions / Notes', key: 'notes', width: 30 }
+    { header: 'Category *', key: 'category', width: 16 },
+    { header: 'Billing Type *', key: 'billing_type', width: 18 },
+    { header: 'Full Address / Landmark', key: 'address', width: 34 },
+    { header: 'Milk Product 1 *', key: 'prod1', width: 26 },
+    { header: 'Qty 1 *', key: 'qty1', width: 10 },
+    { header: 'Product 2 (Optional)', key: 'prod2', width: 26 },
+    { header: 'Qty 2', key: 'qty2', width: 10 },
+    { header: 'Advance (₹)', key: 'advance', width: 14 },
+    { header: 'Start Date (YYYY-MM-DD)', key: 'start_date', width: 22 },
+    { header: 'Delivery Notes', key: 'notes', width: 28 }
   ];
 
-  wsMain.columns = headers;
+  // Helper: Style Header Row (Dark Blue #1B365D with white bold text like user's screenshot)
+  function applyHeaderStyles(sheet, titleText = '') {
+    sheet.columns = standardHeaders;
 
-  const headerRow = wsMain.getRow(4);
-  headerRow.height = 30;
-
-  headerRow.eachCell((cell, colNumber) => {
-    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-    // Color coding header groups
-    if (colNumber <= 3) {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } }; // Blue: Core Info
-    } else if (colNumber <= 6) {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D9488' } }; // Teal: Zone & Address
-    } else if (colNumber <= 9) {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD97706' } }; // Amber: Category & Billing
-    } else if (colNumber <= 13) {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }; // Purple: Subscriptions
-    } else {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } }; // Slate: Schedule & Notes
-    }
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-      left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-      bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
-      right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-    };
-  });
-
-  // Sample Rows to illustrate proper format
-  const sampleData = [
-    {
-      seq: 1,
-      name: 'Suresh Kumar',
-      phone: '9845012345',
-      zone: 'United Elysium',
-      flat_no: 'A-204',
-      address: 'Tower A, 2nd Floor, United Elysium',
-      category: 'HOUSE',
-      billing_type: 'MONTHLY_POSTPAID',
-      advance: 500,
-      prod1: 'Special Milk 500ml',
-      qty1: 2,
-      prod2: 'Nandini Curd 500ml',
-      qty2: 1,
-      start_date: '2026-11-01',
-      notes: 'Ring bell once; keep on door bag'
-    },
-    {
-      seq: 2,
-      name: 'Priya Sharma',
-      phone: '9900112233',
-      zone: 'Orchid Enclaves',
-      flat_no: 'B-101',
-      address: 'Block B, Ground Floor',
-      category: 'HOUSE',
-      billing_type: 'MONTHLY_POSTPAID',
-      advance: 0,
-      prod1: 'Samrudhi Milk 500ml',
-      qty1: 1,
-      prod2: '',
-      qty2: '',
-      start_date: '2026-11-01',
-      notes: 'Deliver before 6:30 AM'
-    },
-    {
-      seq: 1,
-      name: 'Nandini Cafe & Tiffin',
-      phone: '9448877665',
-      zone: 'Bulk Orders 1',
-      flat_no: 'Shop # 4',
-      address: 'Main Road Commercial Shed',
-      category: 'BULK_HOTEL',
-      billing_type: 'MONTHLY_POSTPAID',
-      advance: 2000,
-      prod1: 'Shubham Milk 1ltr',
-      qty1: 10,
-      prod2: 'Special Milk 1ltr',
-      qty2: 5,
-      start_date: '2026-10-01',
-      notes: 'Commercial morning delivery 5:00 AM'
-    }
-  ];
-
-  sampleData.forEach((item) => {
-    const row = wsMain.addRow(item);
-    row.height = 22;
-    row.eachCell((cell, colNum) => {
-      cell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF1E293B' } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+    const headerRow = sheet.getRow(1);
+    headerRow.height = 30;
+    headerRow.eachCell((cell, colNumber) => {
+      cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF10375C' } // Deep Navy Blue
       };
-      if ([1, 3, 9, 11, 13, 14].includes(colNum)) {
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      } else {
-        cell.alignment = { horizontal: 'left', vertical: 'middle' };
-      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      cell.border = {
+        top: { style: 'medium', color: { argb: 'FF0B2545' } },
+        left: { style: 'thin', color: { argb: 'FF334E68' } },
+        bottom: { style: 'medium', color: { argb: 'FF0B2545' } },
+        right: { style: 'thin', color: { argb: 'FF334E68' } }
+      };
     });
-  });
-
-  // Pre-format 300 blank data entry rows with borders and validations
-  for (let r = 8; r <= 300; r++) {
-    const row = wsMain.getRow(r);
-    row.height = 20;
-    for (let c = 1; c <= 15; c++) {
-      const cell = row.getCell(c);
-      cell.font = { name: 'Calibri', size: 10 };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-      };
-      if ([1, 3, 9, 11, 13, 14].includes(c)) {
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      } else {
-        cell.alignment = { horizontal: 'left', vertical: 'middle' };
-      }
-    }
   }
 
-  // =========================================================================
-  // 2. REFERENCE SHEET: Zones_And_Routes_Ref
-  // =========================================================================
-  const wsZones = workbook.addWorksheet('Zones_And_Routes_Ref', {
-    views: [{ showGridLines: true }]
-  });
-
-  wsZones.columns = [
-    { header: 'Zone / Community Name', key: 'zone_name', width: 34 },
-    { header: 'Assigned Route', key: 'route_name', width: 18 },
-    { header: 'Stop Sequence Order', key: 'route_order', width: 20 },
-    { header: 'Address / Area', key: 'address', width: 30 }
-  ];
-
-  const zHeader = wsZones.getRow(1);
-  zHeader.height = 26;
-  zHeader.eachCell((cell) => {
-    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D9488' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-  });
-
-  zones.forEach((z) => {
-    const row = wsZones.addRow({
-      zone_name: z.name,
-      route_name: z.route_name || 'Unassigned',
-      route_order: z.route_order || 0,
-      address: z.address || 'Bangalore'
-    });
-    row.height = 20;
-    row.eachCell((cell) => {
-      cell.font = { name: 'Calibri', size: 10 };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-      };
-    });
-  });
-
-  // =========================================================================
-  // 3. REFERENCE SHEET: Products_Price_List_Ref
-  // =========================================================================
-  const wsProducts = workbook.addWorksheet('Products_Price_List_Ref', {
-    views: [{ showGridLines: true }]
-  });
-
-  wsProducts.columns = [
-    { header: 'Product Name', key: 'name', width: 28 },
-    { header: 'Category', key: 'category', width: 16 },
-    { header: 'Variant / Volume', key: 'variant', width: 16 },
-    { header: 'Selling Price (₹)', key: 'price', width: 18 }
-  ];
-
-  const pHeader = wsProducts.getRow(1);
-  pHeader.height = 26;
-  pHeader.eachCell((cell) => {
-    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-  });
-
-  products.forEach((p) => {
-    const row = wsProducts.addRow({
-      name: p.name,
-      category: p.category,
-      variant: p.variant_label,
-      price: p.selling_price
-    });
-    row.height = 20;
-    row.eachCell((cell) => {
-      cell.font = { name: 'Calibri', size: 10 };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-      };
-    });
-  });
-
-  // =========================================================================
-  // 4. INSTRUCTIONS SHEET
-  // =========================================================================
-  const wsInfo = workbook.addWorksheet('How_To_Fill_Instructions', {
-    views: [{ showGridLines: true }]
-  });
-
-  wsInfo.columns = [
-    { header: 'Column Name', key: 'col', width: 24 },
-    { header: 'Description & Guidance', key: 'desc', width: 70 },
-    { header: 'Example Value', key: 'ex', width: 26 }
-  ];
-
-  const iHeader = wsInfo.getRow(1);
-  iHeader.height = 28;
-  iHeader.eachCell((cell) => {
-    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF004B87' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-  });
-
-  const instructions = [
-    { col: 'Sequence / Stop #', desc: 'Order of delivery within the apartment/complex (e.g., 1st flat, 2nd flat...). Helps delivery boys follow optimal run sequence.', ex: '1, 2, 3...' },
-    { col: 'Customer Name *', desc: 'Full name of the customer.', ex: 'Ramesh Kumar' },
-    { col: 'Phone Number *', desc: '10-digit mobile number for SMS/WhatsApp and delivery contact.', ex: '9845012345' },
-    { col: 'Zone / Community *', desc: 'Select from dropdown! Automatically links the customer to the exact apartment complex and assigned delivery boy.', ex: 'United Elysium (from list)' },
-    { col: 'Flat / Villa / House #', desc: 'Apartment flat number or villa number.', ex: 'A-204, Villa 15, Flat 101' },
-    { col: 'Full Address / Landmark *', desc: 'Detailed address or landmark inside the community.', ex: 'Tower A, 2nd Floor' },
-    { col: 'Customer Category *', desc: 'Select "HOUSE" for residential families or "BULK_HOTEL" for commercial restaurants/cafes.', ex: 'HOUSE (from list)' },
-    { col: 'Billing Type *', desc: '"MONTHLY_POSTPAID" generates bill at month end. "PREPAID" deducts each daily delivery from advance.', ex: 'MONTHLY_POSTPAID (from list)' },
-    { col: 'Advance Balance (₹)', desc: 'Initial advance payment received from customer (if any). Leave 0 if none.', ex: '0 or 500' },
-    { col: 'Milk Product 1 *', desc: 'Main daily milk product. Select from dropdown list.', ex: 'Special Milk 500ml' },
-    { col: 'Product 1 Daily Qty *', desc: 'Number of packets delivered every morning.', ex: '1, 2, 3...' },
-    { col: 'Milk Product 2', desc: 'Optional second product (e.g. Curd, Cow milk, Toned milk). Select from dropdown list.', ex: 'Nandini Curd 500ml' },
-    { col: 'Product 2 Daily Qty', desc: 'Number of packets of second product delivered every day.', ex: '1' },
-    { col: 'Delivery Start Date', desc: 'Date when deliveries should begin. Format: YYYY-MM-DD. For next month, use 2026-11-01. For testing this month, use 2026-10-01.', ex: '2026-11-01' },
-    { col: 'Delivery Instructions', desc: 'Specific customer delivery instructions.', ex: 'Ring bell once; keep in door bag' }
-  ];
-
-  instructions.forEach((ins) => {
-    const row = wsInfo.addRow(ins);
-    row.height = 24;
-    row.eachCell((cell, colNum) => {
-      cell.font = { name: 'Calibri', size: 10 };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
-      };
-      if (colNum === 1) cell.font = { name: 'Calibri', size: 10, bold: true };
-    });
-  });
-
-  // =========================================================================
-  // 5. ATTACH DATA VALIDATIONS ON Customers_Data_Entry
-  // =========================================================================
-  const zoneCount = zones.length;
-  const prodCount = products.length;
-
-  for (let r = 5; r <= 300; r++) {
-    const row = wsMain.getRow(r);
-
-    // Column D: Zone / Community Dropdown
-    row.getCell('D').dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: [`'Zones_And_Routes_Ref'!$A$2:$A$${zoneCount + 1}`],
-      showErrorMessage: true,
-      errorTitle: 'Invalid Zone Selection',
-      error: 'Please choose an apartment/villa zone from the dropdown list.'
-    };
-
-    // Column G: Category Dropdown
-    row.getCell('G').dataValidation = {
+  // Helper: Apply validations on a row
+  function applyRowValidations(row, rowNum, prodCount, zoneCount) {
+    // Dropdown for Category (Col F / 6)
+    row.getCell(6).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: ['"HOUSE,BULK_HOTEL"'],
       showErrorMessage: true,
       errorTitle: 'Invalid Category',
-      error: 'Please choose HOUSE or BULK_HOTEL.'
+      error: 'Please choose HOUSE or BULK_HOTEL'
     };
 
-    // Column H: Billing Type Dropdown
-    row.getCell('H').dataValidation = {
+    // Dropdown for Billing Type (Col G / 7)
+    row.getCell(7).dataValidation = {
       type: 'list',
       allowBlank: true,
       formulae: ['"MONTHLY_POSTPAID,PREPAID"'],
       showErrorMessage: true,
       errorTitle: 'Invalid Billing Type',
-      error: 'Please choose MONTHLY_POSTPAID or PREPAID.'
+      error: 'Please choose MONTHLY_POSTPAID or PREPAID'
     };
 
-    // Column J: Milk Product 1 Dropdown
-    row.getCell('J').dataValidation = {
+    // Dropdown for Product 1 (Col I / 9)
+    row.getCell(9).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: [`'Products_Price_List_Ref'!$A$2:$A$${prodCount + 1}`],
+      formulae: [`'Nandini_Products_List'!$A$2:$A$${prodCount + 1}`],
       showErrorMessage: true,
       errorTitle: 'Invalid Product',
-      error: 'Please choose a product from the dropdown list.'
+      error: 'Please choose from the Nandini product list'
     };
 
-    // Column L: Milk Product 2 Dropdown
-    row.getCell('L').dataValidation = {
+    // Dropdown for Product 2 (Col K / 11)
+    row.getCell(11).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: [`'Products_Price_List_Ref'!$A$2:$A$${prodCount + 1}`],
+      formulae: [`'Nandini_Products_List'!$A$2:$A$${prodCount + 1}`],
       showErrorMessage: true,
       errorTitle: 'Invalid Product',
-      error: 'Please choose a product from the dropdown list.'
+      error: 'Please choose from the Nandini product list'
     };
   }
 
-  // Save the Excel file in the project root
-  const outputPath = path.join(__dirname, '..', 'Nandini_Customers_Bulk_Import_Template.xlsx');
-  await workbook.xlsx.writeFile(outputPath);
-  console.log(`\n✓ SUCCESS! Excel sheet created at: ${outputPath}`);
+  // Group zones by Route
+  const route1Zones = zones.filter(z => (z.route_name || '').toLowerCase().includes('route 1') || z.route_id === 1);
+  const route2Zones = zones.filter(z => (z.route_name || '').toLowerCase().includes('route 2') || z.route_id === 2);
+  const otherZones = zones.filter(z => !route1Zones.includes(z) && !route2Zones.includes(z));
+
+  // =========================================================================
+  // TAB 1: Route 1 (Pre-grouped by zone blocks with alternating soft tints)
+  // =========================================================================
+  const wsRoute1 = workbook.addWorksheet('Route 1', {
+    views: [{ showGridLines: true, state: 'frozen', xSplit: 0, ySplit: 1 }]
+  });
+  applyHeaderStyles(wsRoute1, 'ROUTE 1');
+
+  let r1RowIdx = 2;
+  const SLOTS_PER_ZONE = 8; // 8 customer rows pre-created per apartment
+
+  route1Zones.forEach((z, zIdx) => {
+    const isEvenZone = zIdx % 2 === 0;
+    // Alternating soft green block tint (#D1E7DD / #E8F5E9) like the user's screenshot
+    const bgArgb = isEvenZone ? 'FFFFFFFF' : 'FFE8F5E9';
+    const startRow = r1RowIdx;
+    const endRow = r1RowIdx + SLOTS_PER_ZONE - 1;
+
+    for (let slot = 1; slot <= SLOTS_PER_ZONE; slot++) {
+      const row = wsRoute1.getRow(r1RowIdx);
+      row.height = 22;
+
+      row.getCell(1).value = z.name; // Zone
+      row.getCell(2).value = slot;   // Stop #
+      row.getCell(6).value = z.name.toLowerCase().includes('bulk') ? 'BULK_HOTEL' : 'HOUSE';
+      row.getCell(7).value = 'MONTHLY_POSTPAID';
+      row.getCell(8).value = z.address || z.name;
+      row.getCell(10).value = 1; // Default Qty 1
+      row.getCell(13).value = 0; // Default Advance 0
+      row.getCell(14).value = '2026-11-01'; // Default Start Date
+
+      for (let c = 1; c <= 15; c++) {
+        const cell = row.getCell(c);
+        cell.font = { name: 'Arial', size: 10, color: { argb: 'FF1F2937' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+        if ([2, 3, 5, 6, 7, 10, 12, 13, 14].includes(c)) {
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        } else {
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        }
+      }
+
+      applyRowValidations(row, r1RowIdx, products.length, zones.length);
+      r1RowIdx++;
+    }
+
+    // Merge Zone column across its customer slots (like AID-01 / AID-02 in screenshot)
+    wsRoute1.mergeCells(`A${startRow}:A${endRow}`);
+    const zoneCell = wsRoute1.getCell(`A${startRow}`);
+    zoneCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+    zoneCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    zoneCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isEvenZone ? 'FFF1F5F9' : 'FFDCFCE7' }
+    };
+  });
+
+  // =========================================================================
+  // TAB 2: Route 2 (Pre-grouped by zone blocks with alternating soft tints)
+  // =========================================================================
+  const wsRoute2 = workbook.addWorksheet('Route 2', {
+    views: [{ showGridLines: true, state: 'frozen', xSplit: 0, ySplit: 1 }]
+  });
+  applyHeaderStyles(wsRoute2, 'ROUTE 2');
+
+  let r2RowIdx = 2;
+  route2Zones.forEach((z, zIdx) => {
+    const isEvenZone = zIdx % 2 === 0;
+    const bgArgb = isEvenZone ? 'FFFFFFFF' : 'FFE8F5E9';
+    const startRow = r2RowIdx;
+    const endRow = r2RowIdx + SLOTS_PER_ZONE - 1;
+
+    for (let slot = 1; slot <= SLOTS_PER_ZONE; slot++) {
+      const row = wsRoute2.getRow(r2RowIdx);
+      row.height = 22;
+
+      row.getCell(1).value = z.name;
+      row.getCell(2).value = slot;
+      row.getCell(6).value = z.name.toLowerCase().includes('bulk') ? 'BULK_HOTEL' : 'HOUSE';
+      row.getCell(7).value = 'MONTHLY_POSTPAID';
+      row.getCell(8).value = z.address || z.name;
+      row.getCell(10).value = 1;
+      row.getCell(13).value = 0;
+      row.getCell(14).value = '2026-11-01';
+
+      for (let c = 1; c <= 15; c++) {
+        const cell = row.getCell(c);
+        cell.font = { name: 'Arial', size: 10, color: { argb: 'FF1F2937' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+        if ([2, 3, 5, 6, 7, 10, 12, 13, 14].includes(c)) {
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        } else {
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        }
+      }
+
+      applyRowValidations(row, r2RowIdx, products.length, zones.length);
+      r2RowIdx++;
+    }
+
+    wsRoute2.mergeCells(`A${startRow}:A${endRow}`);
+    const zoneCell = wsRoute2.getCell(`A${startRow}`);
+    zoneCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+    zoneCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    zoneCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isEvenZone ? 'FFF1F5F9' : 'FFDCFCE7' }
+    };
+  });
+
+  // =========================================================================
+  // TAB 3: All_Customers (Consolidated free-form grid for entering any customer)
+  // =========================================================================
+  const wsAll = workbook.addWorksheet('All_Customers', {
+    views: [{ showGridLines: true, state: 'frozen', xSplit: 0, ySplit: 1 }]
+  });
+  applyHeaderStyles(wsAll, 'ALL CUSTOMERS');
+
+  // Pre-format 100 blank rows in All_Customers
+  for (let r = 2; r <= 100; r++) {
+    const row = wsAll.getRow(r);
+    row.height = 22;
+
+    row.getCell(6).value = 'HOUSE';
+    row.getCell(7).value = 'MONTHLY_POSTPAID';
+    row.getCell(10).value = 1;
+    row.getCell(13).value = 0;
+    row.getCell(14).value = '2026-11-01';
+
+    for (let c = 1; c <= 15; c++) {
+      const cell = row.getCell(c);
+      cell.font = { name: 'Arial', size: 10 };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+      };
+      if ([2, 3, 5, 6, 7, 10, 12, 13, 14].includes(c)) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      } else {
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      }
+    }
+
+    // Zone dropdown on Col A
+    row.getCell(1).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`'Zones_&_Routes_Ref'!$A$2:$A$${zones.length + 1}`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid Zone',
+      error: 'Please choose an apartment/zone from the list'
+    };
+
+    applyRowValidations(row, r, products.length, zones.length);
+  }
+
+  // =========================================================================
+  // TAB 4: Zones_&_Routes_Ref (Reference list)
+  // =========================================================================
+  const wsZones = workbook.addWorksheet('Zones_&_Routes_Ref', {
+    views: [{ showGridLines: true }]
+  });
+  wsZones.columns = [
+    { header: 'Zone / Community Name', key: 'name', width: 34 },
+    { header: 'Assigned Route', key: 'route', width: 18 },
+    { header: 'Stop Order', key: 'order', width: 14 },
+    { header: 'Full Area / Landmark Address', key: 'address', width: 60 }
+  ];
+
+  const zH = wsZones.getRow(1);
+  zH.height = 26;
+  zH.eachCell((cell) => {
+    cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D9488' } }; // Teal
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  zones.forEach((z) => {
+    const row = wsZones.addRow({
+      name: z.name,
+      route: z.route_name || 'Unassigned',
+      order: z.route_order || 0,
+      address: z.address || ''
+    });
+    row.height = 20;
+    row.eachCell((cell, colNum) => {
+      cell.font = { name: 'Arial', size: 10 };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+      };
+      if (colNum === 3) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+  });
+
+  // =========================================================================
+  // TAB 5: Nandini_Products_List (Reference list)
+  // =========================================================================
+  const wsProds = workbook.addWorksheet('Nandini_Products_List', {
+    views: [{ showGridLines: true }]
+  });
+  wsProds.columns = [
+    { header: 'Nandini Product Name', key: 'name', width: 30 },
+    { header: 'Category', key: 'category', width: 18 },
+    { header: 'Selling Price (₹)', key: 'price', width: 18 }
+  ];
+
+  const pH = wsProds.getRow(1);
+  pH.height = 26;
+  pH.eachCell((cell) => {
+    cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }; // Purple
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  products.forEach((p) => {
+    const row = wsProds.addRow({
+      name: p.name,
+      category: p.category,
+      price: p.selling_price
+    });
+    row.height = 20;
+    row.eachCell((cell, colNum) => {
+      cell.font = { name: 'Arial', size: 10 };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+      };
+      if (colNum === 3) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+  });
+
+  // =========================================================================
+  // TAB 6: Instructions
+  // =========================================================================
+  const wsHelp = workbook.addWorksheet('Instructions', {
+    views: [{ showGridLines: true }]
+  });
+  wsHelp.columns = [
+    { header: 'Step / Column', key: 'col', width: 24 },
+    { header: 'How to Fill', key: 'desc', width: 70 },
+    { header: 'Example', key: 'example', width: 28 }
+  ];
+
+  const hH = wsHelp.getRow(1);
+  hH.height = 26;
+  hH.eachCell((cell) => {
+    cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF004B87' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+
+  const tips = [
+    { col: 'Choose Tab', desc: 'Use "Route 1" or "Route 2" tabs where all your apartments/zones are already arranged in delivery sequence. Or use "All_Customers" for single list.', example: 'Click Route 1 tab at bottom' },
+    { col: 'Customer Name *', desc: 'Full name of the customer.', example: 'Ramesh Kumar' },
+    { col: 'Phone Number *', desc: '10-digit mobile number for delivery notifications and billing.', example: '9845012345' },
+    { col: 'Flat / House #', desc: 'Apartment flat number or villa number.', example: 'A-204 or Villa 15' },
+    { col: 'Category', desc: 'Pick "HOUSE" for households, or "BULK_HOTEL" for restaurants/cafes.', example: 'HOUSE' },
+    { col: 'Billing Type', desc: 'Pick "MONTHLY_POSTPAID" for monthly bills, or "PREPAID" for advance deduction.', example: 'MONTHLY_POSTPAID' },
+    { col: 'Milk Product 1 *', desc: 'Click the cell to pick from the Nandini product dropdown list.', example: 'Special Milk 500ml' },
+    { col: 'Qty 1 *', desc: 'Daily morning delivery quantity in packets.', example: '2' },
+    { col: 'Product 2 (Optional)', desc: 'Optional second product like Curd, Cow milk, etc.', example: 'Nandini Curd 500ml' },
+    { col: 'Start Date', desc: 'Date deliveries should begin. Format YYYY-MM-DD.', example: '2026-11-01' }
+  ];
+
+  tips.forEach(t => {
+    const row = wsHelp.addRow(t);
+    row.height = 22;
+    row.eachCell((cell, colNum) => {
+      cell.font = { name: 'Arial', size: 10 };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+      };
+      if (colNum === 1) cell.font = { name: 'Arial', size: 10, bold: true };
+    });
+  });
+
+  // Write files to both project root and client/public
+  const rootPath = path.join(__dirname, '..', 'Nandini_Customers_Bulk_Import_Template.xlsx');
+  const publicPath = path.join(__dirname, '..', 'client', 'public', 'Nandini_Customers_Bulk_Import_Template.xlsx');
+
+  await workbook.xlsx.writeFile(rootPath);
+  try {
+    fs.copyFileSync(rootPath, publicPath);
+    console.log(`Copied template to client/public: ${publicPath}`);
+  } catch (cpErr) {
+    console.warn('Could not copy to client/public:', cpErr.message);
+  }
+
+  console.log(`\n✓ SUCCESS: Generated customer bulk onboarding sheet at: ${rootPath}`);
+  return rootPath;
 }
 
-generateCustomerExcel().catch((err) => {
-  console.error('Error generating Excel sheet:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  generateCustomerExcel()
+    .then((p) => {
+      console.log('Successfully completed generation at ' + p);
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error('Fatal error generating Excel:', err);
+      process.exit(1);
+    });
+}
+
+module.exports = { generateCustomerExcel };
