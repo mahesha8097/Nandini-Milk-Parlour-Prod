@@ -587,12 +587,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
       for (const [custId, items] of custMap.entries()) {
         const isBulk = items[0]?.customer_category === 'BULK_HOTEL';
+        const validItems = items.filter((it) => !it.id?.toString().startsWith('bulk_empty_'));
+
         if (isBulk && items[0]?.id?.toString().startsWith('bulk_empty_')) {
           pendingStops++;
-        } else if (items.every((it) => it.status === 'DELIVERED')) {
-          deliveredStops++;
-        } else if (items.every((it) => it.status === 'SKIPPED')) {
+        } else if (validItems.length > 0 && validItems.every((it) => it.status === 'SKIPPED')) {
           skippedStops++;
+        } else if (validItems.length > 0 && !validItems.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED')) {
+          // All items handled (at least one delivered, others may be skipped)
+          deliveredStops++;
         } else {
           pendingStops++;
         }
@@ -621,6 +624,19 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         isCompleted,
         customerGroups: Array.from(custMap.entries()).map(([cid, items]) => {
           const first = items[0] || {};
+          const validItems = items.filter((it) => !it.id?.toString().startsWith('bulk_empty_'));
+
+          let custStatus = 'PENDING';
+          if (validItems.length > 0) {
+            if (validItems.every((it) => it.status === 'SKIPPED')) {
+              custStatus = 'SKIPPED';
+            } else if (!validItems.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED')) {
+              custStatus = 'DELIVERED';
+            } else {
+              custStatus = 'PENDING';
+            }
+          }
+
           return {
             customer_id: cid,
             customer_name: first.customer_name,
@@ -630,11 +646,11 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             customer_route: first.customer_route,
             customer_serial_no: first.customer_serial_no || first.serial_no || 0,
             flat_no: first.flat_no || '',
-            items: items.filter((it) => !it.id?.toString().startsWith('bulk_empty_')),
+            items: validItems,
             rawItems: items,
             hasSpecialInstructions: items.some((it) => it.requirement_reason || (it.requirement_type && it.requirement_type !== 'NORMAL')),
             specialInstructions: items.find((it) => it.requirement_reason)?.requirement_reason || '',
-            status: items.every((it) => it.status === 'DELIVERED') ? 'DELIVERED' : items.every((it) => it.status === 'SKIPPED') ? 'SKIPPED' : 'PENDING'
+            status: custStatus
           };
         })
       };
@@ -822,7 +838,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       handleDeliverBulkGroup(group);
       return;
     }
-    const pendingItems = group.items.filter((it) => it.status !== 'DELIVERED');
+    const pendingItems = group.items.filter((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED');
     if (pendingItems.length === 0) return;
 
     const pendingIds = new Set(pendingItems.map((it) => it.id));
@@ -3205,7 +3221,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               {/* Deliver All Items button if multiple products and some are still pending */}
-              {activeCustomer.status !== 'DELIVERED' && activeCustomer.status !== 'SKIPPED' && activeCustomer.items.length > 1 && (
+              {activeCustomer.items.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') && activeCustomer.items.length > 1 && (
                 <button
                   type="button"
                   onClick={() => handleDeliverCustomerGroup(activeCustomer)}

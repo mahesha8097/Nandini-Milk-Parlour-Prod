@@ -217,14 +217,21 @@ async function deductCouponsForDelivery(delivery) {
     return null; // Not using coupons
   }
 
-  // Check if this delivery already had coupons deducted
-  const existingTx = await db.prepare(`
-    SELECT * FROM coupon_transactions
-    WHERE delivery_id = ? AND transaction_type = 'DELIVERY_USAGE'
+  // Check if this delivery currently has active coupon deduction
+  const activeDeductionCheck = await db.prepare(`
+    SELECT COALESCE(SUM(
+      CASE 
+        WHEN transaction_type = 'DELIVERY_USAGE' THEN ABS(change_amount)
+        WHEN transaction_type = 'DELIVERY_REVERTED' THEN -ABS(change_amount)
+        ELSE 0
+      END
+    ), 0) as net_deducted
+    FROM coupon_transactions
+    WHERE delivery_id = ?
   `).get(delivery.id);
 
-  if (existingTx) {
-    return null; // Already deducted
+  if (activeDeductionCheck && activeDeductionCheck.net_deducted > 0) {
+    return null; // Already deducted and not reverted
   }
 
   const qty = parseInt(delivery.quantity, 10) || 1;
@@ -324,14 +331,30 @@ async function deductCouponsForDelivery(delivery) {
 async function revertCouponsForDelivery(deliveryId) {
   if (!deliveryId) return null;
 
+  // Check if there is an active coupon deduction for this delivery
+  const deductionCheck = await db.prepare(`
+    SELECT COALESCE(SUM(
+      CASE 
+        WHEN transaction_type = 'DELIVERY_USAGE' THEN ABS(change_amount)
+        WHEN transaction_type = 'DELIVERY_REVERTED' THEN -ABS(change_amount)
+        ELSE 0
+      END
+    ), 0) as net_deducted
+    FROM coupon_transactions
+    WHERE delivery_id = ?
+  `).get(deliveryId);
+
+  const refundQty = parseInt(deductionCheck?.net_deducted, 10) || 0;
+  if (refundQty <= 0) return null; // No active coupon deduction to revert
+
   const existingTx = await db.prepare(`
     SELECT * FROM coupon_transactions
     WHERE delivery_id = ? AND transaction_type = 'DELIVERY_USAGE'
+    ORDER BY id DESC LIMIT 1
   `).get(deliveryId);
 
   if (!existingTx) return null; // No coupon deduction was made
 
-  const refundQty = Math.abs(existingTx.change_amount);
   const customerId = existingTx.customer_id;
   const bookId = existingTx.coupon_book_id;
 
@@ -364,8 +387,8 @@ async function revertCouponsForDelivery(deliveryId) {
     `).run(newBal, customerId);
   }
 
-  // Record revert transaction
-  const todayStr = new Date().toISOString().slice(0, 10);
+  // Record revert transaction with matching transaction date
+  const todayStr = existingTx.transaction_date || new Date().toISOString().slice(0, 10);
   await db.prepare(`
     INSERT INTO coupon_transactions (
       customer_id, coupon_book_id, delivery_id, change_amount, balance_after,
@@ -633,19 +656,33 @@ async function getCouponMonthEndSummary(agentId = 1, month = null) {
       FROM coupon_books WHERE customer_id = ?
     `).get(cust.id);
 
-    // Coupons used in this specific month
+    // Coupons used in this specific month (net of any delivery reverts)
     const monthUsage = await db.prepare(`
-      SELECT COALESCE(SUM(ABS(change_amount)), 0) as used_in_month
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN transaction_type = 'DELIVERY_USAGE' THEN ABS(change_amount)
+          WHEN transaction_type = 'DELIVERY_REVERTED' THEN -ABS(change_amount)
+          ELSE 0
+        END
+      ), 0) as used_in_month
       FROM coupon_transactions
-      WHERE customer_id = ? AND transaction_type = 'DELIVERY_USAGE'
+      WHERE customer_id = ? 
+        AND transaction_type IN ('DELIVERY_USAGE', 'DELIVERY_REVERTED')
         AND transaction_date LIKE ?
     `).get(cust.id, `${targetMonth}%`);
 
-    // All time coupons used
+    // All time coupons used (net of any delivery reverts)
     const allTimeUsage = await db.prepare(`
-      SELECT COALESCE(SUM(ABS(change_amount)), 0) as total_used
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN transaction_type = 'DELIVERY_USAGE' THEN ABS(change_amount)
+          WHEN transaction_type = 'DELIVERY_REVERTED' THEN -ABS(change_amount)
+          ELSE 0
+        END
+      ), 0) as total_used
       FROM coupon_transactions
-      WHERE customer_id = ? AND transaction_type = 'DELIVERY_USAGE'
+      WHERE customer_id = ? 
+        AND transaction_type IN ('DELIVERY_USAGE', 'DELIVERY_REVERTED')
     `).get(cust.id);
 
     // Active product coupon breakdown
@@ -682,8 +719,8 @@ async function getCouponMonthEndSummary(agentId = 1, month = null) {
       totalBooks: parseInt(books.book_count, 10) || 0,
       totalCouponsIssued: parseInt(books.total_issued, 10) || 0,
       totalAmountPaid: parseFloat(books.total_paid) || 0,
-      usedThisMonth: parseInt(monthUsage.used_in_month, 10) || 0,
-      totalCouponsUsed: parseInt(allTimeUsage.total_used, 10) || 0,
+      usedThisMonth: Math.max(0, parseInt(monthUsage?.used_in_month, 10) || 0),
+      totalCouponsUsed: Math.max(0, parseInt(allTimeUsage?.total_used, 10) || 0),
       remainingCoupons: remaining,
       productBreakdown,
       status: balanceStatus

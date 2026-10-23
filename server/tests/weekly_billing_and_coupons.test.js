@@ -149,7 +149,9 @@ async function runWeeklyAndCouponTests() {
   assert.ok(foundCust, 'Customer should be present in month-end summary report');
   assert.strictEqual(foundCust.remainingCoupons, 80);
   assert.strictEqual(foundCust.totalBooks, 2);
-  console.log('[TEST 7] Month-end report accurately displays leftover coupons and customer balances ✓');
+  assert.strictEqual(foundCust.usedThisMonth, 0, 'Reverted delivery should result in 0 net coupons used this month');
+  assert.strictEqual(foundCust.totalCouponsUsed, 0, 'Reverted delivery should result in 0 net total coupons used');
+  console.log('[TEST 7] Month-end report accurately displays leftover coupons and nets out reverted deliveries ✓');
 
   // ================================================================
   // WEEKLY BILLING TESTS
