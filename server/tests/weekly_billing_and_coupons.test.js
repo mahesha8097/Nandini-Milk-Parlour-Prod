@@ -5,6 +5,7 @@ const db = require('../config/db');
 
 const {
   issueCouponBook,
+  updateCouponBook,
   deductCouponsForDelivery,
   revertCouponsForDelivery,
   adjustCouponBalance,
@@ -233,14 +234,131 @@ async function runWeeklyAndCouponTests() {
   assert.strictEqual(batchRes.totalGrossAmount, 385);
   console.log('[TEST 9] Batch weekly bill generation endpoint logic verified! ✓');
 
+  // -------------------------------------------------------------
+  // Multi-Product Coupons & Book Editing Tests
+  // -------------------------------------------------------------
+  const prods = await db.prepare('SELECT id, name FROM products ORDER BY id ASC LIMIT 2').all();
+  const prodA = prods[0];
+  const prodB = prods[1];
+
+  // Create a dedicated customer for multi-product coupon testing
+  const multiCustInsert = await db.prepare(`
+    INSERT INTO customers (
+      name, phone, address, customer_category, billing_type,
+      advance_balance, pending_balance, coupon_balance, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      'Multi-Coupon Customer', '9988776655', 'Flat 401, Sapphire Block', 'HOUSE', 'COUPON',
+      0.0, 0.0, 0, 1,
+      datetime('now'), datetime('now')
+    )
+  `).run();
+  const multiCustId = multiCustInsert.lastInsertRowid;
+
+  // Issue Book A for Product A (30 coupons)
+  const bookA = await issueCouponBook({
+    customerId: multiCustId,
+    productId: prodA.id,
+    bookNumber: 'BK-PROD-A',
+    totalCoupons: 30,
+    pricePaid: 750,
+    paymentMethod: 'UPI'
+  });
+
+  // Issue Book B for Product B (15 coupons)
+  const bookB = await issueCouponBook({
+    customerId: multiCustId,
+    productId: prodB.id,
+    bookNumber: 'BK-PROD-B',
+    totalCoupons: 15,
+    pricePaid: 450,
+    paymentMethod: 'CASH'
+  });
+
+  const custAfterTwoBooks = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
+  assert.strictEqual(custAfterTwoBooks.coupon_balance, 45, '30 + 15 = 45 total coupons');
+
+  // Deliver 2 packets of Product A
+  const delAInsert = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, delivery_date, product_id, product_name_snapshot,
+      category_snapshot, variant_snapshot, unit_volume_litres_snapshot,
+      quantity, unit_price_snapshot, total_product_amount,
+      delivery_charge_snapshot, total_amount, status, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      ?, '2026-10-18', ?, ?,
+      'MILK', '500ml', 0.5,
+      2, 25.0, 50.0,
+      2.0, 52.0, 'DELIVERED', 1,
+      datetime('now'), datetime('now')
+    )
+  `).run(multiCustId, prodA.id, prodA.name);
+  const delA = await db.prepare('SELECT * FROM deliveries WHERE id = ?').get(delAInsert.lastInsertRowid);
+
+  const deductARes = await deductCouponsForDelivery(delA);
+  assert.strictEqual(deductARes.deducted, 2);
+
+  // Check that Book A was reduced to 28, but Book B is still 15!
+  const bookACheck = await db.prepare('SELECT remaining_coupons FROM coupon_books WHERE id = ?').get(bookA.book.id);
+  const bookBCheck = await db.prepare('SELECT remaining_coupons FROM coupon_books WHERE id = ?').get(bookB.book.id);
+  assert.strictEqual(bookACheck.remaining_coupons, 28, 'Book A coupons should be 28');
+  assert.strictEqual(bookBCheck.remaining_coupons, 15, 'Book B coupons should strictly remain 15');
+
+  // Deliver 1 packet of Product B
+  const delBInsert = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, delivery_date, product_id, product_name_snapshot,
+      category_snapshot, variant_snapshot, unit_volume_litres_snapshot,
+      quantity, unit_price_snapshot, total_product_amount,
+      delivery_charge_snapshot, total_amount, status, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      ?, '2026-10-18', ?, ?,
+      'MILK', '500ml', 0.5,
+      1, 30.0, 30.0,
+      1.0, 31.0, 'DELIVERED', 1,
+      datetime('now'), datetime('now')
+    )
+  `).run(multiCustId, prodB.id, prodB.name);
+  const delB = await db.prepare('SELECT * FROM deliveries WHERE id = ?').get(delBInsert.lastInsertRowid);
+
+  const deductBRes = await deductCouponsForDelivery(delB);
+  assert.strictEqual(deductBRes.deducted, 1);
+
+  const bookBCheck2 = await db.prepare('SELECT remaining_coupons FROM coupon_books WHERE id = ?').get(bookB.book.id);
+  assert.strictEqual(bookBCheck2.remaining_coupons, 14, 'Book B coupons should now be 14');
+
+  // Verify details return per-product breakdown
+  const multiDetails = await getCustomerCouponDetails(multiCustId);
+  assert.strictEqual(multiDetails.productBalances.length, 2, 'Customer should have 2 product balances');
+  console.log('[TEST 10] Customer holding 2 different milk coupon books deducts product-specifically without cross-contamination ✓');
+
+  // Test [TEST 11] Edit / Modify Coupon Book
+  const editRes = await updateCouponBook({
+    bookId: bookB.book.id,
+    bookNumber: 'BK-PROD-B-MODIFIED',
+    remainingCoupons: 20,
+    pricePaid: 500,
+    notes: 'Admin adjusted remaining to 20'
+  });
+  assert.strictEqual(editRes.book.book_number, 'BK-PROD-B-MODIFIED');
+  assert.strictEqual(editRes.book.remaining_coupons, 20);
+  // Total balance: Book A (28) + Book B (20) = 48
+  assert.strictEqual(editRes.newCouponBalance, 48);
+
+  const custAfterEdit = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
+  assert.strictEqual(custAfterEdit.coupon_balance, 48, 'Customer coupon balance should resync to 48');
+  console.log('[TEST 11] Admin editing coupon book successfully modifies book and resyncs customer aggregate coupon balance ✓');
+
   // Clean test data
-  await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?)').run(customerId, weeklyCustId);
-  await db.prepare('DELETE FROM coupon_transactions WHERE customer_id = ?').run(customerId);
-  await db.prepare('DELETE FROM coupon_books WHERE customer_id = ?').run(customerId);
-  await db.prepare('DELETE FROM deliveries WHERE customer_id IN (?, ?)').run(customerId, weeklyCustId);
-  await db.prepare('DELETE FROM payments WHERE customer_id IN (?, ?)').run(customerId, weeklyCustId);
-  await db.prepare('DELETE FROM customer_ledger WHERE customer_id IN (?, ?)').run(customerId, weeklyCustId);
-  await db.prepare('DELETE FROM customers WHERE id IN (?, ?)').run(customerId, weeklyCustId);
+  await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
+  await db.prepare('DELETE FROM coupon_transactions WHERE customer_id IN (?, ?)').run(customerId, multiCustId);
+  await db.prepare('DELETE FROM coupon_books WHERE customer_id IN (?, ?)').run(customerId, multiCustId);
+  await db.prepare('DELETE FROM deliveries WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
+  await db.prepare('DELETE FROM payments WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
+  await db.prepare('DELETE FROM customer_ledger WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
+  await db.prepare('DELETE FROM customers WHERE id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
 
   console.log('\n================================================================');
   console.log(' ALL WEEKLY BILLING & COUPON SYSTEM TESTS PASSED! ✓');

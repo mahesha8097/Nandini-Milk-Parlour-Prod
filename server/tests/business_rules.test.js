@@ -510,7 +510,20 @@ async function test24() {
   const db = require('../config/db');
   const { recalculateSingleBill } = require('../services/billingService');
   const testPhone = '9888877779';
-  db.prepare(`DELETE FROM customers WHERE phone = ?`).run(testPhone);
+  const existingCust = db.prepare(`SELECT id FROM customers WHERE phone = ?`).get(testPhone);
+  if (existingCust) {
+    db.prepare(`DELETE FROM payments WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM daily_delivery_requirements WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM delivery_corrections WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM deliveries WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM customer_vacations WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM coupon_transactions WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM coupon_books WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM bills WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM subscriptions WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM customer_ledger WHERE customer_id = ?`).run(existingCust.id);
+    db.prepare(`DELETE FROM customers WHERE id = ?`).run(existingCust.id);
+  }
 
   const cRes = db.prepare(`
     INSERT INTO customers (name, phone, address, customer_category, billing_type, advance_balance, pending_balance, created_at, updated_at)

@@ -115,6 +115,7 @@ if (isProduction && process.env.DATABASE_URL) {
             CREATE TABLE IF NOT EXISTS coupon_books (
               id SERIAL PRIMARY KEY,
               customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+              product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
               book_number TEXT NOT NULL,
               total_coupons INTEGER NOT NULL,
               used_coupons INTEGER NOT NULL DEFAULT 0,
@@ -128,6 +129,7 @@ if (isProduction && process.env.DATABASE_URL) {
               created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
               updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
             );
+            ALTER TABLE coupon_books ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE SET NULL;
 
             CREATE TABLE IF NOT EXISTS coupon_transactions (
               id SERIAL PRIMARY KEY,
@@ -493,6 +495,7 @@ if (isProduction && process.env.DATABASE_URL) {
       CREATE TABLE IF NOT EXISTS coupon_books (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
         book_number TEXT NOT NULL,
         total_coupons INTEGER NOT NULL,
         used_coupons INTEGER NOT NULL DEFAULT 0,
@@ -741,6 +744,17 @@ if (isProduction && process.env.DATABASE_URL) {
       }
     } catch (bErr) {
       console.warn('Migration note for bills columns:', bErr.message);
+    }
+
+    // Ensure product_id column exists on coupon_books in SQLite
+    try {
+      const cbTableInfo = db.prepare("PRAGMA table_info(coupon_books)").all();
+      const hasProductId = cbTableInfo.some(col => col.name === 'product_id');
+      if (!hasProductId) {
+        db.prepare("ALTER TABLE coupon_books ADD COLUMN product_id INTEGER REFERENCES products(id) ON DELETE SET NULL").run();
+      }
+    } catch (cbErr) {
+      console.warn('Migration note for coupon_books.product_id in SQLite:', cbErr.message);
     }
 
     // Seed default zones if table is empty

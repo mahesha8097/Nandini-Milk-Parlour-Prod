@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS bills (
 CREATE TABLE IF NOT EXISTS coupon_books (
   id SERIAL PRIMARY KEY,
   customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
   book_number TEXT NOT NULL,
   total_coupons INTEGER NOT NULL,
   used_coupons INTEGER NOT NULL DEFAULT 0,

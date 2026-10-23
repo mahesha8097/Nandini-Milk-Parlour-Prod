@@ -33,6 +33,7 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS coupon_books (
         id SERIAL PRIMARY KEY,
         customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
         book_number TEXT NOT NULL,
         total_coupons INTEGER NOT NULL,
         used_coupons INTEGER NOT NULL DEFAULT 0,
@@ -46,6 +47,7 @@ async function migrate() {
         created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
         updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
       );
+      ALTER TABLE coupon_books ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id) ON DELETE SET NULL;
     `);
 
     // 4. Coupon transactions table
@@ -179,6 +181,7 @@ async function migrate() {
         CREATE TABLE IF NOT EXISTS coupon_books (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+          product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
           book_number TEXT NOT NULL,
           total_coupons INTEGER NOT NULL,
           used_coupons INTEGER NOT NULL DEFAULT 0,
@@ -193,6 +196,13 @@ async function migrate() {
           updated_at TEXT NOT NULL
         );
       `);
+
+      try {
+        const cbInfo = db.prepare("PRAGMA table_info(coupon_books)").all();
+        if (!cbInfo.some(col => col.name === 'product_id')) {
+          db.prepare("ALTER TABLE coupon_books ADD COLUMN product_id INTEGER REFERENCES products(id) ON DELETE SET NULL").run();
+        }
+      } catch (e) {}
 
       // 4. Create coupon_transactions table in SQLite
       db.exec(`

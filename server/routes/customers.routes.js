@@ -230,9 +230,11 @@ router.get('/:id', verifyToken, async (req, res) => {
 
     // Coupon Books
     const couponBooks = await db.prepare(`
-      SELECT * FROM coupon_books
-      WHERE customer_id = ?
-      ORDER BY issue_date DESC, id DESC
+      SELECT cb.*, p.name as product_name, p.variant_label as product_variant
+      FROM coupon_books cb
+      LEFT JOIN products p ON cb.product_id = p.id
+      WHERE cb.customer_id = ?
+      ORDER BY cb.issue_date DESC, cb.id DESC
     `).all(customerId);
 
     // Coupon Transactions

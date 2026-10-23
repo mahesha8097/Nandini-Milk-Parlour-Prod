@@ -4,23 +4,26 @@ const db = require('../config/db');
 const { requireAdmin, verifyToken } = require('../middleware/auth');
 const {
   issueCouponBook,
+  updateCouponBook,
   adjustCouponBalance,
   getCustomerCouponDetails,
   getCouponMonthEndSummary
 } = require('../services/couponService');
 
-// Get all coupon books with customer details (Admin only)
+// Get all coupon books with customer and product details (Admin only)
 router.get('/books', requireAdmin, async (req, res) => {
   try {
     const agentId = req.agentId || 1;
-    const { status, customer_id, search } = req.query;
+    const { status, customer_id, product_id, search } = req.query;
 
     let query = `
       SELECT cb.*, c.name as customer_name, c.phone as customer_phone,
              c.address as customer_address, c.flat_no, c.coupon_balance,
-             z.name as zone_name
+             z.name as zone_name,
+             p.name as product_name, p.variant_label as product_variant, p.selling_price as product_price
       FROM coupon_books cb
       JOIN customers c ON cb.customer_id = c.id
+      LEFT JOIN products p ON cb.product_id = p.id
       LEFT JOIN zones z ON c.zone_id = z.id
       WHERE (cb.agent_id = ? OR c.agent_id = ?)
     `;
@@ -34,9 +37,17 @@ router.get('/books', requireAdmin, async (req, res) => {
       query += ` AND cb.customer_id = ?`;
       params.push(customer_id);
     }
+    if (product_id) {
+      if (product_id === 'UNIVERSAL' || product_id === 'null') {
+        query += ` AND cb.product_id IS NULL`;
+      } else {
+        query += ` AND cb.product_id = ?`;
+        params.push(parseInt(product_id, 10));
+      }
+    }
     if (search) {
-      query += ` AND (c.name LIKE ? OR c.phone LIKE ? OR cb.book_number LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      query += ` AND (c.name LIKE ? OR c.phone LIKE ? OR cb.book_number LIKE ? OR p.name LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     query += ` ORDER BY cb.issue_date DESC, cb.id DESC`;
@@ -79,7 +90,7 @@ router.get('/customers/:id', verifyToken, async (req, res) => {
 // Issue / Add a new coupon book to a customer (Admin only)
 router.post('/issue', requireAdmin, async (req, res) => {
   try {
-    const { customer_id, book_number, total_coupons, price_paid, payment_method, issue_date, notes } = req.body;
+    const { customer_id, product_id, book_number, total_coupons, price_paid, payment_method, issue_date, notes } = req.body;
 
     if (!customer_id) {
       return res.status(400).json({ error: 'Customer ID is required' });
@@ -90,6 +101,7 @@ router.post('/issue', requireAdmin, async (req, res) => {
 
     const result = await issueCouponBook({
       customerId: customer_id,
+      productId: product_id || null,
       bookNumber: book_number,
       totalCoupons: parseInt(total_coupons, 10),
       pricePaid: parseFloat(price_paid || 0),
@@ -135,35 +147,39 @@ router.post('/adjust', requireAdmin, async (req, res) => {
   }
 });
 
-// Edit coupon book (Admin only)
+// Edit / Modify coupon book (Admin only)
 router.put('/books/:id', requireAdmin, async (req, res) => {
   try {
-    const bookId = req.params.id;
-    const { book_number, notes, status, remaining_coupons } = req.body;
+    const bookId = parseInt(req.params.id, 10);
+    const {
+      book_number,
+      product_id,
+      total_coupons,
+      used_coupons,
+      remaining_coupons,
+      price_paid,
+      payment_method,
+      issue_date,
+      status,
+      notes
+    } = req.body;
 
-    const book = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(bookId);
-    if (!book) {
-      return res.status(404).json({ error: 'Coupon book not found' });
-    }
+    const result = await updateCouponBook({
+      bookId,
+      bookNumber: book_number,
+      productId: product_id,
+      totalCoupons: total_coupons,
+      usedCoupons: used_coupons,
+      remainingCoupons: remaining_coupons,
+      pricePaid: price_paid,
+      paymentMethod: payment_method,
+      issueDate: issue_date,
+      status,
+      notes,
+      agentId: req.agentId || 1
+    });
 
-    await db.prepare(`
-      UPDATE coupon_books
-      SET book_number = COALESCE(?, book_number),
-          notes = COALESCE(?, notes),
-          status = COALESCE(?, status),
-          remaining_coupons = COALESCE(?, remaining_coupons),
-          updated_at = datetime('now', 'localtime')
-      WHERE id = ?
-    `).run(
-      book_number || null,
-      notes !== undefined ? notes : null,
-      status || null,
-      remaining_coupons !== undefined ? parseInt(remaining_coupons, 10) : null,
-      bookId
-    );
-
-    const updated = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(bookId);
-    res.json({ message: 'Coupon book updated successfully', book: updated });
+    res.json({ message: 'Coupon book updated successfully', ...result });
   } catch (err) {
     console.error('Update coupon book error:', err);
     res.status(400).json({ error: err.message || 'Failed to update coupon book' });
@@ -173,16 +189,26 @@ router.put('/books/:id', requireAdmin, async (req, res) => {
 // Delete / Void coupon book (Admin only)
 router.delete('/books/:id', requireAdmin, async (req, res) => {
   try {
-    const bookId = req.params.id;
+    const bookId = parseInt(req.params.id, 10);
     const book = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(bookId);
     if (!book) {
       return res.status(404).json({ error: 'Coupon book not found' });
     }
 
     const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(book.customer_id);
+
+    // Delete the book
+    await db.prepare('DELETE FROM coupon_books WHERE id = ?').run(bookId);
+
+    // Recalculate customer aggregate active balance
     if (customer) {
-      // Revert remaining unused coupons from customer coupon balance
-      const newBal = Math.max(0, (parseInt(customer.coupon_balance, 10) || 0) - (parseInt(book.remaining_coupons, 10) || 0));
+      const sumRow = await db.prepare(`
+        SELECT COALESCE(SUM(remaining_coupons), 0) as total_remaining
+        FROM coupon_books
+        WHERE customer_id = ? AND status = 'ACTIVE'
+      `).get(customer.id);
+      const newBal = parseInt(sumRow?.total_remaining, 10) || 0;
+
       await db.prepare(`
         UPDATE customers SET coupon_balance = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
       `).run(newBal, customer.id);
@@ -205,7 +231,6 @@ router.delete('/books/:id', requireAdmin, async (req, res) => {
       );
     }
 
-    await db.prepare('DELETE FROM coupon_books WHERE id = ?').run(bookId);
     res.json({ success: true, message: `Coupon Book #${book.book_number} deleted successfully` });
   } catch (err) {
     console.error('Delete coupon book error:', err);
