@@ -7,13 +7,15 @@ const {
   updateCouponBook,
   adjustCouponBalance,
   getCustomerCouponDetails,
-  getCouponMonthEndSummary
+  getCouponMonthEndSummary,
+  reconcileAllCustomerCoupons
 } = require('../services/couponService');
 
 // Get all coupon books with customer and product details (Admin only)
 router.get('/books', requireAdmin, async (req, res) => {
   try {
     const agentId = req.agentId || 1;
+    await reconcileAllCustomerCoupons(agentId);
     const { status, customer_id, product_id, search } = req.query;
 
     let query = `

@@ -10,7 +10,8 @@ const {
   revertCouponsForDelivery,
   adjustCouponBalance,
   getCustomerCouponDetails,
-  getCouponMonthEndSummary
+  getCouponMonthEndSummary,
+  syncCouponsForDelivery
 } = require('../services/couponService');
 
 const {
@@ -152,6 +153,48 @@ async function runWeeklyAndCouponTests() {
   assert.strictEqual(foundCust.usedThisMonth, 0, 'Reverted delivery should result in 0 net coupons used this month');
   assert.strictEqual(foundCust.totalCouponsUsed, 0, 'Reverted delivery should result in 0 net total coupons used');
   console.log('[TEST 7] Month-end report accurately displays leftover coupons and nets out reverted deliveries ✓');
+
+  // 6b. Test Multi-day deliveries with custom quantities (5 pkts Day 1 + 4 pkts Day 2 = exactly 9 coupons deducted)
+  const d1Res = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, delivery_date, product_id, product_name_snapshot,
+      category_snapshot, variant_snapshot, unit_volume_litres_snapshot,
+      quantity, unit_price_snapshot, total_product_amount,
+      delivery_charge_snapshot, total_amount, status, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      ?, '2026-10-22', ?, ?,
+      'MILK', '500ml', 0.5,
+      5, 26.50, 132.50,
+      3.00, 135.50, 'DELIVERED', 1,
+      datetime('now'), datetime('now')
+    )
+  `).run(customerId, testProd.id, testProd.name);
+
+  const d2Res = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, delivery_date, product_id, product_name_snapshot,
+      category_snapshot, variant_snapshot, unit_volume_litres_snapshot,
+      quantity, unit_price_snapshot, total_product_amount,
+      delivery_charge_snapshot, total_amount, status, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      ?, '2026-10-23', ?, ?,
+      'MILK', '500ml', 0.5,
+      4, 26.50, 106.00,
+      3.00, 109.00, 'DELIVERED', 1,
+      datetime('now'), datetime('now')
+    )
+  `).run(customerId, testProd.id, testProd.name);
+
+  await syncCouponsForDelivery(d1Res.lastInsertRowid);
+  await syncCouponsForDelivery(d2Res.lastInsertRowid);
+
+  const reportAfter9 = await getCouponMonthEndSummary(1, '2026-10');
+  const custAfter9 = reportAfter9.report.find(r => r.customerId === customerId);
+  assert.strictEqual(custAfter9.usedThisMonth, 9, '5 pkts Day 1 + 4 pkts Day 2 must strictly deduct exactly 9 coupons');
+  assert.strictEqual(custAfter9.remainingCoupons, 71, '80 - 9 = 71 remaining coupons');
+  console.log('[TEST 7b] Multi-day deliveries with custom quantities (5 pkts + 4 pkts = 9 pkts) accurately deducted exactly 9 coupons ✓');
 
   // ================================================================
   // WEEKLY BILLING TESTS

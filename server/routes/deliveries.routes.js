@@ -17,7 +17,8 @@ const {
 } = require('../services/routeAuthService');
 const {
   deductCouponsForDelivery,
-  revertCouponsForDelivery
+  revertCouponsForDelivery,
+  syncCouponsForDelivery
 } = require('../services/couponService');
 
 /**
@@ -739,19 +740,11 @@ router.put('/:id/status', verifyToken, async (req, res) => {
       WHERE id = ?
     `).run(status, notes !== undefined ? notes : delivery.notes, deliveryId);
 
-    // Handle coupon deduction or restoration
-    if (status === 'DELIVERED' && delivery.status !== 'DELIVERED') {
-      try {
-        await deductCouponsForDelivery({ ...delivery, status: 'DELIVERED' });
-      } catch (cpnErr) {
-        console.warn('Coupon deduction warning:', cpnErr.message);
-      }
-    } else if (delivery.status === 'DELIVERED' && status !== 'DELIVERED') {
-      try {
-        await revertCouponsForDelivery(deliveryId);
-      } catch (cpnErr) {
-        console.warn('Coupon revert warning:', cpnErr.message);
-      }
+    // Handle coupon deduction or restoration via idempotent sync
+    try {
+      await syncCouponsForDelivery(deliveryId);
+    } catch (cpnErr) {
+      console.warn('Coupon sync warning:', cpnErr.message);
     }
 
     // Recalculate amounts and charges for this customer on this date
@@ -811,19 +804,11 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
 
       await updateStmt.run(status, notes || null, id);
 
-      // Handle coupon deduction or restoration in bulk
-      if (status === 'DELIVERED' && d.status !== 'DELIVERED') {
-        try {
-          await deductCouponsForDelivery({ ...d, status: 'DELIVERED' });
-        } catch (cpnErr) {
-          console.warn('Coupon deduction in bulk-status warning:', cpnErr.message);
-        }
-      } else if (d.status === 'DELIVERED' && status !== 'DELIVERED') {
-        try {
-          await revertCouponsForDelivery(id);
-        } catch (cpnErr) {
-          console.warn('Coupon revert in bulk-status warning:', cpnErr.message);
-        }
+      // Handle coupon deduction or restoration in bulk via idempotent sync
+      try {
+        await syncCouponsForDelivery(id);
+      } catch (cpnErr) {
+        console.warn('Coupon sync in bulk-status warning:', cpnErr.message);
       }
 
       const key = `${d.customer_id}_${d.delivery_date}`;
@@ -1227,6 +1212,15 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
       }
     }
 
+    // Synchronize coupons if customer uses coupons
+    if (targetDel) {
+      try {
+        await syncCouponsForDelivery(targetDel.id);
+      } catch (cpnErr) {
+        console.warn('Coupon sync on temporary change warning:', cpnErr.message);
+      }
+    }
+
     // Fetch and return the updated delivery row
     const updatedDelivery = await db.prepare(`
       SELECT d.*, 
@@ -1422,6 +1416,16 @@ router.post('/extra', verifyToken, async (req, res) => {
         await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
       } catch (e) {
         console.warn('Auto bill refresh on extra product notice:', e.message);
+      }
+    }
+
+    // Deduct/sync coupons for extra product if applicable
+    if (deliveryId) {
+      try {
+        const { syncCouponsForDelivery } = require('../services/couponService');
+        await syncCouponsForDelivery(deliveryId);
+      } catch (cpnErr) {
+        console.warn('Coupon sync on extra product warning:', cpnErr.message);
       }
     }
 

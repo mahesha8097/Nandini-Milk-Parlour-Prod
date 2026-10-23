@@ -203,14 +203,8 @@ async function correctDelivery({ deliveryId, correctedQuantity, status, reason, 
 
   // Coupon adjustment if status or quantity changed
   try {
-    if (previousStatus === 'DELIVERED' && newStatus !== 'DELIVERED') {
-      await revertCouponsForDelivery(delivery.id);
-    } else if (previousStatus !== 'DELIVERED' && newStatus === 'DELIVERED') {
-      await deductCouponsForDelivery({ ...delivery, quantity: effectiveQty, status: 'DELIVERED' });
-    } else if (previousStatus === 'DELIVERED' && newStatus === 'DELIVERED' && effectiveQty !== previousQuantity) {
-      await revertCouponsForDelivery(delivery.id);
-      await deductCouponsForDelivery({ ...delivery, quantity: effectiveQty, status: 'DELIVERED' });
-    }
+    const { syncCouponsForDelivery } = require('./couponService');
+    await syncCouponsForDelivery(delivery.id);
   } catch (cpnErr) {
     console.warn('Coupon adjustment in correction notice:', cpnErr.message);
   }
