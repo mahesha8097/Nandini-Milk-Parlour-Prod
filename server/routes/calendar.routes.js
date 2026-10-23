@@ -305,6 +305,15 @@ router.post('/vacations', verifyToken, async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
     `);
 
+    // Cancel any existing active vacation overlapping targetDates for this customer to prevent duplicate active records
+    for (const d of targetDates) {
+      await db.prepare(`
+        UPDATE customer_vacations
+        SET status = 'CANCELLED', updated_at = datetime('now', 'localtime')
+        WHERE customer_id = ? AND status = 'ACTIVE' AND start_date <= ? AND end_date >= ?
+      `).run(customer.id, d, d);
+    }
+
     // Insert vacation segments
     for (const seg of segments) {
       const resumeDate = addDays(seg.end_date, 1);
@@ -448,12 +457,12 @@ router.delete('/vacations/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Vacation schedule not found' });
     }
 
-    // Cancel vacation
+    // Cancel vacation AND any overlapping active vacation records for this customer in that date range
     await db.prepare(`
       UPDATE customer_vacations
       SET status = 'CANCELLED', updated_at = datetime('now', 'localtime')
-      WHERE id = ?
-    `).run(vacationId);
+      WHERE id = ? OR (customer_id = ? AND status = 'ACTIVE' AND start_date <= ? AND end_date >= ?)
+    `).run(vacationId, vacation.customer_id, vacation.end_date, vacation.start_date);
 
     const today = getLocalDateString();
     // Cancel daily delivery requirements from today onwards

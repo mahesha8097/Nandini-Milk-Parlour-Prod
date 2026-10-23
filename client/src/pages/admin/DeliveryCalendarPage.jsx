@@ -309,13 +309,14 @@ export default function DeliveryCalendarPage() {
     }
   };
 
-  const handleCancelVacation = async (vacationId) => {
-    if (!window.confirm('Cancel this milk pause and restore normal deliveries for this customer?')) {
+  const handleCancelVacation = async (vacationId, customerName = '') => {
+    const nameStr = customerName ? ` for ${customerName}` : '';
+    if (!window.confirm(`Cancel this milk pause${nameStr} and restore normal deliveries?`)) {
       return;
     }
     try {
       await api.delete(`/calendar/vacations/${vacationId}`);
-      showToast('Milk pause cancelled. Deliveries restored.');
+      showToast(`✅ Milk pause cancelled${nameStr}. Normal deliveries restored.`);
       setSelectedEvent(null);
       await fetchCalendarData(true);
     } catch (err) {
@@ -343,7 +344,7 @@ export default function DeliveryCalendarPage() {
       const isToday = dateStr === todayStr;
 
       // Filter active vacations covering this date
-      const dayVacations = vacations.filter(v => {
+      const rawDayVacations = vacations.filter(v => {
         const matchesDate = v.start_date <= dateStr && v.end_date >= dateStr;
         const matchesSearch = !searchQuery || 
           v.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -353,13 +354,24 @@ export default function DeliveryCalendarPage() {
         return matchesDate && matchesSearch && matchesRoute;
       });
 
+      // Deduplicate so a customer NEVER appears twice on the same day cell!
+      const uniqueCustMap = new Map();
+      for (const v of rawDayVacations) {
+        if (!uniqueCustMap.has(v.customer_id)) {
+          uniqueCustMap.set(v.customer_id, v);
+        }
+      }
+      const dayVacations = Array.from(uniqueCustMap.values());
+
       // Filter vacations resuming tomorrow (1-day prior alert on this date)
+      // Exclude customers who are already shown as paused on this cell to avoid duplicate/contradictory badges
       const resumingVacations = vacations.filter(v => {
         const isPriorDay = v.end_date === dateStr || v.notify_agent_date === dateStr;
         const matchesSearch = !searchQuery || 
           v.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           v.flat_no?.toLowerCase().includes(searchQuery.toLowerCase());
-        return isPriorDay && matchesSearch;
+        const alreadyPausedHere = uniqueCustMap.has(v.customer_id);
+        return isPriorDay && matchesSearch && !alreadyPausedHere;
       });
 
       days.push({
@@ -697,18 +709,99 @@ export default function DeliveryCalendarPage() {
         </div>
 
         {selectedDateFilter && (
-          <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569' }}>
-              Showing filtered results for: <strong>{formatDisplayDate(selectedDateFilter)}</strong>
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedDateFilter(null)}
-              className="btn btn-outline btn-sm"
-              style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-            >
-              Clear Day Filter
-            </button>
+          <div style={{
+            marginTop: '12px',
+            padding: '12px 16px',
+            background: '#f8fafc',
+            border: '1.5px solid #e2e8f0',
+            borderRadius: '10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Calendar size={16} color="#2563eb" />
+                <span>Selected Date: <strong>{formatDisplayDate(selectedDateFilter)}</strong></span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedDateFilter(null)}
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.74rem', padding: '2px 8px' }}
+              >
+                Clear Day Filter
+              </button>
+            </div>
+
+            {/* List of paused customers on this selected day with instant cancel button! */}
+            {(() => {
+              const pausedOnThisDate = vacations.filter(v => v.start_date <= selectedDateFilter && v.end_date >= selectedDateFilter);
+              const uniqueOnDate = Array.from(new Map(pausedOnThisDate.map(v => [v.customer_id, v])).values());
+              if (uniqueOnDate.length === 0) {
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.82rem', color: '#64748b', padding: '4px 0', flexWrap: 'wrap', gap: '8px' }}>
+                    <span>✅ No milk pauses scheduled for this date. Regular deliveries will happen normally.</span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenScheduleModal(selectedDateFilter, 'CUSTOM_DATES')}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: '0.74rem', padding: '3px 8px', color: '#b91c1c', borderColor: '#fca5a5', fontWeight: 700 }}
+                    >
+                      + Mark No Milk on {selectedDateFilter.slice(8)}th
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#b91c1c' }}>
+                    ⛔ {uniqueOnDate.length} customer(s) have milk delivery PAUSED on this date:
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {uniqueOnDate.map(v => (
+                      <div
+                        key={v.id}
+                        style={{
+                          background: '#fee2e2',
+                          border: '1px solid #fca5a5',
+                          borderRadius: '8px',
+                          padding: '6px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          fontSize: '0.84rem'
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: '#0f172a' }}>{v.flat_no ? `[${v.flat_no}] ` : ''}{v.customer_name}</strong>
+                          <span style={{ color: '#b91c1c', marginLeft: '6px', fontSize: '0.75rem', fontWeight: 600 }}>({v.reason || 'No Milk'})</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCancelVacation(v.id, v.customer_name)}
+                          className="btn btn-sm"
+                          style={{
+                            background: '#dc2626',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontWeight: 800,
+                            fontSize: '0.72rem',
+                            padding: '3px 8px',
+                            cursor: 'pointer'
+                          }}
+                          title="Cancel pause and resume deliveries for this customer"
+                        >
+                          ✕ Cancel Pause & Resume Milk
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -823,12 +916,35 @@ export default function DeliveryCalendarPage() {
                           whiteSpace: 'nowrap',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '3px'
+                          justifyContent: 'space-between',
+                          gap: '3px',
+                          cursor: 'pointer'
                         }}
-                        title={`🚫 Milk Paused: ${v.customer_name} (${v.start_date} to ${v.end_date})`}
+                        title={`🚫 Milk Paused: ${v.customer_name} (${v.start_date} to ${v.end_date}) — Click to view details or ✕ to cancel`}
                       >
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#dc2626', flexShrink: 0 }} />
-                        <span>{v.flat_no ? `${v.flat_no} ` : ''}{v.customer_name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#dc2626', flexShrink: 0 }} />
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.flat_no ? `${v.flat_no} ` : ''}{v.customer_name}</span>
+                        </div>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCancelVacation(v.id, v.customer_name);
+                          }}
+                          style={{
+                            color: '#b91c1c',
+                            fontWeight: 900,
+                            fontSize: '0.75rem',
+                            padding: '0 3px',
+                            borderRadius: '3px',
+                            background: '#fecaca',
+                            lineHeight: 1,
+                            flexShrink: 0
+                          }}
+                          title={`Cancel pause and resume deliveries for ${v.customer_name}`}
+                        >
+                          ✕
+                        </span>
                       </div>
                     ))}
 
