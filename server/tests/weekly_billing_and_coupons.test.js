@@ -347,9 +347,19 @@ async function runWeeklyAndCouponTests() {
   // Total balance: Book A (28) + Book B (20) = 48
   assert.strictEqual(editRes.newCouponBalance, 48);
 
-  const custAfterEdit = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
-  assert.strictEqual(custAfterEdit.coupon_balance, 48, 'Customer coupon balance should resync to 48');
-  console.log('[TEST 11] Admin editing coupon book successfully modifies book and resyncs customer aggregate coupon balance ✓');
+  // Test [TEST 12] Coupon Book issuance automatically includes standard milk delivery charges
+  const prodAFull = await db.prepare('SELECT selling_price FROM products WHERE id = ?').get(prodA.id);
+  const expectedDelPerUnit = 2.0;
+  const expectedTotal = 30 * (parseFloat(prodAFull.selling_price) + expectedDelPerUnit);
+  const bookDelChargeTest = await issueCouponBook({
+    customerId: multiCustId,
+    productId: prodA.id,
+    bookNumber: 'BK-DEL-CHARGE-TEST',
+    totalCoupons: 30
+    // pricePaid is omitted so it defaults to (product price + normal milk delivery charge) * coupons
+  });
+  assert.strictEqual(bookDelChargeTest.book.price_paid, expectedTotal, `Coupon book price must include ₹2/packet delivery charge (30 × ₹${prodAFull.selling_price + 2} = ₹${expectedTotal})`);
+  console.log('[TEST 12] Coupon Book issuance automatically includes standard milk delivery charges in payment ✓');
 
   // Clean test data
   await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);

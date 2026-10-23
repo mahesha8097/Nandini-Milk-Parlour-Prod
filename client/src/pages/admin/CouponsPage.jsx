@@ -174,32 +174,70 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     }
   };
 
+  // Calculate delivery charge per packet based on standard milk rules
+  const getDeliveryChargePerPacket = (product, customer) => {
+    if (customer && customer.customer_category === 'BULK_HOTEL') return 0;
+    if (!product) return 2.0; // Standard 500ml milk packet delivery charge
+
+    const chargeType = product.delivery_charge_type;
+    if (chargeType === 'NONE') return 0;
+    if (chargeType === 'FIXED_PER_UNIT') {
+      return parseFloat(product.fixed_delivery_charge || 0);
+    }
+
+    // Normal milk delivery rule: <= 500ml is ₹2, > 500ml is volume * ₹3/L (e.g. 1L is ₹3)
+    let vol = product.unit_volume_litres;
+    if (!vol || vol <= 0) {
+      if (product.variant_label && product.variant_label.toLowerCase().includes('500')) vol = 0.5;
+      else if (product.variant_label && product.variant_label.toLowerCase().includes('1')) vol = 1.0;
+      else vol = 0.5;
+    }
+
+    if (vol <= 0.5) {
+      return 2.0; // 500ml milk packet = ₹2.00
+    }
+    return parseFloat((vol * 3.0).toFixed(2)); // >0.5L (e.g. 1L) = ₹3.00
+  };
+
+  const getProductUnitPrice = (product) => {
+    return product ? parseFloat(product.selling_price || 25) : 25;
+  };
+
+  const calculateCouponRate = (product, customer) => {
+    const unitPrice = getProductUnitPrice(product);
+    const delCharge = getDeliveryChargePerPacket(product, customer);
+    const totalRate = parseFloat((unitPrice + delCharge).toFixed(2));
+    return { unitPrice, delCharge, totalRate };
+  };
+
   const handleOpenIssueModal = (cust = null, preselectedProductId = null) => {
-    const custId = cust ? cust.id : (allCustomers[0]?.id || '');
+    const targetCust = cust || allCustomers[0] || null;
+    const custId = targetCust ? targetCust.id : '';
     const selectedProd = allProducts.find(p => p.id === parseInt(preselectedProductId, 10));
     const prodPrefix = selectedProd ? (selectedProd.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
     const defaultBookNo = `BK-${prodPrefix}-${custId || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`;
-    const unitPrice = selectedProd ? parseFloat(selectedProd.selling_price || 25) : 25;
     const defaultTotal = 30;
+    const { totalRate } = calculateCouponRate(selectedProd, targetCust);
 
     setIssueForm({
       customer_id: custId,
       product_id: preselectedProductId ? String(preselectedProductId) : '',
       book_number: defaultBookNo,
       total_coupons: defaultTotal,
-      price_paid: defaultTotal * unitPrice,
+      price_paid: parseFloat((defaultTotal * totalRate).toFixed(2)),
       payment_method: 'CASH',
       issue_date: new Date().toISOString().slice(0, 10),
-      notes: cust ? `Coupon Book for ${cust.name}` : ''
+      notes: targetCust ? `Coupon Book for ${targetCust.name}` : ''
     });
-    setSelectedCustomer(cust);
+    setSelectedCustomer(targetCust);
     setShowIssueModal(true);
   };
 
   const handleIssueProductChange = (prodId) => {
     const p = allProducts.find(item => item.id === parseInt(prodId, 10));
     const total = parseInt(issueForm.total_coupons, 10) || 30;
-    const unitPrice = p ? parseFloat(p.selling_price || 25) : 25;
+    const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
+    const { totalRate } = calculateCouponRate(p, targetCust);
     const prodPrefix = p ? (p.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
     const newBookNo = issueForm.book_number.startsWith('BK-')
       ? `BK-${prodPrefix}-${issueForm.customer_id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
@@ -208,7 +246,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     setIssueForm({
       ...issueForm,
       product_id: prodId,
-      price_paid: total * unitPrice,
+      price_paid: parseFloat((total * totalRate).toFixed(2)),
       book_number: newBookNo
     });
   };
@@ -216,11 +254,12 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
   const handleIssueTotalChange = (newTotal) => {
     const total = parseInt(newTotal, 10) || 0;
     const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
-    const unitPrice = selectedProd ? parseFloat(selectedProd.selling_price || 25) : 25;
+    const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
+    const { totalRate } = calculateCouponRate(selectedProd, targetCust);
     setIssueForm({
       ...issueForm,
       total_coupons: newTotal,
-      price_paid: total * unitPrice
+      price_paid: parseFloat((total * totalRate).toFixed(2))
     });
   };
 
@@ -400,7 +439,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
   });
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto' }}>
+    <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: '#f8fafc', backgroundColor: '#f8fafc' }}>
       {/* Alert message */}
       {message.text && (
         <div
@@ -472,7 +511,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
 
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Coupon Customers</span>
             <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
@@ -487,7 +526,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Coupon Books</span>
             <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5' }}>
@@ -502,7 +541,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Remaining Coupons Left</span>
             <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
@@ -517,7 +556,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Used In {selectedMonth}</span>
             <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
@@ -585,7 +624,8 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           {/* Filter and Month Toolbar */}
           <div
             style={{
-              background: 'var(--bg-surface)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
               padding: '16px 20px',
               borderRadius: '12px',
               border: '1px solid var(--border-color)',
@@ -655,7 +695,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
 
           {/* Customer Coupon Report Table */}
-          <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+          <div style={{ background: '#ffffff', backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
                 <thead>
@@ -891,7 +931,8 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           {/* Books Toolbar */}
           <div
             style={{
-              background: 'var(--bg-surface)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
               padding: '16px 20px',
               borderRadius: '12px',
               border: '1px solid var(--border-color)',
@@ -984,7 +1025,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
 
           {/* All Books Table */}
-          <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+          <div style={{ background: '#ffffff', backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>
@@ -1190,8 +1231,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 100,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1201,16 +1244,18 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
         >
           <div
             style={{
-              background: 'var(--bg-surface)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
               width: '100%',
-              maxWidth: '540px',
+              maxWidth: '560px',
               borderRadius: '16px',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              overflow: 'hidden'
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+              border: '1px solid #cbd5e1'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fffbeb' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fffbeb' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
                   <Ticket size={22} />
@@ -1220,7 +1265,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     Issue New Coupon Book
                   </h3>
                   <div style={{ fontSize: '12px', color: '#b45309' }}>
-                    Select milk product, assign coupons, and record advance payment
+                    Select milk product, assign coupons, and record advance payment (with delivery charge)
                   </div>
                 </div>
               </div>
@@ -1232,7 +1277,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </button>
             </div>
 
-            <form onSubmit={handleIssueSubmit} style={{ padding: '24px' }}>
+            <form onSubmit={handleIssueSubmit} style={{ padding: '24px', background: '#ffffff', backgroundColor: '#ffffff' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Customer Selector */}
                 <div>
@@ -1259,7 +1304,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       placeholder="Search customer by name, phone, flat or zone..."
                       value={issueCustomerSearch}
                       onChange={(e) => setIssueCustomerSearch(e.target.value)}
-                      style={{ paddingLeft: '32px', fontSize: '13px', paddingBlock: '8px', width: '100%', borderRadius: '8px' }}
+                      style={{ paddingLeft: '32px', fontSize: '13px', paddingBlock: '8px', width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
 
@@ -1269,15 +1314,19 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     onChange={(e) => {
                       const id = e.target.value;
                       const c = allCustomers.find(item => item.id === parseInt(id, 10));
+                      const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
+                      const total = parseInt(issueForm.total_coupons, 10) || 30;
+                      const { totalRate } = calculateCouponRate(selectedProd, c);
                       setIssueForm({
                         ...issueForm,
                         customer_id: id,
+                        price_paid: parseFloat((total * totalRate).toFixed(2)),
                         book_number: `BK-${id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
                       });
                       setSelectedCustomer(c || null);
                     }}
                     required
-                    style={{ width: '100%', borderRadius: '8px', padding: '10px' }}
+                    style={{ width: '100%', borderRadius: '8px', padding: '10px', background: '#ffffff', backgroundColor: '#ffffff' }}
                   >
                     <option value="">-- Choose Customer --</option>
                     {allCustomers
@@ -1306,7 +1355,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     className="form-control"
                     value={issueForm.product_id}
                     onChange={(e) => handleIssueProductChange(e.target.value)}
-                    style={{ width: '100%', borderRadius: '8px', padding: '10px', background: '#f8fafc' }}
+                    style={{ width: '100%', borderRadius: '8px', padding: '10px', background: '#ffffff', backgroundColor: '#ffffff' }}
                   >
                     <option value="">🎟️ All Products / Universal Milk Coupons (General)</option>
                     {allProducts.map((p) => (
@@ -1333,7 +1382,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       onChange={(e) => setIssueForm({ ...issueForm, book_number: e.target.value })}
                       placeholder="e.g. BK-TM-2026-001"
                       required
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
 
@@ -1349,7 +1398,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       value={issueForm.total_coupons}
                       onChange={(e) => handleIssueTotalChange(e.target.value)}
                       required
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
                 </div>
@@ -1390,7 +1439,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       className="form-control"
                       value={issueForm.price_paid}
                       onChange={(e) => setIssueForm({ ...issueForm, price_paid: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff', fontWeight: 700 }}
                     />
                   </div>
 
@@ -1402,7 +1451,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       className="form-control"
                       value={issueForm.payment_method}
                       onChange={(e) => setIssueForm({ ...issueForm, payment_method: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     >
                       <option value="CASH">CASH</option>
                       <option value="UPI">UPI / GooglePay / PhonePe</option>
@@ -1411,6 +1460,37 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     </select>
                   </div>
                 </div>
+
+                {/* Delivery Charge & Milk Rate Breakdown Box */}
+                {(() => {
+                  const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
+                  const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
+                  const { unitPrice, delCharge, totalRate } = calculateCouponRate(selectedProd, targetCust);
+                  const totalQty = parseInt(issueForm.total_coupons, 10) || 0;
+                  const prodLabel = selectedProd ? `${selectedProd.name} ${selectedProd.variant_label ? `(${selectedProd.variant_label})` : ''}` : 'Universal Milk (500ml)';
+                  return (
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', color: '#166534' }}>
+                      <div style={{ fontWeight: 700, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                        <span>🥛 Payment Rate Breakdown (Milk + Normal Delivery Charge):</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span>Milk Product Price ({prodLabel}):</span>
+                        <strong>₹{unitPrice.toFixed(2)} / packet</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span>Normal Milk Delivery Charge:</span>
+                        <strong>+ ₹{delCharge.toFixed(2)} / packet</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #86efac', fontWeight: 700, fontSize: '13px' }}>
+                        <span>Total Rate per Packet / Coupon:</span>
+                        <span>₹{totalRate.toFixed(2)}</span>
+                      </div>
+                      <div style={{ marginTop: '6px', fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px' }}>
+                        ✓ Normal milk delivery charges included: <strong>{totalQty} coupons × ₹{totalRate.toFixed(2)} = ₹{(totalQty * totalRate).toFixed(2)}</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Issue Date & Notes */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -1423,7 +1503,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       className="form-control"
                       value={issueForm.issue_date}
                       onChange={(e) => setIssueForm({ ...issueForm, issue_date: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
 
@@ -1437,7 +1517,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       placeholder="Optional notes..."
                       value={issueForm.notes}
                       onChange={(e) => setIssueForm({ ...issueForm, notes: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
                 </div>
@@ -1477,8 +1557,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 100,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1488,16 +1570,18 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
         >
           <div
             style={{
-              background: 'var(--bg-surface)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
               width: '100%',
-              maxWidth: '540px',
+              maxWidth: '560px',
               borderRadius: '16px',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              overflow: 'hidden'
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+              border: '1px solid #cbd5e1'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eff6ff' }}>
+            <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eff6ff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
                   <Edit size={20} />
@@ -1519,7 +1603,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </button>
             </div>
 
-            <form onSubmit={handleEditSubmit} style={{ padding: '24px' }}>
+            <form onSubmit={handleEditSubmit} style={{ padding: '24px', background: '#ffffff', backgroundColor: '#ffffff' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Book Number & Product */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -1533,7 +1617,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       value={editBookForm.book_number}
                       onChange={(e) => setEditBookForm({ ...editBookForm, book_number: e.target.value })}
                       required
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
 
@@ -1544,13 +1628,24 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     <select
                       className="form-control"
                       value={editBookForm.product_id}
-                      onChange={(e) => setEditBookForm({ ...editBookForm, product_id: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      onChange={(e) => {
+                        const newProdId = e.target.value;
+                        const p = allProducts.find(item => item.id === parseInt(newProdId, 10));
+                        const targetCust = allCustomers.find(c => c.id === parseInt(editBookForm.customer_id, 10)) || selectedCustomer;
+                        const { totalRate } = calculateCouponRate(p, targetCust);
+                        const tot = parseInt(editBookForm.total_coupons, 10) || 0;
+                        setEditBookForm({
+                          ...editBookForm,
+                          product_id: newProdId,
+                          price_paid: parseFloat((tot * totalRate).toFixed(2))
+                        });
+                      }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     >
                       <option value="">🎟️ Universal / All Milk</option>
                       {allProducts.map((p) => (
                         <option key={p.id} value={p.id}>
-                          🥛 {p.name} {p.variant_label ? `(${p.variant_label})` : ''}
+                          🥛 {p.name} {p.variant_label ? `(${p.variant_label})` : ''} - ₹{p.selling_price}/unit
                         </option>
                       ))}
                     </select>
@@ -1577,7 +1672,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         });
                       }}
                       required
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
 
@@ -1599,7 +1694,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         });
                       }}
                       required
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
 
@@ -1621,7 +1716,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         });
                       }}
                       required
-                      style={{ width: '100%', borderRadius: '8px', fontWeight: 700, color: '#16a34a' }}
+                      style={{ width: '100%', borderRadius: '8px', fontWeight: 700, color: '#16a34a', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
                 </div>
@@ -1638,7 +1733,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       className="form-control"
                       value={editBookForm.price_paid}
                       onChange={(e) => setEditBookForm({ ...editBookForm, price_paid: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff', fontWeight: 700 }}
                     />
                   </div>
 
@@ -1650,7 +1745,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       className="form-control"
                       value={editBookForm.payment_method}
                       onChange={(e) => setEditBookForm({ ...editBookForm, payment_method: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     >
                       <option value="CASH">CASH</option>
                       <option value="UPI">UPI</option>
@@ -1667,7 +1762,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       className="form-control"
                       value={editBookForm.status}
                       onChange={(e) => setEditBookForm({ ...editBookForm, status: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px', fontWeight: 600 }}
+                      style={{ width: '100%', borderRadius: '8px', fontWeight: 600, background: '#ffffff', backgroundColor: '#ffffff' }}
                     >
                       <option value="ACTIVE">ACTIVE</option>
                       <option value="EXHAUSTED">EXHAUSTED</option>
@@ -1675,6 +1770,58 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     </select>
                   </div>
                 </div>
+
+                {/* Delivery Charge Breakdown & Recalculate helper in Edit Modal */}
+                {(() => {
+                  const selectedProd = allProducts.find(p => p.id === parseInt(editBookForm.product_id, 10));
+                  const targetCust = allCustomers.find(c => c.id === parseInt(editBookForm.customer_id, 10)) || selectedCustomer;
+                  const { unitPrice, delCharge, totalRate } = calculateCouponRate(selectedProd, targetCust);
+                  const totalQty = parseInt(editBookForm.total_coupons, 10) || 0;
+                  const standardTotal = parseFloat((totalQty * totalRate).toFixed(2));
+                  const prodLabel = selectedProd ? `${selectedProd.name} ${selectedProd.variant_label ? `(${selectedProd.variant_label})` : ''}` : 'Universal Milk (500ml)';
+                  return (
+                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', color: '#1e40af' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '13px' }}>
+                          🥛 Milk Rate Breakdown (Includes Normal Delivery Charge):
+                        </span>
+                        {editBookForm.price_paid !== standardTotal && (
+                          <button
+                            type="button"
+                            onClick={() => setEditBookForm({ ...editBookForm, price_paid: standardTotal })}
+                            style={{
+                              background: '#2563eb',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '4px 10px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Apply Rate ₹{standardTotal}
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span>Milk Price ({prodLabel}):</span>
+                        <strong>₹{unitPrice.toFixed(2)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                        <span>Normal Milk Delivery Charge:</span>
+                        <strong>+ ₹{delCharge.toFixed(2)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #93c5fd', fontWeight: 700, fontSize: '13px' }}>
+                        <span>Total Rate per Packet / Coupon:</span>
+                        <span>₹{totalRate.toFixed(2)}</span>
+                      </div>
+                      <div style={{ marginTop: '6px', fontSize: '11px', color: '#1d4ed8' }}>
+                        Standard Total: {totalQty} coupons × ₹{totalRate.toFixed(2)} = <strong>₹{standardTotal.toFixed(2)}</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Issue Date & Notes */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -1687,7 +1834,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       className="form-control"
                       value={editBookForm.issue_date}
                       onChange={(e) => setEditBookForm({ ...editBookForm, issue_date: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
 
@@ -1701,7 +1848,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       value={editBookForm.notes}
                       onChange={(e) => setEditBookForm({ ...editBookForm, notes: e.target.value })}
                       placeholder="Optional notes..."
-                      style={{ width: '100%', borderRadius: '8px' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
                   </div>
                 </div>
@@ -1741,8 +1888,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 100,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1752,20 +1901,22 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
         >
           <div
             style={{
-              background: 'var(--bg-surface)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
               width: '100%',
               maxWidth: '780px',
               maxHeight: '85vh',
               borderRadius: '16px',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
               overflow: 'hidden',
+              border: '1px solid #cbd5e1',
               display: 'flex',
               flexDirection: 'column'
             }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>
                   Coupon Books & Usage: {selectedCustomer?.customerName || selectedCustomer?.name}
@@ -2006,8 +2157,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 100,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -2017,16 +2170,18 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
         >
           <div
             style={{
-              background: 'var(--bg-surface)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
               width: '100%',
               maxWidth: '440px',
               borderRadius: '16px',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-              overflow: 'hidden'
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+              border: '1px solid #cbd5e1'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
                 Manual Coupon Adjustment
               </h3>
@@ -2035,7 +2190,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </button>
             </div>
 
-            <form onSubmit={handleAdjustSubmit} style={{ padding: '20px' }}>
+            <form onSubmit={handleAdjustSubmit} style={{ padding: '20px', background: '#ffffff', backgroundColor: '#ffffff' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>

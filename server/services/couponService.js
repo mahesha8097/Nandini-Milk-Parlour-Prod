@@ -21,6 +21,33 @@ async function generateCouponReceiptNumber() {
 }
 
 /**
+ * Helper to calculate standard delivery charge per unit/packet according to normal milk rules
+ */
+function getStandardDeliveryChargePerUnit(product, customerCategory = 'HOUSE') {
+  if (customerCategory === 'BULK_HOTEL') return 0;
+  if (!product) return 2.0; // Standard 500ml milk packet delivery charge
+
+  const chargeType = product.delivery_charge_type;
+  if (chargeType === 'NONE') return 0;
+  if (chargeType === 'FIXED_PER_UNIT') {
+    return parseFloat(product.fixed_delivery_charge || 0);
+  }
+
+  // Normal milk delivery rule: <= 500ml is ₹2, > 500ml is volume * ₹3/L (1L = ₹3)
+  let vol = product.unit_volume_litres;
+  if (!vol || vol <= 0) {
+    if (product.variant_label && product.variant_label.toLowerCase().includes('500')) vol = 0.5;
+    else if (product.variant_label && product.variant_label.toLowerCase().includes('1')) vol = 1.0;
+    else vol = 0.5;
+  }
+
+  if (vol <= 0.5) {
+    return 2.0;
+  }
+  return parseFloat((vol * 3.0).toFixed(2));
+}
+
+/**
  * Issue a new coupon book to a customer
  */
 async function issueCouponBook({
@@ -28,7 +55,7 @@ async function issueCouponBook({
   productId = null,
   bookNumber,
   totalCoupons,
-  pricePaid = 0,
+  pricePaid = null,
   paymentMethod = 'CASH',
   issueDate,
   notes = '',
@@ -48,7 +75,7 @@ async function issueCouponBook({
   const finalProductId = productId ? parseInt(productId, 10) : null;
   let product = null;
   if (finalProductId) {
-    product = await db.prepare('SELECT id, name, variant_label FROM products WHERE id = ?').get(finalProductId);
+    product = await db.prepare('SELECT id, name, category, variant_label, selling_price, unit_volume_litres, delivery_charge_type, fixed_delivery_charge FROM products WHERE id = ?').get(finalProductId);
   }
 
   const finalBookNumber = bookNumber && bookNumber.trim()
@@ -56,7 +83,12 @@ async function issueCouponBook({
     : `BK-${customerId}-${Date.now().toString().slice(-4)}`;
 
   const finalIssueDate = issueDate || new Date().toISOString().slice(0, 10);
-  const amountPaid = parseFloat(pricePaid || 0);
+  let amountPaid = pricePaid !== null && pricePaid !== undefined ? parseFloat(pricePaid) : NaN;
+  if (isNaN(amountPaid)) {
+    const unitPrice = product ? parseFloat(product.selling_price || 25) : 25;
+    const delCharge = getStandardDeliveryChargePerUnit(product, customer.customer_category);
+    amountPaid = parseFloat((couponsCount * (unitPrice + delCharge)).toFixed(2));
+  }
 
   // 1. Insert coupon book
   const insertBook = await db.prepare(`
