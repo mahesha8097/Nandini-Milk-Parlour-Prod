@@ -321,12 +321,17 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       await api.delete(`/products/${deleteTarget.id}${cascadeParam}`);
       setIsDeleteModalOpen(false);
       setDeleteTarget(null);
+      setDeleteHasDeliveries(false);
+      setAllowCascade(false);
       fetchProducts();
     } catch (err) {
-      setDeleteError(err.message || 'Failed to delete product.');
-      if (err.hasDeliveries) {
+      const msg = err.message || 'Failed to delete product.';
+      if (err.hasDeliveries || err.hasSubscriptions || msg.includes('recorded deliveries') || msg.includes('subscription')) {
         setDeleteHasDeliveries(true);
-        setDeleteDeliveryCount(err.deliveryCount || 0);
+        setDeleteDeliveryCount(err.deliveryCount || err.subCount || 1);
+        setDeleteError('');
+      } else {
+        setDeleteError(msg);
       }
     } finally {
       setDeleting(false);
@@ -1138,7 +1143,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                 lineHeight: 1.4,
                 marginBottom: '14px'
               }}>
-                <strong>Notice:</strong> This product has {deleteDeliveryCount} historical delivery records. Deleting it will permanently remove those recorded deliveries. We recommend deactivating it instead to keep past bills intact.
+                <strong>Notice:</strong> This product has recorded delivery or subscription records. Deleting it will permanently remove those recorded deliveries. We recommend deactivating it instead to keep past bills intact.
               </div>
 
               <div style={{ marginBottom: '14px' }}>
@@ -1149,15 +1154,15 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                     onChange={(e) => setAllowCascade(e.target.checked)}
                     style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                   />
-                  <span>Delete this product and remove its delivery records permanently</span>
+                  <span>Delete this product and remove its delivery & subscription records permanently</span>
                 </label>
               </div>
             </div>
-          ) : (
+          ) : !deleteError ? (
             <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: 1.5 }}>
               Are you sure you want to delete this product? It will be removed from your parlour catalogue. This action cannot be undone.
             </p>
-          )}
+          ) : null}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
             <button
@@ -1166,7 +1171,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
               className="btn btn-outline"
               disabled={deleting}
             >
-              Cancel
+              {deleteError ? 'Close' : 'Cancel'}
             </button>
 
             {deleteHasDeliveries && (
@@ -1174,22 +1179,24 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                 type="button"
                 onClick={handleDeactivateInstead}
                 className="btn btn-outline"
-                style={{ borderColor: '#f59e0b', color: '#b45309' }}
+                style={{ borderColor: '#f59e0b', color: '#b45309', fontWeight: 700 }}
                 disabled={deleting}
               >
                 Deactivate Instead
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={handleConfirmDelete}
-              className="btn btn-danger"
-              disabled={deleting || (deleteHasDeliveries && !allowCascade)}
-              style={{ background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' }}
-            >
-              {deleting ? 'Deleting...' : 'Delete Product'}
-            </button>
+            {(!deleteError || deleteHasDeliveries) && (
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="btn btn-danger"
+                disabled={deleting || (deleteHasDeliveries && !allowCascade)}
+                style={{ background: '#dc2626', borderColor: '#dc2626', color: '#ffffff', fontWeight: 700 }}
+              >
+                {deleting ? 'Deleting...' : (deleteHasDeliveries ? 'Permanently Delete' : 'Delete Product')}
+              </button>
+            )}
           </div>
         </div>
       </Modal>

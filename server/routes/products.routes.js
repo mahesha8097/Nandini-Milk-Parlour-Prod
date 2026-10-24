@@ -293,9 +293,11 @@ router.delete('/:id', requireAdmin, async (req, res) => {
     // 1. Check for active customer subscriptions
     const subRow = await db.prepare('SELECT COUNT(*) as count FROM subscriptions WHERE product_id = ? AND is_active = 1').get(productId);
     const subCount = subRow ? parseInt(subRow.count, 10) : 0;
-    if (subCount > 0) {
+    if (subCount > 0 && cascade !== 'true') {
       return res.status(400).json({
-        error: `Cannot delete "${existing.name}": It is currently assigned to ${subCount} active customer subscription(s). Please change or cancel those subscriptions first.`
+        error: `Cannot delete "${existing.name}": It is currently assigned to ${subCount} active customer subscription(s). You can Deactivate it instead so it will not appear for new deliveries.`,
+        hasSubscriptions: true,
+        subCount
       });
     }
 

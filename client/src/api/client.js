@@ -56,7 +56,11 @@ export async function apiRequest(endpoint, options = {}) {
           errorMsg = 'Unable to complete request. Please try again.';
         }
       }
-      throw new Error(errorMsg);
+      const errorObj = new Error(errorMsg);
+      if (data && typeof data === 'object') {
+        Object.assign(errorObj, data);
+      }
+      throw errorObj;
     }
 
     return data;
