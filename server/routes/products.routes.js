@@ -280,4 +280,68 @@ router.patch('/:id/toggle-status', requireAdmin, async (req, res) => {
   }
 });
 
+// Delete product (Admin only)
+router.delete('/:id', requireAdmin, async (req, res) => {
+  try {
+    const productId = req.params.id;
+    const { cascade } = req.query;
+    const existing = await db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
+    if (!existing) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // 1. Check for active customer subscriptions
+    const subRow = await db.prepare('SELECT COUNT(*) as count FROM subscriptions WHERE product_id = ? AND is_active = 1').get(productId);
+    const subCount = subRow ? parseInt(subRow.count, 10) : 0;
+    if (subCount > 0) {
+      return res.status(400).json({
+        error: `Cannot delete "${existing.name}": It is currently assigned to ${subCount} active customer subscription(s). Please change or cancel those subscriptions first.`
+      });
+    }
+
+    // 2. Check for historical deliveries
+    const delRow = await db.prepare('SELECT COUNT(*) as count FROM deliveries WHERE product_id = ?').get(productId);
+    const delCount = delRow ? parseInt(delRow.count, 10) : 0;
+    if (delCount > 0 && cascade !== 'true') {
+      return res.status(400).json({
+        error: `Cannot delete "${existing.name}" because it has ${delCount} recorded deliveries needed for billing and payment records. You can Deactivate it instead so it will not appear for new deliveries.`,
+        hasDeliveries: true,
+        deliveryCount: delCount
+      });
+    }
+
+    // 3. If cascade === 'true' and has deliveries, clean up delivery children first
+    if (delCount > 0 && cascade === 'true') {
+      const deliveryRows = await db.prepare('SELECT id FROM deliveries WHERE product_id = ?').all(productId);
+      const delIds = deliveryRows.map(r => r.id);
+      if (delIds.length > 0) {
+        const placeholders = delIds.map(() => '?').join(',');
+        await db.prepare(`DELETE FROM delivery_corrections WHERE delivery_id IN (${placeholders})`).run(...delIds);
+        await db.prepare(`DELETE FROM coupon_transactions WHERE delivery_id IN (${placeholders})`).run(...delIds);
+        await db.prepare('DELETE FROM deliveries WHERE product_id = ?').run(productId);
+      }
+    }
+
+    // 4. Clean up any inactive subscriptions, daily requirements, and coupon books references
+    await db.prepare('DELETE FROM daily_delivery_requirements WHERE product_id = ? OR target_product_id = ?').run(productId, productId);
+    await db.prepare('DELETE FROM delivery_corrections WHERE product_id = ?').run(productId);
+    await db.prepare('DELETE FROM subscriptions WHERE product_id = ?').run(productId);
+    await db.prepare('UPDATE coupon_books SET product_id = NULL WHERE product_id = ?').run(productId);
+
+    // 5. Delete the product
+    await db.prepare('DELETE FROM products WHERE id = ?').run(productId);
+
+    // Audit log
+    await db.prepare(`
+      INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+      VALUES (?, 'DELETE_PRODUCT', 'products', ?, ?, datetime('now', 'localtime'))
+    `).run(req.user.id, productId, `Deleted product: ${existing.name} (${existing.variant_label}) [ID: ${productId}]`);
+
+    res.json({ message: `Product "${existing.name}" deleted successfully` });
+  } catch (err) {
+    console.error('Delete product error:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete product' });
+  }
+});
+
 module.exports = router;

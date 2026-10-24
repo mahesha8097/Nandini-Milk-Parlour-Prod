@@ -57,6 +57,15 @@ export default function ProductsPage({ initialOpenAdd = false }) {
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Delete Modal State
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteHasDeliveries, setDeleteHasDeliveries] = useState(false);
+  const [deleteDeliveryCount, setDeleteDeliveryCount] = useState(0);
+  const [allowCascade, setAllowCascade] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
   const imageInputRef = useRef(null);
 
   const fetchProducts = async () => {
@@ -291,6 +300,51 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       fetchProducts();
     } catch (err) {
       alert(err.message || 'Failed to toggle status');
+    }
+  };
+
+  const handleOpenDelete = (p) => {
+    setDeleteTarget(p);
+    setDeleteError('');
+    setDeleteHasDeliveries(false);
+    setDeleteDeliveryCount(0);
+    setAllowCascade(false);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      setDeleteError('');
+      const cascadeParam = allowCascade ? '?cascade=true' : '';
+      await api.delete(`/products/${deleteTarget.id}${cascadeParam}`);
+      setIsDeleteModalOpen(false);
+      setDeleteTarget(null);
+      fetchProducts();
+    } catch (err) {
+      setDeleteError(err.message || 'Failed to delete product.');
+      if (err.hasDeliveries) {
+        setDeleteHasDeliveries(true);
+        setDeleteDeliveryCount(err.deliveryCount || 0);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeactivateInstead = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      await api.patch(`/products/${deleteTarget.id}/toggle-status`, {});
+      setIsDeleteModalOpen(false);
+      setDeleteTarget(null);
+      fetchProducts();
+    } catch (err) {
+      setDeleteError(err.message || 'Failed to deactivate product.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -565,6 +619,14 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                         >
                           {p.is_active ? <XCircle size={15} /> : <CheckCircle2 size={15} />}
                         </button>
+                        <button
+                          onClick={() => handleOpenDelete(p)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px', color: '#dc2626', borderColor: '#fecaca' }}
+                          title="Delete Product"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -667,16 +729,26 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                     className="btn btn-outline btn-sm"
                     style={{ flex: 1, minHeight: '38px', fontSize: '0.82rem', fontWeight: '700' }}
                   >
-                    <Edit2 size={14} /> Edit Product
+                    <Edit2 size={14} /> Edit
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleToggleStatus(p.id)}
                     className="btn btn-outline btn-sm"
-                    style={{ minHeight: '38px', padding: '6px 14px', color: p.is_active ? 'var(--accent-red)' : '#16a34a', borderColor: p.is_active ? '#fca5a5' : '#86efac' }}
+                    style={{ minHeight: '38px', padding: '6px 12px', color: p.is_active ? 'var(--accent-red)' : '#16a34a', borderColor: p.is_active ? '#fca5a5' : '#86efac' }}
                   >
                     {p.is_active ? 'Deactivate' : 'Activate'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDelete(p)}
+                    className="btn btn-outline btn-sm"
+                    style={{ minHeight: '38px', padding: '6px 12px', color: '#dc2626', borderColor: '#fca5a5' }}
+                    title="Delete Product"
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
@@ -1007,6 +1079,119 @@ export default function ProductsPage({ initialOpenAdd = false }) {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Delete Product Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !deleting && setIsDeleteModalOpen(false)}
+        title="Delete Product"
+      >
+        <div style={{ padding: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', marginBottom: '16px' }}>
+            <div style={{
+              width: '46px',
+              height: '46px',
+              borderRadius: '10px',
+              background: '#fee2e2',
+              color: '#dc2626',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <Trash2 size={24} />
+            </div>
+            <div>
+              <h4 style={{ margin: '0 0 4px 0', fontSize: '1.05rem', color: 'var(--text-primary)', fontWeight: 800 }}>
+                Delete "{deleteTarget?.name}"?
+              </h4>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                {deleteTarget?.category} • {deleteTarget?.variant_label} • ₹{deleteTarget?.selling_price?.toFixed(2)}
+              </div>
+            </div>
+          </div>
+
+          {deleteError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '8px',
+              padding: '12px 14px',
+              color: '#991b1b',
+              fontSize: '0.85rem',
+              marginBottom: '16px'
+            }}>
+              {deleteError}
+            </div>
+          )}
+
+          {deleteHasDeliveries ? (
+            <div style={{ marginBottom: '18px' }}>
+              <div style={{
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                color: '#92400e',
+                fontSize: '0.85rem',
+                lineHeight: 1.4,
+                marginBottom: '14px'
+              }}>
+                <strong>Notice:</strong> This product has {deleteDeliveryCount} historical delivery records. Deleting it will permanently remove those recorded deliveries. We recommend deactivating it instead to keep past bills intact.
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', color: '#dc2626', fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={allowCascade}
+                    onChange={(e) => setAllowCascade(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  <span>Delete this product and remove its delivery records permanently</span>
+                </label>
+              </div>
+            </div>
+          ) : (
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: 1.5 }}>
+              Are you sure you want to delete this product? It will be removed from your parlour catalogue. This action cannot be undone.
+            </p>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={() => setIsDeleteModalOpen(false)}
+              className="btn btn-outline"
+              disabled={deleting}
+            >
+              Cancel
+            </button>
+
+            {deleteHasDeliveries && (
+              <button
+                type="button"
+                onClick={handleDeactivateInstead}
+                className="btn btn-outline"
+                style={{ borderColor: '#f59e0b', color: '#b45309' }}
+                disabled={deleting}
+              >
+                Deactivate Instead
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              className="btn btn-danger"
+              disabled={deleting || (deleteHasDeliveries && !allowCascade)}
+              style={{ background: '#dc2626', borderColor: '#dc2626', color: '#ffffff' }}
+            >
+              {deleting ? 'Deleting...' : 'Delete Product'}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
