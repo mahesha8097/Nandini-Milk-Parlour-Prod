@@ -584,7 +584,9 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
               <div style={{ width: '310px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '12px 14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
-                  <span style={{ color: '#64748b' }}>Sub Total (Delivered Milk):</span>
+                  <span style={{ color: '#64748b' }}>
+                    {bill.billing_type === 'PREPAID' ? 'Sub Total (Scheduled Days):' : 'Sub Total (Delivered Milk):'}
+                  </span>
                   <span style={{ fontWeight: '600' }}>₹{grossAmount.toFixed(2)}</span>
                 </div>
                 
@@ -595,7 +597,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
                       <span>₹{totalAdvancePaid.toFixed(2)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#dc2626', marginBottom: '3px', fontWeight: '700' }}>
-                      <span>Delivered Milk Deducted:</span>
+                      <span>{bill.billing_type === 'PREPAID' ? 'Advance Settled / Deducted:' : 'Delivered Milk Deducted:'}</span>
                       <span>- ₹{advanceAdjusted.toFixed(2)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#15803d', fontWeight: '800', borderTop: '1px dashed #86efac', paddingTop: '3px' }}>
@@ -637,7 +639,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
             {/* Advance Deduction Banner if applicable */}
             {advanceAdjusted > 0 && (
               <div style={{ marginBottom: '12px', padding: '8px 12px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '4px', fontSize: '0.75rem', color: '#065f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>✓ <strong>Advance Settled:</strong> ₹{advanceAdjusted.toFixed(2)} for delivered milk has been deducted from advance deposit.</span>
+                <span>✓ <strong>Advance Settled:</strong> ₹{advanceAdjusted.toFixed(2)} {bill.billing_type === 'PREPAID' ? 'has been settled from advance deposit for scheduled deliveries.' : 'for delivered milk has been deducted from advance deposit.'}</span>
                 <span>Customer Remaining Advance: <strong>₹{remainingAdvance.toFixed(2)}</strong></span>
               </div>
             )}

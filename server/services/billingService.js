@@ -795,8 +795,10 @@ async function generateWeeklyBillsForPeriod(startDate, endDate, options = {}) {
 
 /**
  * Intelligent single customer bill generator:
- * - If billingBasis === 'DELIVERIES' (or AUTO and customer has delivered milk records), bills the delivered milk and minuses from advance!
- * - If billingBasis === 'SUBSCRIPTION', bills the expected monthly subscription.
+ * - PREPAID Customers: Bill is strictly generated according to SCHEDULED DAYS (Advance Monthly Subscription Bill).
+ * - POSTPAID Customers: Bill is strictly generated according to ACTUAL MILK DELIVERED in that month.
+ * - BULK / Hotel: Always generated according to actual milk delivered.
+ * - COUPON Customers: Never receive monthly bills (they pay via coupon books).
  */
 async function generateBillForCustomer(customer, billingMonth, { billingBasis = 'AUTO', forceRegenerate = false } = {}) {
   // Coupon customers pay strictly through coupon book purchases.
@@ -807,29 +809,40 @@ async function generateBillForCustomer(customer, billingMonth, { billingBasis = 
     return null;
   }
 
-  const delCountRow = await db.prepare(`
-    SELECT COUNT(*) as count FROM deliveries
-    WHERE customer_id = ? AND delivery_date LIKE ? AND status = 'DELIVERED'
-  `).get(customer.id, `${billingMonth}%`);
-
-  const hasDeliveries = delCountRow && delCountRow.count > 0;
-
-  if (billingBasis === 'DELIVERIES' || (billingBasis === 'AUTO' && hasDeliveries)) {
-    const delBill = await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
-    if (delBill) return delBill;
-  }
-
-  // Bulk / Hotel customers strictly use delivered milk billing
+  // 1. Bulk / Hotel customers strictly use delivered milk billing
   if (customer.customer_category === 'BULK_HOTEL') {
     return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
   }
 
-  // Fall back to advance monthly subscription bill
-  if (customer.billing_type === 'PREPAID' || billingBasis === 'SUBSCRIPTION') {
+  // 2. PREPAID Customers:
+  // Prepaid customers pay in advance for the month according to their scheduled days!
+  // Unless admin explicitly forced billingBasis to 'DELIVERIES'.
+  if (customer.billing_type === 'PREPAID' && billingBasis !== 'DELIVERIES') {
     return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
   }
 
-  return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
+  // 3. POSTPAID Customers:
+  // Postpaid customers pay based on actual milk packets delivered in that month!
+  if (customer.billing_type === 'POSTPAID' || billingBasis === 'DELIVERIES') {
+    return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
+  }
+
+  // 4. If billingBasis is explicitly 'SUBSCRIPTION':
+  if (billingBasis === 'SUBSCRIPTION') {
+    return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
+  }
+
+  // 5. Fallback for unclassified customers: check if deliveries exist, else advance bill
+  const delCountRow = await db.prepare(`
+    SELECT COUNT(*) as count FROM deliveries
+    WHERE customer_id = ? AND delivery_date LIKE ? AND status = 'DELIVERED'
+  `).get(customer.id, `${billingMonth}%`);
+  const hasDeliveries = delCountRow && delCountRow.count > 0;
+
+  if (hasDeliveries) {
+    return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
+  }
+  return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
 }
 
 /**

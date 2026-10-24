@@ -185,9 +185,14 @@ export default function CustomerStatementView() {
   }
 
   const { customer, parlour, bill, summary, days } = data;
-  const isPaid = bill && (bill.status === 'PAID' || bill.status === 'ADVANCE_PAID' || bill.netPayable === 0);
+  const isPrepaid = (data.billingType === 'PREPAID' || (summary && summary.billingType === 'PREPAID'));
+  const monthBillValue = (bill ? bill.grossAmount : (summary.monthBillGross || summary.totalDeliveryAmount || 0));
+  const advanceSettledValue = (bill ? bill.advanceAdjusted : (summary.advanceAdjusted || 0));
+  const netPayableValue = (bill ? bill.netPayable : (summary.netPayable !== undefined ? summary.netPayable : Math.max(0, monthBillValue - advanceSettledValue)));
+  const isPaid = (bill && (bill.status === 'PAID' || bill.status === 'ADVANCE_PAID' || bill.netPayable === 0)) || netPayableValue === 0;
+
   const upiLink = parlour.upiId
-    ? `upi://pay?pa=${encodeURIComponent(parlour.upiId)}&pn=${encodeURIComponent(parlour.businessName)}&am=${encodeURIComponent((bill ? bill.netPayable : summary.totalDeliveryAmount) || 0)}&cu=INR`
+    ? `upi://pay?pa=${encodeURIComponent(parlour.upiId)}&pn=${encodeURIComponent(parlour.businessName)}&am=${encodeURIComponent(netPayableValue || 0)}&cu=INR`
     : null;
 
   return (
@@ -314,7 +319,7 @@ export default function CustomerStatementView() {
                 color: isPaid ? '#4ade80' : '#facc15',
                 border: `1px solid ${isPaid ? '#22c55e' : '#eab308'}`
               }}>
-                {isPaid ? 'PAID ✓' : (bill ? 'PAYMENT DUE' : 'MONTH STATEMENT')}
+                {isPaid ? 'PAID ✓' : (bill ? 'PAYMENT DUE' : (isPrepaid ? 'PREPAID PLAN' : 'DELIVERIES STATEMENT'))}
               </span>
               {bill && (
                 <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '6px' }}>
@@ -336,27 +341,40 @@ export default function CustomerStatementView() {
             marginBottom: '16px'
           }}>
             <div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Delivered Days</div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>
+                {isPrepaid ? 'Scheduled Days' : 'Delivered Days'}
+              </div>
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ffffff', marginTop: '2px' }}>
-                {summary.totalDeliveredDays} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>days</span>
+                {isPrepaid ? (summary.totalScheduledDays || summary.totalDeliveredDays || 0) : (summary.totalDeliveredDays || 0)}{' '}
+                <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>days</span>
+              </div>
+              {isPrepaid && summary.totalDeliveredDays > 0 && (
+                <div style={{ fontSize: '0.68rem', color: '#4ade80', marginTop: '2px', fontWeight: 600 }}>
+                  {summary.totalDeliveredDays} delivered so far
+                </div>
+              )}
+            </div>
+            <div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>
+                {isPrepaid ? 'Scheduled Items' : 'Total Items'}
+              </div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ffffff', marginTop: '2px' }}>
+                {isPrepaid ? (summary.totalScheduledItems || summary.totalItemsCount || 0) : (summary.totalDeliveredItems || summary.totalItemsCount || 0)}{' '}
+                <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>pkts</span>
               </div>
             </div>
             <div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Total Items</div>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ffffff', marginTop: '2px' }}>
-                {summary.totalItemsCount} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>pkts</span>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>
+                {isPrepaid ? 'Month Bill (Advance)' : 'Month Bill'}
               </div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Month Bill</div>
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#38bdf8', marginTop: '2px' }}>
-                ₹ {(bill ? bill.grossAmount : summary.totalDeliveryAmount).toFixed(2)}
+                ₹ {monthBillValue.toFixed(2)}
               </div>
             </div>
           </div>
 
-          {/* Advance & Net Payable Breakdown (if bill exists) */}
-          {bill && (
+          {/* Advance & Net Payable Breakdown */}
+          {(advanceSettledValue > 0 || netPayableValue !== undefined) && (
             <div style={{
               backgroundColor: '#000000',
               border: '1px solid #1e293b',
@@ -365,16 +383,16 @@ export default function CustomerStatementView() {
               marginBottom: '16px',
               fontSize: '0.85rem'
             }}>
-              {bill.advanceAdjusted > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4ade80', marginBottom: '6px' }}>
+              {advanceSettledValue > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4ade80', marginBottom: '6px', fontWeight: 700 }}>
                   <span>Advance Settled:</span>
-                  <span>- ₹ {bill.advanceAdjusted.toFixed(2)}</span>
+                  <span>- ₹ {advanceSettledValue.toFixed(2)}</span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.95rem', color: '#ffffff' }}>
                 <span>Net Payable:</span>
-                <span style={{ color: bill.netPayable === 0 ? '#4ade80' : '#38bdf8' }}>
-                  ₹ {bill.netPayable.toFixed(2)} {bill.netPayable === 0 ? '(All Clear ✓)' : ''}
+                <span style={{ color: netPayableValue === 0 ? '#4ade80' : '#38bdf8' }}>
+                  ₹ {netPayableValue.toFixed(2)} {netPayableValue === 0 ? '(All Clear ✓)' : ''}
                 </span>
               </div>
             </div>
@@ -472,7 +490,7 @@ export default function CustomerStatementView() {
             Daily Delivery History
           </h2>
           <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-            Tap any date to view items
+            Tap any date to view items & timing
           </span>
         </div>
 
@@ -497,6 +515,7 @@ export default function CustomerStatementView() {
               const isExpanded = !!expandedDates[day.date];
               const isDelivered = day.status === 'DELIVERED';
               const isSkipped = day.status === 'SKIPPED';
+              const isScheduled = day.status === 'SCHEDULED';
 
               return (
                 <div 
@@ -506,10 +525,6 @@ export default function CustomerStatementView() {
                     transition: 'background-color 0.15s ease'
                   }}
                 >
-                  {/* Daily Row Header matching screenshot:
-                      16 Jul 2026, Thursday
-                      Total Items: 1        Total Amount: ₹ 45.00 >
-                  */}
                   <div
                     onClick={() => toggleDate(day.date)}
                     style={{
@@ -519,7 +534,7 @@ export default function CustomerStatementView() {
                       backgroundColor: isExpanded ? '#0a0a0a' : 'transparent'
                     }}
                   >
-                    {/* Date label: e.g. 16 Jul 2026, Thursday */}
+                    {/* Date label & timing */}
                     <div style={{
                       fontSize: '1rem',
                       fontWeight: 700,
@@ -528,20 +543,56 @@ export default function CustomerStatementView() {
                       letterSpacing: '-0.01em',
                       display: 'flex',
                       alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
                       gap: '8px'
                     }}>
-                      <span>{day.formattedDate}</span>
-                      {isSkipped && (
-                        <span style={{
-                          fontSize: '0.65rem',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: '#27272a',
-                          color: '#a1a1aa',
-                          fontWeight: 700
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>{day.formattedDate}</span>
+                        {isSkipped && (
+                          <span style={{
+                            fontSize: '0.65rem',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: '#27272a',
+                            color: '#a1a1aa',
+                            fontWeight: 700
+                          }}>
+                            PAUSED / SKIP
+                          </span>
+                        )}
+                        {isScheduled && (
+                          <span style={{
+                            fontSize: '0.65rem',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                            color: '#38bdf8',
+                            border: '1px solid rgba(56, 189, 248, 0.3)',
+                            fontWeight: 700
+                          }}>
+                            SCHEDULED
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Time to time indicator */}
+                      {day.deliveredTime && (
+                        <div style={{
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: '#4ade80',
+                          backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                          border: '1px solid rgba(34, 197, 94, 0.25)',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
                         }}>
-                          PAUSED / SKIP
-                        </span>
+                          <Clock size={12} color="#4ade80" />
+                          <span>Delivered at {day.deliveredTime}</span>
+                        </div>
                       )}
                     </div>
 
@@ -590,7 +641,7 @@ export default function CustomerStatementView() {
                   {/* Expanded Item Breakdown */}
                   {isExpanded && (
                     <div style={{
-                      backgroundColor: '#0f0f0f',
+                      backgroundColor: '#0a0a0a',
                       padding: '12px 18px 16px 18px',
                       borderTop: '1px solid #1f1f1f'
                     }}>
@@ -607,42 +658,55 @@ export default function CustomerStatementView() {
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
-                                padding: '8px 10px',
+                                padding: '10px 12px',
                                 backgroundColor: '#141414',
-                                borderRadius: '6px',
-                                border: '1px solid #222222'
+                                borderRadius: '8px',
+                                border: '1px solid #262626'
                               }}
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <div style={{
-                                  width: '32px',
-                                  height: '32px',
-                                  borderRadius: '6px',
+                                  width: '36px',
+                                  height: '36px',
+                                  borderRadius: '8px',
                                   backgroundColor: '#1e293b',
                                   display: 'flex',
                                   alignItems: 'center',
-                                  justifyContent: 'center'
+                                  justifyContent: 'center',
+                                  flexShrink: 0
                                 }}>
-                                  <Milk size={16} color="#38bdf8" />
+                                  <Milk size={18} color="#38bdf8" />
                                 </div>
                                 <div>
-                                  <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#ffffff' }}>
+                                  <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#ffffff' }}>
                                     {item.productName}
                                   </div>
-                                  <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                                    {item.variantLabel} • Qty: {item.quantity} × ₹{item.unitPrice.toFixed(2)}
+                                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
+                                    {item.variantLabel} • Qty: <strong style={{ color: '#ffffff' }}>{item.quantity}</strong> × ₹{item.unitPrice.toFixed(2)}
+                                    {item.deliveryCharge > 0 ? ` (+₹${item.deliveryCharge.toFixed(2)} delivery)` : ''}
                                   </div>
+                                  {(item.deliveredTime || day.deliveredTime) && (
+                                    <div style={{ fontSize: '0.72rem', color: '#4ade80', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                                      <Clock size={11} color="#4ade80" />
+                                      <span>Delivered at {item.deliveredTime || day.deliveredTime}</span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
                               <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#ffffff' }}>
+                                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
                                   ₹ {item.totalAmount.toFixed(2)}
                                 </div>
                                 <span style={{
+                                  display: 'inline-block',
+                                  marginTop: '4px',
                                   fontSize: '0.65rem',
-                                  fontWeight: 700,
-                                  color: item.status === 'DELIVERED' ? '#4ade80' : '#facc15'
+                                  fontWeight: 800,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: item.status === 'DELIVERED' ? 'rgba(34, 197, 94, 0.15)' : (item.status === 'SCHEDULED' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(234, 179, 8, 0.15)'),
+                                  color: item.status === 'DELIVERED' ? '#4ade80' : (item.status === 'SCHEDULED' ? '#38bdf8' : '#facc15')
                                 }}>
                                   {item.status}
                                 </span>
