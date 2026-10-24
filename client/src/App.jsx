@@ -33,6 +33,9 @@ import DeliveryBoyCustomers from './pages/delivery/DeliveryBoyCustomers';
 import DeliveryBoyHistory from './pages/delivery/DeliveryBoyHistory';
 import DeliveryBoyProfile from './pages/delivery/DeliveryBoyProfile';
 
+// Public Customer Delivery & Statement View
+import CustomerStatementView from './pages/public/CustomerStatementView';
+
 import {
   LayoutDashboard,
   Users,
@@ -126,12 +129,45 @@ function MainApplication() {
     }
   }, [user]);
 
+  // Check if current URL is a public customer orders/statement link from WhatsApp
+  const isPublicStatementRoute = () => {
+    const hash = (window.location.hash || '').toLowerCase();
+    const path = (window.location.pathname || '').toLowerCase();
+    return (
+      hash.startsWith('#statement') ||
+      hash.startsWith('#orders') ||
+      hash.startsWith('#my-orders') ||
+      path.startsWith('/statement') ||
+      path.startsWith('/orders') ||
+      path.startsWith('/my-orders')
+    );
+  };
+
+  const [isPublicRoute, setIsPublicRoute] = useState(() => isPublicStatementRoute());
+
+  React.useEffect(() => {
+    const onLocationChange = () => {
+      setIsPublicRoute(isPublicStatementRoute());
+    };
+    window.addEventListener('hashchange', onLocationChange);
+    window.addEventListener('popstate', onLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', onLocationChange);
+      window.removeEventListener('popstate', onLocationChange);
+    };
+  }, []);
+
+  // Direct public access for customers viewing their delivery orders from WhatsApp
+  if (isPublicRoute) {
+    return <CustomerStatementView />;
+  }
+
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000000', color: '#ffffff' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
           <RefreshCw size={36} className="spin" color="var(--primary)" />
-          <span style={{ fontWeight: '700', color: 'var(--text-secondary)' }}>Connecting to Nandini Live Database...</span>
+          <span style={{ fontWeight: '700', color: '#94a3b8' }}>Connecting to Nandini Live Database...</span>
         </div>
       </div>
     );

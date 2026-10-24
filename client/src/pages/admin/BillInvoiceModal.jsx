@@ -263,6 +263,12 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
     if (profile.upi_id) {
       msg += `*UPI ID:* ${profile.upi_id}\n`;
     }
+
+    const hostOrigin = (window.location.origin && !window.location.origin.includes('localhost'))
+      ? window.location.origin
+      : 'https://nandini-milk-parlour-prod.vercel.app';
+    const statementUrl = `${hostOrigin}/#orders?c=${bill.customer_id}&m=${bill.billing_month}&b=${bill.id}`;
+    msg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
     msg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
 
     const invoiceElement = document.getElementById('printable-invoice-content');

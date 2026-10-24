@@ -700,6 +700,12 @@ export default function MonthlyBillGeneratePage() {
     if (businessProfile.upi_id) {
       msg += `*UPI ID:* ${businessProfile.upi_id}\n`;
     }
+
+    const hostOrigin = (window.location.origin && !window.location.origin.includes('localhost'))
+      ? window.location.origin
+      : 'https://nandini-milk-parlour-prod.vercel.app';
+    const statementUrl = `${hostOrigin}/#orders?c=${selectedCustomer.id}&m=${selectedMonth}`;
+    msg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
     msg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
 
     const invoiceElement = document.getElementById('printable-invoice-content');
