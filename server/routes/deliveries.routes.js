@@ -89,38 +89,74 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
     return;
   }
 
-  // Find all active HOUSE customers (Bulk/Hotel customers do NOT use automatic subscriptions)
-  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE' AND customer_category != 'BULK_HOTEL'`;
-  const params = [];
+  // Fetch all active subscriptions and customer details in 1 high-performance batch query
+  let subQuery = `
+    SELECT s.*, 
+           p.name as product_name, p.category, p.variant_label, p.unit_volume_litres,
+           p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge,
+           c.id as customer_id, c.customer_category, c.delivery_boy_id, c.agent_id as cust_agent_id
+    FROM subscriptions s
+    JOIN customers c ON s.customer_id = c.id
+    JOIN products p ON s.product_id = p.id
+    WHERE s.is_active = 1
+      AND s.start_date <= ?
+      AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
+      AND c.status = 'ACTIVE'
+      AND c.customer_category != 'BULK_HOTEL'
+  `;
+  const subParams = [dateStr, dateStr];
+
   if (agentId) {
-    custQuery += ` AND (agent_id = ? OR agent_id IS NULL)`;
-    params.push(agentId);
+    subQuery += ` AND (c.agent_id = ? OR c.agent_id IS NULL)`;
+    subParams.push(agentId);
   }
   if (deliveryBoyId) {
     if (authorizedZoneIds.length > 0) {
       const zPlaceholders = authorizedZoneIds.map(() => '?').join(', ');
-      custQuery += ` AND (delivery_boy_id = ? OR zone_id IN (${zPlaceholders}))`;
-      params.push(deliveryBoyId, ...authorizedZoneIds);
+      subQuery += ` AND (c.delivery_boy_id = ? OR c.zone_id IN (${zPlaceholders}))`;
+      subParams.push(deliveryBoyId, ...authorizedZoneIds);
     } else {
-      custQuery += ` AND delivery_boy_id = ?`;
-      params.push(deliveryBoyId);
+      subQuery += ` AND c.delivery_boy_id = ?`;
+      subParams.push(deliveryBoyId);
     }
   }
-  const customers = await db.prepare(custQuery).all(...params);
 
-  const getActiveSubs = db.prepare(`
-    SELECT s.*, p.name as product_name, p.category, p.variant_label, p.unit_volume_litres,
-           p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge
-    FROM subscriptions s
-    JOIN products p ON s.product_id = p.id
-    WHERE s.customer_id = ? AND s.is_active = 1
-      AND s.start_date <= ?
-      AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
-  `);
+  const allSubs = await db.prepare(subQuery).all(...subParams);
+  if (!allSubs || allSubs.length === 0) return;
 
-  const checkExisting = db.prepare(`
-    SELECT id FROM deliveries WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-  `);
+  // Batch fetch active requirements on this date
+  const allReqs = await db.prepare(`
+    SELECT * FROM daily_delivery_requirements
+    WHERE delivery_date = ? AND status = 'ACTIVE'
+  `).all(dateStr);
+
+  // Batch fetch all existing deliveries on this date
+  const allExisting = await db.prepare(`
+    SELECT id, customer_id, product_id, status FROM deliveries
+    WHERE delivery_date = ?
+  `).all(dateStr);
+
+  // Map target products if any requirement swaps product
+  const targetProdIds = [...new Set(allReqs.map(r => r.target_product_id).filter(Boolean))];
+  const targetProdsMap = new Map();
+  if (targetProdIds.length > 0) {
+    const qPlaceholders = targetProdIds.map(() => '?').join(',');
+    const prods = await db.prepare(`SELECT * FROM products WHERE id IN (${qPlaceholders})`).all(...targetProdIds);
+    for (const p of prods) targetProdsMap.set(p.id, p);
+  }
+
+  const existingMap = new Map();
+  for (const d of allExisting) {
+    existingMap.set(`${d.customer_id}_${d.product_id}`, d);
+  }
+
+  const reqMap = new Map();
+  for (const r of allReqs) {
+    reqMap.set(`${r.customer_id}_${r.product_id}`, r);
+    if (r.target_product_id) {
+      reqMap.set(`${r.customer_id}_target_${r.target_product_id}`, r);
+    }
+  }
 
   const insertPending = db.prepare(`
     INSERT INTO deliveries (
@@ -138,18 +174,24 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
     )
   `);
 
-  const getRequirement = db.prepare(`
-    SELECT * FROM daily_delivery_requirements
-    WHERE customer_id = ? AND (product_id = ? OR target_product_id = ?) AND delivery_date = ? AND status = 'ACTIVE'
-  `);
+  // Group subscriptions by customer
+  const customerSubsMap = new Map();
+  for (const s of allSubs) {
+    if (!customerSubsMap.has(s.customer_id)) {
+      customerSubsMap.set(s.customer_id, {
+        customer_id: s.customer_id,
+        customer_category: s.customer_category,
+        delivery_boy_id: s.delivery_boy_id,
+        agent_id: s.cust_agent_id,
+        subs: []
+      });
+    }
+    customerSubsMap.get(s.customer_id).subs.push(s);
+  }
 
-  for (const cust of customers) {
-    const subs = await getActiveSubs.all(cust.id, dateStr, dateStr);
-    if (!subs || subs.length === 0) continue;
-
-    // Group subscription items with daily requirements applied
-    const items = await Promise.all(subs.map(async s => {
-      const reqRow = await getRequirement.get(cust.id, s.product_id, s.product_id, dateStr);
+  for (const cust of customerSubsMap.values()) {
+    const items = cust.subs.map((s) => {
+      const reqRow = reqMap.get(`${cust.customer_id}_${s.product_id}`);
       let effQty = s.quantity;
       let isSkipped = false;
       let reqReason = '';
@@ -158,11 +200,8 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
 
       if (reqRow) {
         if (reqRow.target_product_id && reqRow.target_product_id !== s.product_id) {
-          const tp = await db.prepare('SELECT * FROM products WHERE id = ?').get(reqRow.target_product_id);
-          if (tp) {
-            targetProd = tp;
-            isCustomTarget = true;
-          }
+          targetProd = targetProdsMap.get(reqRow.target_product_id);
+          if (targetProd) isCustomTarget = true;
         }
         if (reqRow.requirement_type === 'SKIP_DELIVERY') {
           effQty = 0;
@@ -197,7 +236,11 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
         reqReason,
         baseSubscriptionProductId: s.product_id
       };
-    }));
+    });
+
+    // If all items already exist in deliveries table, skip customer completely
+    const hasMissing = items.some((item) => !existingMap.has(`${cust.customer_id}_${item.productId}`));
+    if (!hasMissing) continue;
 
     const calculated = calculateDeliveryChargesForCustomerDay(
       cust.customer_category,
@@ -206,18 +249,20 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
 
     for (const item of items) {
       if (item.baseSubscriptionProductId && item.productId !== item.baseSubscriptionProductId) {
-        // If an old delivery with baseSubscriptionProductId was generated, remove it so target product takes its place
-        const oldBaseDel = await checkExisting.get(cust.id, item.baseSubscriptionProductId, dateStr);
+        const oldKey = `${cust.customer_id}_${item.baseSubscriptionProductId}`;
+        const oldBaseDel = existingMap.get(oldKey);
         if (oldBaseDel) {
           await db.prepare('DELETE FROM deliveries WHERE id = ?').run(oldBaseDel.id);
+          existingMap.delete(oldKey);
         }
       }
 
-      const exist = await checkExisting.get(cust.id, item.productId, dateStr);
+      const itemKey = `${cust.customer_id}_${item.productId}`;
+      const exist = existingMap.get(itemKey);
       if (!exist) {
         if (item.isSkipped) {
-          await insertPending.run(
-            cust.id,
+          const insertRes = await insertPending.run(
+            cust.customer_id,
             cust.delivery_boy_id || null,
             dateStr,
             item.productId,
@@ -227,13 +272,14 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
             item.unitVolumeLitres,
             item.normalQuantity,
             item.sellingPrice,
-            0, // ₹0 product amount
-            0, // ₹0 delivery charge
-            0, // ₹0 total amount
+            0,
+            0,
+            0,
             'SKIPPED',
             item.reqReason || 'Customer Requirement: Skip Delivery',
             cust.agent_id || agentId || 1
           );
+          existingMap.set(itemKey, { id: insertRes.lastInsertRowid, status: 'SKIPPED' });
         } else {
           const calcItem = calculated.find(c => c.productId === item.productId);
           const qty = item.quantity;
@@ -241,8 +287,8 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
           const deliveryCharge = calcItem ? (calcItem.deliveryCharge || 0) : 0;
           const totalAmount = parseFloat((totalProductAmount + deliveryCharge).toFixed(2));
 
-          await insertPending.run(
-            cust.id,
+          const insertRes = await insertPending.run(
+            cust.customer_id,
             cust.delivery_boy_id || null,
             dateStr,
             item.productId,
@@ -259,6 +305,7 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
             item.reqReason || '',
             cust.agent_id || agentId || 1
           );
+          existingMap.set(itemKey, { id: insertRes.lastInsertRowid, status: 'PENDING' });
         }
       }
     }
@@ -637,13 +684,15 @@ async function recalculateCustomerDayDeliveries(customerId, deliveryDate) {
   if (!customer) return;
 
   const dayDeliveries = await db.prepare(`
-    SELECT * FROM deliveries WHERE customer_id = ? AND delivery_date = ?
+    SELECT d.*, p.delivery_charge_type, p.fixed_delivery_charge
+    FROM deliveries d
+    LEFT JOIN products p ON d.product_id = p.id
+    WHERE d.customer_id = ? AND d.delivery_date = ?
   `).all(customerId, deliveryDate);
 
   const nonSkippedItems = [];
   for (const d of dayDeliveries) {
     if (d.status !== 'SKIPPED' && d.quantity > 0) {
-      const prod = await db.prepare('SELECT * FROM products WHERE id = ?').get(d.product_id);
       nonSkippedItems.push({
         deliveryId: d.id,
         productId: d.product_id,
@@ -653,8 +702,8 @@ async function recalculateCustomerDayDeliveries(customerId, deliveryDate) {
         unitVolumeLitres: d.unit_volume_litres_snapshot,
         quantity: d.quantity,
         sellingPrice: d.unit_price_snapshot,
-        deliveryChargeType: prod ? prod.delivery_charge_type : 'MILK_RULE',
-        fixedDeliveryCharge: prod ? prod.fixed_delivery_charge : 0
+        deliveryChargeType: d.delivery_charge_type || 'MILK_RULE',
+        fixedDeliveryCharge: d.fixed_delivery_charge || 0
       });
     }
   }
@@ -783,35 +832,42 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    const updateStmt = db.prepare(`
+    const placeholders = deliveryIds.map(() => '?').join(',');
+    const allDels = await db.prepare(`
+      SELECT id, customer_id, delivery_date, delivery_boy_id, status 
+      FROM deliveries 
+      WHERE id IN (${placeholders})
+    `).all(...deliveryIds);
+
+    const authorizedDels = [];
+    for (const d of allDels) {
+      if (req.user.role === 'DELIVERY_BOY') {
+        const authorized = await isDeliveryAuthorized(d.id, req.user, req.agentId || 1);
+        if (!authorized) continue;
+      }
+      authorizedDels.push(d);
+    }
+
+    if (authorizedDels.length === 0) {
+      return res.json({ message: 'No authorized deliveries to update' });
+    }
+
+    const authorizedIds = authorizedDels.map(d => d.id);
+    const authPlaceholders = authorizedIds.map(() => '?').join(',');
+
+    await db.prepare(`
       UPDATE deliveries
       SET status = ?, notes = COALESCE(?, notes), updated_at = datetime('now', 'localtime')
-      WHERE id = ?
-    `);
+      WHERE id IN (${authPlaceholders})
+    `).run(status, notes || null, ...authorizedIds);
+
+    // Sync coupons in parallel
+    await Promise.all(authorizedIds.map(id => 
+      syncCouponsForDelivery(id).catch(e => console.warn('Coupon sync warning:', e.message))
+    ));
 
     const customerDaysToRecalc = new Map();
-
-    for (const id of deliveryIds) {
-      const d = await db.prepare('SELECT id, customer_id, delivery_date, delivery_boy_id, status FROM deliveries WHERE id = ?').get(id);
-      if (!d) continue;
-
-      // If delivery boy, verify assignment via route hierarchy
-      if (req.user.role === 'DELIVERY_BOY') {
-        const authorized = await isDeliveryAuthorized(id, req.user, req.agentId || 1);
-        if (!authorized) {
-          continue;
-        }
-      }
-
-      await updateStmt.run(status, notes || null, id);
-
-      // Handle coupon deduction or restoration in bulk via idempotent sync
-      try {
-        await syncCouponsForDelivery(id);
-      } catch (cpnErr) {
-        console.warn('Coupon sync in bulk-status warning:', cpnErr.message);
-      }
-
+    for (const d of authorizedDels) {
       const key = `${d.customer_id}_${d.delivery_date}`;
       customerDaysToRecalc.set(key, { customerId: d.customer_id, deliveryDate: d.delivery_date });
     }
@@ -821,7 +877,7 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
       await recalculateCustomerDayDeliveries(customerId, deliveryDate);
     }
 
-    res.json({ message: `Updated ${deliveryIds.length} deliveries to ${status}` });
+    res.json({ message: `Updated ${authorizedIds.length} deliveries to ${status}` });
   } catch (err) {
     console.error('Bulk update delivery error:', err);
     res.status(500).json({ error: 'Failed to update deliveries in bulk' });

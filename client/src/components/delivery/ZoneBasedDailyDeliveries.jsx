@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { api } from '../../api/client';
 import Modal from '../common/Modal';
 import EmptyState from '../common/EmptyState';
@@ -124,7 +124,9 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   // Level 3: Individual Customer Selection state
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [zoneSearchQuery, setZoneSearchQuery] = useState('');
+  const deferredZoneSearch = useDeferredValue(zoneSearchQuery);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const deferredCustomerSearch = useDeferredValue(customerSearchQuery);
   const [routeSortOrder, setRouteSortOrder] = useState('ROUTE_ORDER'); // 'ROUTE_ORDER' | 'NAME' | 'PENDING'
   const [selectedRouteFilter, setSelectedRouteFilter] = useState('ALL');
   const [customerStatusFilter, setCustomerStatusFilter] = useState('ALL'); // 'ALL' | 'PENDING' | 'DELIVERED' | 'SPECIAL' | 'SKIPPED'
@@ -405,10 +407,10 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       }
 
       // If master collections (zones, products, customers) are already loaded in memory,
-      // only re-fetch deliveries on background updates to avoid redundant network roundtrips.
+      // only re-fetch deliveries and notifications on date changes to avoid redundant network roundtrips.
       const hasMasterData = zones.length > 0 && products.length > 0 && customers.length > 0;
 
-      if (hasMasterData && silent) {
+      if (hasMasterData) {
         const [dels, notifs] = await Promise.all([
           api.get('/deliveries', { params }).catch((err) => {
             console.error('Deliveries fetch notice:', err);
@@ -693,8 +695,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   const displayedZones = useMemo(() => {
     let list = [...zoneGroups];
 
-    if (zoneSearchQuery.trim()) {
-      const q = zoneSearchQuery.toLowerCase();
+    if (deferredZoneSearch.trim()) {
+      const q = deferredZoneSearch.toLowerCase();
       list = list.filter((z) => z.name.toLowerCase().includes(q) || z.address.toLowerCase().includes(q));
     }
 
@@ -707,7 +709,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     }
 
     return list;
-  }, [zoneGroups, zoneSearchQuery, routeSortOrder]);
+  }, [zoneGroups, deferredZoneSearch, routeSortOrder]);
 
   // Active Selected Zone (Level 2)
   const activeZone = useMemo(() => {
@@ -758,8 +760,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     }
 
     // Search query by name, flat_no, phone, or address
-    if (customerSearchQuery.trim()) {
-      const q = customerSearchQuery.toLowerCase().trim();
+    if (deferredCustomerSearch.trim()) {
+      const q = deferredCustomerSearch.toLowerCase().trim();
       list = list.filter((c) =>
         c.customer_name?.toLowerCase().includes(q) ||
         c.flat_no?.toLowerCase().includes(q) ||
@@ -777,7 +779,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     });
 
     return list;
-  }, [activeZone, customerCategoryTab, customerStatusFilter, customerSearchQuery]);
+  }, [activeZone, customerCategoryTab, customerStatusFilter, deferredCustomerSearch]);
 
   // ----------------------------------------------------
   // ACTION HANDLERS (with instant optimistic UI updates)

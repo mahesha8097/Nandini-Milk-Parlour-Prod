@@ -17,9 +17,12 @@ if (isProduction && process.env.DATABASE_URL) {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
-    max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+    max: parseInt(process.env.DB_POOL_MAX || '15', 10),
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: 5000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+    statement_timeout: 15000,
   });
 
   pool.on('error', (err) => {
@@ -238,6 +241,31 @@ if (isProduction && process.env.DATABASE_URL) {
         try {
           await pool.query(`ALTER TABLE business_profile DROP CONSTRAINT IF EXISTS business_profile_id_check;`);
         } catch (e) {}
+
+        try {
+          await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_deliveries_date ON deliveries(delivery_date);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_cust ON deliveries(customer_id);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_cust_date ON deliveries(customer_id, delivery_date);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_date_agent ON deliveries(delivery_date, agent_id);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_dboy ON deliveries(delivery_boy_id);
+            CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status);
+            CREATE INDEX IF NOT EXISTS idx_subscriptions_cust_active ON subscriptions(customer_id, is_active, start_date);
+            CREATE INDEX IF NOT EXISTS idx_req_date_cust ON daily_delivery_requirements(delivery_date, customer_id);
+            CREATE INDEX IF NOT EXISTS idx_req_date_status ON daily_delivery_requirements(delivery_date, status);
+            CREATE INDEX IF NOT EXISTS idx_customers_zone ON customers(zone_id);
+            CREATE INDEX IF NOT EXISTS idx_customers_agent ON customers(agent_id);
+            CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
+            CREATE INDEX IF NOT EXISTS idx_zones_route ON zones(route_id);
+            CREATE INDEX IF NOT EXISTS idx_zones_agent ON zones(agent_id);
+            CREATE INDEX IF NOT EXISTS idx_bills_month ON bills(billing_month);
+            CREATE INDEX IF NOT EXISTS idx_bills_cust ON bills(customer_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_cust ON payments(customer_id);
+            CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+          `);
+        } catch (idxErr) {
+          console.warn('Postgres performance indexes init note:', idxErr.message);
+        }
       })();
     }
     return pgInitPromise;
