@@ -15,13 +15,29 @@ async function runTests() {
 
   try {
     // 1. Setup a test customer and subscription
-    const existingCust = db.prepare(`
+    let existingCust = db.prepare(`
       SELECT c.*, s.id as sub_id, s.product_id
       FROM customers c
       JOIN subscriptions s ON c.id = s.customer_id
       WHERE c.status = 'ACTIVE' AND s.is_active = 1
       LIMIT 1
     `).get();
+
+    if (!existingCust) {
+      let cust = db.prepare(`SELECT * FROM customers WHERE status = 'ACTIVE' LIMIT 1`).get();
+      if (!cust) {
+        const cRes = db.prepare(`INSERT INTO customers (name, phone, address, customer_category, billing_type, status, created_at, updated_at) VALUES ('Test Vacation Customer', '9999988888', 'Test Address', 'HOUSE', 'PREPAID', 'ACTIVE', datetime('now', 'localtime'), datetime('now', 'localtime'))`).run();
+        cust = db.prepare(`SELECT * FROM customers WHERE id = ?`).get(cRes.lastInsertRowid);
+      }
+      let prod = db.prepare(`SELECT * FROM products WHERE is_active = 1 LIMIT 1`).get();
+      if (!prod) {
+        const pRes = db.prepare(`INSERT INTO products (name, category, variant_label, selling_price, is_active, created_at, updated_at) VALUES ('Test Milk', 'Milk', '500 ml', 28, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))`).run();
+        prod = db.prepare(`SELECT * FROM products WHERE id = ?`).get(pRes.lastInsertRowid);
+      }
+      const sRes = db.prepare(`INSERT INTO subscriptions (customer_id, product_id, quantity, frequency, start_date, is_active, created_at, updated_at) VALUES (?, ?, 1, 'DAILY', '2026-01-01', 1, datetime('now', 'localtime'), datetime('now', 'localtime'))`).run(cust.id, prod.id);
+      existingCust = { ...cust, sub_id: sRes.lastInsertRowid, product_id: prod.id };
+    }
+
     assert(existingCust, 'Must have at least one active customer with active subscription');
     testCustomerId = existingCust.id;
     testSubId = existingCust.sub_id;
