@@ -79,7 +79,14 @@ async function issueCouponBook({
   const finalProductId = productId ? parseInt(productId, 10) : null;
   let product = null;
   if (finalProductId) {
-    product = await db.prepare('SELECT id, name, category, variant_label, selling_price, unit_volume_litres, delivery_charge_type, fixed_delivery_charge FROM products WHERE id = ?').get(finalProductId);
+    product = await db.prepare('SELECT id, name, category, variant_label, selling_price, unit_volume_litres, delivery_charge_type, fixed_delivery_charge, is_coupon_eligible FROM products WHERE id = ?').get(finalProductId);
+    if (!product) {
+      throw new Error(`Product not found (ID: ${finalProductId})`);
+    }
+    const isEligible = product.is_coupon_eligible === 1 || product.category === 'Milk' || product.category === 'MILK';
+    if (!isEligible) {
+      throw new Error(`Product "${product.name}" (${product.category}) is not eligible for coupon books. Coupon books can only be issued for coupon-eligible milk products.`);
+    }
   }
 
   const finalBookNumber = bookNumber && bookNumber.trim()
@@ -224,9 +231,28 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
     return null; // Not a coupon customer or no books issued
   }
 
+  // Check if delivery product is coupon-eligible (Milk products only; Curd/Ghee/etc are non-coupon billed items)
+  let isCouponEligible = false;
+  if (delivery.product_id) {
+    const prod = await db.prepare('SELECT id, name, category, is_coupon_eligible FROM products WHERE id = ?').get(delivery.product_id);
+    if (prod) {
+      isCouponEligible = prod.is_coupon_eligible === 1 || prod.category === 'Milk' || prod.category === 'MILK';
+    } else {
+      isCouponEligible = (delivery.category_snapshot === 'Milk' || delivery.category_snapshot === 'MILK');
+    }
+  } else if (delivery.category_snapshot) {
+    isCouponEligible = (delivery.category_snapshot === 'Milk' || delivery.category_snapshot === 'MILK');
+  } else if (delivery.product_name_snapshot) {
+    const nameLower = delivery.product_name_snapshot.toLowerCase();
+    isCouponEligible = nameLower.includes('milk') && !nameLower.includes('curd');
+  }
+
   // 1. Determine target coupons to deduct for this delivery
   let targetCoupons;
-  if (options.forceTarget !== undefined) {
+  if (!isCouponEligible) {
+    // Non-coupon products (Curd, Ghee, Sweets, etc.) NEVER consume coupons!
+    targetCoupons = 0;
+  } else if (options.forceTarget !== undefined) {
     targetCoupons = Math.max(0, parseInt(options.forceTarget, 10) || 0);
   } else {
     const isDelivered = delivery.status === 'DELIVERED';

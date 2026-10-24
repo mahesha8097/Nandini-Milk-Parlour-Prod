@@ -296,6 +296,7 @@ router.get('/', verifyToken, async (req, res) => {
              z.route_id,
              u.name as delivery_boy_name,
              p.image_url as product_image_url,
+             p.is_coupon_eligible,
              s.quantity as subscription_quantity,
              s.product_id as subscription_product_id,
              r.id as requirement_id,

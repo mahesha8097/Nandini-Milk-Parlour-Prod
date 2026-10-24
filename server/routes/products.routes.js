@@ -77,11 +77,14 @@ router.post('/upload-image', requireAdmin, handleUpload(upload.single('image')),
 // Get all products (Admin can see all, Delivery Boy / general can see active products)
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const { includeInactive } = req.query;
+    const { includeInactive, coupon_eligible } = req.query;
     const agentId = req.agentId || 1;
     let query = 'SELECT * FROM products WHERE agent_id = ?';
     if (includeInactive !== 'true') {
       query += ' AND is_active = 1';
+    }
+    if (coupon_eligible === 'true' || coupon_eligible === '1') {
+      query += ' AND is_coupon_eligible = 1';
     }
     query += ' ORDER BY category ASC, name ASC, variant_label ASC';
     let products = await db.prepare(query).all(agentId);
@@ -91,6 +94,21 @@ router.get('/', verifyToken, async (req, res) => {
     res.json(products);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// Dedicated endpoint to fetch only active coupon-eligible products
+router.get('/coupon-eligible', verifyToken, async (req, res) => {
+  try {
+    const agentId = req.agentId || 1;
+    let query = 'SELECT * FROM products WHERE is_active = 1 AND is_coupon_eligible = 1 AND agent_id = ? ORDER BY category ASC, name ASC, variant_label ASC';
+    let products = await db.prepare(query).all(agentId);
+    if ((!products || products.length === 0) && agentId !== 1) {
+      products = await db.prepare(query).all(1);
+    }
+    res.json(products);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch coupon-eligible products' });
   }
 });
 
@@ -119,7 +137,8 @@ router.post('/', requireAdmin, async (req, res) => {
       delivery_charge_type,
       fixed_delivery_charge,
       image_url,
-      is_active
+      is_active,
+      is_coupon_eligible
     } = req.body;
 
     if (!name || !category || !variant_label || selling_price === undefined) {
@@ -135,14 +154,17 @@ router.post('/', requireAdmin, async (req, res) => {
     const chargeType = delivery_charge_type || (category === 'Milk' ? 'MILK_RULE' : 'NONE');
     const fixedCharge = parseFloat(fixed_delivery_charge || 0);
     const active = is_active === undefined ? 1 : (is_active ? 1 : 0);
+    const couponEligible = is_coupon_eligible !== undefined
+      ? (is_coupon_eligible ? 1 : 0)
+      : (category === 'Milk' || category === 'MILK' ? 1 : 0);
     const agentId = req.agentId || 1;
 
     const stmt = db.prepare(`
       INSERT INTO products (
         name, category, variant_label, unit_volume_litres, selling_price,
-        delivery_charge_type, fixed_delivery_charge, is_active, image_url,
+        delivery_charge_type, fixed_delivery_charge, is_coupon_eligible, is_active, image_url,
         agent_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
     `);
 
     const result = await stmt.run(
@@ -153,6 +175,7 @@ router.post('/', requireAdmin, async (req, res) => {
       price,
       chargeType,
       fixedCharge,
+      couponEligible,
       active,
       image_url || null,
       agentId
@@ -192,7 +215,8 @@ router.put('/:id', requireAdmin, async (req, res) => {
       delivery_charge_type,
       fixed_delivery_charge,
       image_url,
-      is_active
+      is_active,
+      is_coupon_eligible
     } = req.body;
 
     const price = selling_price !== undefined ? parseFloat(selling_price) : existing.selling_price;
@@ -200,12 +224,15 @@ router.put('/:id', requireAdmin, async (req, res) => {
     const chargeType = delivery_charge_type || existing.delivery_charge_type;
     const fixedCharge = fixed_delivery_charge !== undefined ? parseFloat(fixed_delivery_charge) : existing.fixed_delivery_charge;
     const active = is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active;
+    const couponEligible = is_coupon_eligible !== undefined
+      ? (is_coupon_eligible ? 1 : 0)
+      : (existing.is_coupon_eligible !== undefined ? existing.is_coupon_eligible : (existing.category === 'Milk' ? 1 : 0));
 
     await db.prepare(`
       UPDATE products
       SET name = ?, category = ?, variant_label = ?, unit_volume_litres = ?,
           selling_price = ?, delivery_charge_type = ?, fixed_delivery_charge = ?,
-          image_url = ?, is_active = ?, updated_at = datetime('now', 'localtime')
+          is_coupon_eligible = ?, image_url = ?, is_active = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
       (name || existing.name).trim(),
@@ -215,6 +242,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       price,
       chargeType,
       fixedCharge,
+      couponEligible,
       image_url !== undefined ? image_url : existing.image_url,
       active,
       productId

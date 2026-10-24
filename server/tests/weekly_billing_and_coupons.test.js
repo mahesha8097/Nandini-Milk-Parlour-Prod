@@ -200,7 +200,16 @@ async function runWeeklyAndCouponTests() {
   // WEEKLY BILLING TESTS
   // ================================================================
   const WEEKLY_PHONE = '9888877772';
-  await db.prepare('DELETE FROM customers WHERE phone = ?').run(WEEKLY_PHONE);
+  const oldWeeklyCust = await db.prepare('SELECT id FROM customers WHERE phone = ?').get(WEEKLY_PHONE);
+  if (oldWeeklyCust) {
+    await db.prepare('DELETE FROM bills WHERE customer_id = ?').run(oldWeeklyCust.id);
+    await db.prepare('DELETE FROM deliveries WHERE customer_id = ?').run(oldWeeklyCust.id);
+    await db.prepare('DELETE FROM payments WHERE customer_id = ?').run(oldWeeklyCust.id);
+    await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ?').run(oldWeeklyCust.id);
+    await db.prepare('DELETE FROM coupon_transactions WHERE customer_id = ?').run(oldWeeklyCust.id);
+    await db.prepare('DELETE FROM coupon_books WHERE customer_id = ?').run(oldWeeklyCust.id);
+    await db.prepare('DELETE FROM customers WHERE id = ?').run(oldWeeklyCust.id);
+  }
 
   const weeklyCustRes = await db.prepare(`
     INSERT INTO customers (
@@ -406,6 +415,79 @@ async function runWeeklyAndCouponTests() {
   assert.strictEqual(bookDelChargeTest.book.price_paid, expectedTotal, `Coupon book price must include ₹1.5/packet delivery charge (30 × ₹${parseFloat(prodAFull.selling_price) + 1.5} = ₹${expectedTotal})`);
   console.log('[TEST 12] Coupon Book issuance automatically includes ₹1.50/coupon delivery charge in payment ✓');
 
+  // Test [TEST 13] Coupon-Eligible Product Separation: Non-coupon items (Curd, Ghee) NEVER deduct coupons
+  const curdProd = await db.prepare(`
+    INSERT INTO products (name, category, variant_label, selling_price, is_coupon_eligible, agent_id, created_at, updated_at)
+    VALUES ('Special Curd Pkt', 'Curd', '500 g', 28.0, 0, 1, datetime('now'), datetime('now'))
+  `).run();
+  const curdProdId = curdProd.lastInsertRowid;
+
+  // 1. Attempting to issue coupon book for non-eligible product must throw error
+  let rejectedAsNonCoupon = false;
+  try {
+    await issueCouponBook({
+      customerId: multiCustId,
+      productId: curdProdId,
+      totalCoupons: 10
+    });
+  } catch (err) {
+    rejectedAsNonCoupon = true;
+    assert(err.message.includes('not eligible for coupon books'), 'Error message must state product not eligible for coupons');
+  }
+  assert.strictEqual(rejectedAsNonCoupon, true, 'Issuing coupon book for Curd must be rejected');
+
+  // 2. Customer current balance
+  const custBeforeCurd = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
+  const balBeforeCurd = custBeforeCurd.coupon_balance;
+
+  // 3. Deliver Curd to coupon customer: MUST NOT deduct any coupons
+  const curdDeliv = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, delivery_date, product_id, product_name_snapshot, category_snapshot,
+      variant_snapshot, unit_volume_litres_snapshot, quantity, unit_price_snapshot,
+      total_product_amount, delivery_charge_snapshot, total_amount, status, created_at, updated_at
+    ) VALUES (
+      ?, '2026-10-25', ?, 'Special Curd Pkt', 'Curd',
+      '500 g', 0.5, 3, 28.0,
+      84.0, 0, 84.0, 'DELIVERED', datetime('now'), datetime('now')
+    )
+  `).run(multiCustId, curdProdId);
+
+  await syncCouponsForDelivery(curdDeliv.lastInsertRowid);
+  const custAfterCurd = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
+  assert.strictEqual(custAfterCurd.coupon_balance, balBeforeCurd, 'Delivering Curd to a coupon customer must NEVER deduct coupons');
+
+  // 4. Deliver Milk to the same customer: MUST deduct coupons strictly for milk
+  const milkDeliv = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, delivery_date, product_id, product_name_snapshot, category_snapshot,
+      variant_snapshot, unit_volume_litres_snapshot, quantity, unit_price_snapshot,
+      total_product_amount, delivery_charge_snapshot, total_amount, status, created_at, updated_at
+    ) VALUES (
+      ?, '2026-10-25', ?, 'Special Milk A', 'Milk',
+      '500 ml', 0.5, 2, 27.0,
+      54.0, 0, 54.0, 'DELIVERED', datetime('now'), datetime('now')
+    )
+  `).run(multiCustId, prodA.id);
+
+  await syncCouponsForDelivery(milkDeliv.lastInsertRowid);
+  const custAfterMilk = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
+  assert.strictEqual(custAfterMilk.coupon_balance, balBeforeCurd - 2, 'Delivering 2 milk packets must deduct exactly 2 coupons');
+
+  // 5. Skipping curd must NOT change balance
+  await db.prepare("UPDATE deliveries SET status = 'SKIPPED' WHERE id = ?").run(curdDeliv.lastInsertRowid);
+  await syncCouponsForDelivery(curdDeliv.lastInsertRowid);
+  const custAfterCurdSkip = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
+  assert.strictEqual(custAfterCurdSkip.coupon_balance, balBeforeCurd - 2, 'Skipping Curd must not alter coupon balance');
+
+  // 6. Skipping milk restores milk coupons
+  await db.prepare("UPDATE deliveries SET status = 'SKIPPED' WHERE id = ?").run(milkDeliv.lastInsertRowid);
+  await syncCouponsForDelivery(milkDeliv.lastInsertRowid);
+  const custAfterMilkSkip = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(multiCustId);
+  assert.strictEqual(custAfterMilkSkip.coupon_balance, balBeforeCurd, 'Skipping Milk must restore deducted coupons');
+
+  console.log('[TEST 13] Separate Products for Coupon Books: Non-coupon items never deduct coupons, Milk deducts & restores perfectly ✓');
+
   // Clean test data
   await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
   await db.prepare('DELETE FROM coupon_transactions WHERE customer_id IN (?, ?)').run(customerId, multiCustId);
@@ -414,6 +496,7 @@ async function runWeeklyAndCouponTests() {
   await db.prepare('DELETE FROM payments WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
   await db.prepare('DELETE FROM customer_ledger WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
   await db.prepare('DELETE FROM customers WHERE id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
+  await db.prepare('DELETE FROM products WHERE id = ?').run(curdProdId);
 
   console.log('\n================================================================');
   console.log(' ALL WEEKLY BILLING & COUPON SYSTEM TESTS PASSED! ✓');

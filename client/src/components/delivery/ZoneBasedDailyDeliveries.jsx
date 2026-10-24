@@ -643,6 +643,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             customer_phone: first.customer_phone,
             customer_address: first.customer_address,
             customer_category: first.customer_category,
+            billing_type: first.billing_type,
             customer_route: first.customer_route,
             customer_serial_no: first.customer_serial_no || first.serial_no || 0,
             flat_no: first.flat_no || '',
@@ -3043,6 +3044,41 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                         <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '3px' }}>
                           Subscription: <strong>{item.subscription_quantity || item.quantity} {(item.subscription_quantity || item.quantity) === 1 ? 'packet' : 'packets'}/day</strong>
                         </div>
+                        {activeCustomer?.billing_type === 'COUPON' && (
+                          <div style={{ marginTop: '5px' }}>
+                            {item.is_coupon_eligible === 1 || item.category_snapshot === 'Milk' || item.category_snapshot === 'MILK' ? (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: '#ecfdf5',
+                                color: '#059669',
+                                border: '1px solid #a7f3d0',
+                                borderRadius: '6px',
+                                padding: '2px 8px',
+                                fontSize: '0.72rem',
+                                fontWeight: '700'
+                              }}>
+                                🏷️ Coupon Item (Deducts 1 coupon/pkt)
+                              </span>
+                            ) : (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: '#f8fafc',
+                                color: '#475569',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '6px',
+                                padding: '2px 8px',
+                                fontSize: '0.72rem',
+                                fontWeight: '700'
+                              }}>
+                                💵 Billed Item (No Coupon Deducted)
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 

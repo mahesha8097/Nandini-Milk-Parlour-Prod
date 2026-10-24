@@ -31,6 +31,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [couponFilter, setCouponFilter] = useState('ALL');
 
   // Add / Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(initialOpenAdd);
@@ -43,6 +44,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
     selling_price: '',
     delivery_charge_type: 'MILK_RULE',
     fixed_delivery_charge: 0,
+    is_coupon_eligible: 1,
     image_url: '',
     is_active: 1
   });
@@ -88,6 +90,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       selling_price: '',
       delivery_charge_type: 'MILK_RULE',
       fixed_delivery_charge: 0,
+      is_coupon_eligible: 1,
       image_url: '',
       is_active: 1
     });
@@ -134,6 +137,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       selling_price: p.selling_price,
       delivery_charge_type: p.delivery_charge_type,
       fixed_delivery_charge: p.fixed_delivery_charge || 0,
+      is_coupon_eligible: p.is_coupon_eligible !== undefined ? (p.is_coupon_eligible ? 1 : 0) : (p.category === 'Milk' ? 1 : 0),
       image_url: p.image_url || '',
       is_active: p.is_active
     });
@@ -150,7 +154,8 @@ export default function ProductsPage({ initialOpenAdd = false }) {
         category: 'Milk',
         variant_label: '500 ml',
         unit_volume_litres: 0.5,
-        delivery_charge_type: 'MILK_RULE'
+        delivery_charge_type: 'MILK_RULE',
+        is_coupon_eligible: 1
       }));
       setVariantSelect('500 ml');
       setCustomVariant('');
@@ -158,7 +163,8 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       setFormData((prev) => ({
         ...prev,
         category: customCategory || '',
-        delivery_charge_type: 'NONE'
+        delivery_charge_type: 'NONE',
+        is_coupon_eligible: 0
       }));
       setVariantSelect('Others');
     } else {
@@ -167,7 +173,8 @@ export default function ProductsPage({ initialOpenAdd = false }) {
         category: val,
         variant_label: 'Pkt',
         unit_volume_litres: 0,
-        delivery_charge_type: 'NONE'
+        delivery_charge_type: 'NONE',
+        is_coupon_eligible: 0
       }));
       setVariantSelect('Pkt');
       setCustomVariant('');
@@ -300,6 +307,8 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       if (categoryFilter !== 'ALL' && p.category !== categoryFilter) return false;
       if (statusFilter === 'ACTIVE' && !p.is_active) return false;
       if (statusFilter === 'INACTIVE' && p.is_active) return false;
+      if (couponFilter === 'COUPON' && !p.is_coupon_eligible && p.category !== 'Milk') return false;
+      if (couponFilter === 'NON_COUPON' && (p.is_coupon_eligible || p.category === 'Milk')) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const name = (p.name || '').toLowerCase();
@@ -312,7 +321,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       }
       return true;
     });
-  }, [products, searchQuery, categoryFilter, statusFilter]);
+  }, [products, searchQuery, categoryFilter, statusFilter, couponFilter]);
 
   return (
     <div className="page-wrapper">
@@ -383,6 +392,17 @@ export default function ProductsPage({ initialOpenAdd = false }) {
               <option value="ALL">All Statuses</option>
               <option value="ACTIVE">Active Only</option>
               <option value="INACTIVE">Inactive Only</option>
+            </select>
+
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={couponFilter}
+              onChange={(e) => setCouponFilter(e.target.value)}
+            >
+              <option value="ALL">All Product Types</option>
+              <option value="COUPON">🏷️ Coupon Eligible</option>
+              <option value="NON_COUPON">💵 Regular / Non-Coupon</option>
             </select>
 
             {(searchQuery || categoryFilter !== 'ALL' || statusFilter !== 'ALL') && (
@@ -487,7 +507,18 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                       </div>
                     </td>
                     <td>
-                      <span className="badge badge-indigo">{p.category}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="badge badge-indigo">{p.category}</span>
+                        {p.is_coupon_eligible ? (
+                          <span className="badge badge-success" style={{ fontSize: '0.7rem' }} title="Coupons are deducted upon delivery">
+                            🏷️ Coupon
+                          </span>
+                        ) : (
+                          <span className="badge badge-gray" style={{ fontSize: '0.7rem' }} title="Billed item - never deducts coupons">
+                            💵 Non-Coupon
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span style={{ fontWeight: '600' }}>{p.variant_label}</span>
@@ -595,6 +626,11 @@ export default function ProductsPage({ initialOpenAdd = false }) {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
                       <span className="badge badge-indigo" style={{ fontSize: '0.72rem' }}>{p.category}</span>
+                      {p.is_coupon_eligible ? (
+                        <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>🏷️ Coupon Item</span>
+                      ) : (
+                        <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>💵 Non-Coupon</span>
+                      )}
                       <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-secondary)' }}>
                         {p.variant_label} {p.unit_volume_litres > 0 && `(${p.unit_volume_litres} L)`}
                       </span>
@@ -922,6 +958,39 @@ export default function ProductsPage({ initialOpenAdd = false }) {
               />
             </div>
           )}
+
+          {/* Coupon Book Compatibility Setting */}
+          <div style={{
+            marginTop: '16px',
+            marginBottom: '16px',
+            padding: '14px 16px',
+            borderRadius: '10px',
+            background: formData.is_coupon_eligible ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-secondary)',
+            border: formData.is_coupon_eligible ? '1.5px solid #10b981' : '1px solid var(--border-color)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px'
+          }}>
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '0.9rem', color: formData.is_coupon_eligible ? '#059669' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>🏷️ Coupon Book Deductions Eligible</span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.4 }}>
+                {formData.is_coupon_eligible
+                  ? 'Coupon customers will have 1 coupon deducted per packet delivered. Deliveries will never charge cash.'
+                  : 'This item is NOT a coupon product (e.g. Curd, Ghee). Delivering this will NEVER deduct coupons from coupon books and will be billed separately.'}
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+              <input
+                type="checkbox"
+                checked={!!formData.is_coupon_eligible}
+                onChange={(e) => setFormData({ ...formData, is_coupon_eligible: e.target.checked ? 1 : 0 })}
+                style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#10b981' }}
+              />
+            </label>
+          </div>
 
           {editingProduct && (
             <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid #e2e8f0', marginBottom: '16px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>

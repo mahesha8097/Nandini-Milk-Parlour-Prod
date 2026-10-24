@@ -98,14 +98,15 @@ const handleAgentRegistration = async (req, res) => {
       const insertProd = db.prepare(`
         INSERT INTO products (
           name, category, variant_label, unit_volume_litres, selling_price, delivery_charge_type,
-          fixed_delivery_charge, is_active, image_url, agent_id, created_at, updated_at
+          fixed_delivery_charge, is_coupon_eligible, is_active, image_url, agent_id, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+          ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
         )
       `);
       for (const p of baseProducts) {
-        insertProd.run(p.name, p.category, p.variant_label, p.unit_volume_litres, p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge || 0, p.is_active !== undefined ? p.is_active : 1, p.image_url || null, newUserId);
+        const isCoupon = p.is_coupon_eligible !== undefined ? (p.is_coupon_eligible ? 1 : 0) : (p.category === 'Milk' ? 1 : 0);
+        insertProd.run(p.name, p.category, p.variant_label, p.unit_volume_litres, p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge || 0, isCoupon, p.is_active !== undefined ? p.is_active : 1, p.image_url || null, newUserId);
       }
     } catch (prodErr) {
       console.warn('Agent standard products seed note:', prodErr.message);

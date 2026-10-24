@@ -968,11 +968,11 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                   className="form-control"
                   style={{ padding: '6px 10px', fontSize: '13px', borderRadius: '8px', minWidth: '160px' }}
                 >
-                  <option value="ALL">All Milk Products</option>
-                  <option value="UNIVERSAL">Universal / General Only</option>
-                  {allProducts.map((p) => (
+                  <option value="ALL">All Products Filter</option>
+                  <option value="UNIVERSAL">🎟️ Universal Milk Only</option>
+                  {allProducts.filter(p => p.is_coupon_eligible === 1 || p.category === 'Milk').map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.variant_label || ''})
+                      🥛 {p.name} ({p.variant_label || ''})
                     </option>
                   ))}
                 </select>
@@ -1339,15 +1339,26 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     onChange={(e) => handleIssueProductChange(e.target.value)}
                     style={{ width: '100%', borderRadius: '8px', padding: '10px', background: '#ffffff', backgroundColor: '#ffffff' }}
                   >
-                    <option value="">🎟️ All Products / Universal Milk Coupons (General)</option>
-                    {allProducts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        🥛 {p.name} {p.variant_label ? `(${p.variant_label})` : ''} - ₹{p.selling_price}/unit
-                      </option>
-                    ))}
+                    <option value="">🎟️ All Milk Products / Universal Milk Coupons (Applies to any milk)</option>
+                    <optgroup label="🏷️ Coupon Eligible Milk Products">
+                      {allProducts.filter(p => p.is_coupon_eligible === 1 || p.category === 'Milk').map((p) => (
+                        <option key={p.id} value={p.id}>
+                          🥛 {p.name} {p.variant_label ? `(${p.variant_label})` : ''} - ₹{p.selling_price}/unit
+                        </option>
+                      ))}
+                    </optgroup>
+                    {allProducts.filter(p => p.is_coupon_eligible !== 1 && p.category !== 'Milk').length > 0 && (
+                      <optgroup label="⚠️ Non-Coupon Products (Billed separately - not eligible for coupon books)" disabled>
+                        {allProducts.filter(p => p.is_coupon_eligible !== 1 && p.category !== 'Milk').map((p) => (
+                          <option key={p.id} value={p.id} disabled>
+                            📦 {p.name} ({p.category}) - Non-Coupon Item
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Selecting a product reserves coupons strictly for that milk variety during daily delivery deductions.
+                    Coupons only deduct for coupon-eligible milk products. Non-coupon items (curd, ghee, sweets) are billed separately and never deduct coupons.
                   </div>
                 </div>
 
@@ -1605,12 +1616,23 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       }}
                       style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     >
-                      <option value="">🎟️ Universal / All Milk</option>
-                      {allProducts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          🥛 {p.name} {p.variant_label ? `(${p.variant_label})` : ''} - ₹{p.selling_price}/unit
-                        </option>
-                      ))}
+                      <option value="">🎟️ Universal / All Milk Products</option>
+                      <optgroup label="🏷️ Coupon Eligible Milk Products">
+                        {allProducts.filter(p => p.is_coupon_eligible === 1 || p.category === 'Milk').map((p) => (
+                          <option key={p.id} value={p.id}>
+                            🥛 {p.name} {p.variant_label ? `(${p.variant_label})` : ''} - ₹{p.selling_price}/unit
+                          </option>
+                        ))}
+                      </optgroup>
+                      {allProducts.filter(p => p.is_coupon_eligible !== 1 && p.category !== 'Milk').length > 0 && (
+                        <optgroup label="⚠️ Non-Coupon Products (Not eligible for coupon books)" disabled>
+                          {allProducts.filter(p => p.is_coupon_eligible !== 1 && p.category !== 'Milk').map((p) => (
+                            <option key={p.id} value={p.id} disabled>
+                              📦 {p.name} ({p.category}) - Non-Coupon
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                 </div>

@@ -112,6 +112,15 @@ if (isProduction && process.env.DATABASE_URL) {
 
         try {
           await pool.query(`
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS is_coupon_eligible INTEGER DEFAULT 0;
+            UPDATE products SET is_coupon_eligible = 1 WHERE is_coupon_eligible = 0 AND (category = 'Milk' OR category = 'MILK' OR LOWER(name) LIKE '%milk%');
+          `);
+        } catch (e) {
+          console.warn('Postgres products is_coupon_eligible init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
             CREATE TABLE IF NOT EXISTS coupon_books (
               id SERIAL PRIMARY KEY,
               customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -375,6 +384,7 @@ if (isProduction && process.env.DATABASE_URL) {
         selling_price REAL NOT NULL,
         delivery_charge_type TEXT DEFAULT 'MILK_RULE' CHECK(delivery_charge_type IN ('MILK_RULE', 'FIXED_PER_UNIT', 'NONE')),
         fixed_delivery_charge REAL DEFAULT 0,
+        is_coupon_eligible INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
         image_url TEXT,
         created_at TEXT NOT NULL,
@@ -759,6 +769,19 @@ if (isProduction && process.env.DATABASE_URL) {
       }
     } catch (cbErr) {
       console.warn('Migration note for coupon_books.product_id in SQLite:', cbErr.message);
+    }
+
+    // Ensure is_coupon_eligible column exists on products in SQLite
+    try {
+      const prodTableInfo = db.prepare("PRAGMA table_info(products)").all();
+      const hasCouponEligible = prodTableInfo.some(col => col.name === 'is_coupon_eligible');
+      if (!hasCouponEligible) {
+        db.prepare("ALTER TABLE products ADD COLUMN is_coupon_eligible INTEGER DEFAULT 0").run();
+      }
+      db.prepare("UPDATE products SET is_coupon_eligible = 1 WHERE is_coupon_eligible = 0 AND (category = 'Milk' OR category = 'MILK' OR LOWER(name) LIKE '%milk%')").run();
+      db.prepare("UPDATE products SET is_coupon_eligible = 0 WHERE category != 'Milk' AND category != 'MILK' AND LOWER(name) NOT LIKE '%milk%'").run();
+    } catch (pErr) {
+      console.warn('Migration note for products.is_coupon_eligible in SQLite:', pErr.message);
     }
 
     // Seed default zones if table is empty

@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS products (
   selling_price DOUBLE PRECISION NOT NULL,
   delivery_charge_type TEXT DEFAULT 'MILK_RULE' CHECK(delivery_charge_type IN ('MILK_RULE', 'FIXED_PER_UNIT', 'NONE')),
   fixed_delivery_charge DOUBLE PRECISION DEFAULT 0,
+  is_coupon_eligible INTEGER DEFAULT 0,
   is_active INTEGER DEFAULT 1,
   image_url TEXT,
   agent_id INTEGER DEFAULT 1,
