@@ -833,6 +833,37 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     }
   };
 
+  // Revert all deliveries for a customer to PENDING
+  const handleRevertCustomer = async (cust) => {
+    if (!cust || !cust.items || cust.items.length === 0) return;
+    const itemsToRevert = cust.items.filter((it) => it.status !== 'PENDING');
+    if (itemsToRevert.length === 0) return;
+
+    const idsToRevert = itemsToRevert.map((it) => it.id);
+    const idSet = new Set(idsToRevert);
+
+    // Instant optimistic update
+    setDeliveries((prev) =>
+      prev.map((d) => (idSet.has(d.id) ? { ...d, status: 'PENDING', delivered_at: null } : d))
+    );
+
+    try {
+      if (idsToRevert.length === 1) {
+        await api.put(`/deliveries/${idsToRevert[0]}/status`, { status: 'PENDING' });
+      } else {
+        await api.post('/deliveries/bulk-status', {
+          deliveryIds: idsToRevert,
+          status: 'PENDING'
+        });
+      }
+      showToast(`Reverted deliveries for ${cust.customer_name || 'customer'} to Pending.`);
+      refreshDeliveriesOnly();
+    } catch (err) {
+      alert(err.message || 'Failed to revert deliveries');
+      fetchData(true);
+    }
+  };
+
   // Group delivery handler (for multi-product stops)
   const handleDeliverCustomerGroup = async (group) => {
     if (group.customer_category === 'BULK_HOTEL') {
@@ -2674,28 +2705,56 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedCustomerId(cust.customer_id);
-                        }}
-                        className="btn btn-primary btn-sm"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          fontWeight: '800',
-                          fontSize: '0.82rem',
-                          padding: '6px 14px',
-                          borderRadius: '8px',
-                          background: isDelivered ? '#15803d' : '#2563eb',
-                          borderColor: isDelivered ? '#166534' : '#1d4ed8'
-                        }}
-                      >
-                        <span>{isDelivered ? 'View Deliveries' : 'Open Customer'}</span>
-                        <ArrowRight size={14} />
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {cust.items.some((it) => it.status === 'DELIVERED' || it.status === 'SKIPPED') && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRevertCustomer(cust);
+                            }}
+                            className="btn btn-outline btn-sm"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontWeight: '700',
+                              fontSize: '0.78rem',
+                              padding: '5px 10px',
+                              borderRadius: '8px',
+                              borderColor: '#f59e0b',
+                              color: '#d97706'
+                            }}
+                            title="Revert all deliveries for this customer back to Pending"
+                          >
+                            <RotateCcw size={13} />
+                            <span>Revert</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedCustomerId(cust.customer_id);
+                          }}
+                          className="btn btn-primary btn-sm"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontWeight: '800',
+                            fontSize: '0.82rem',
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            background: isDelivered ? '#15803d' : '#2563eb',
+                            borderColor: isDelivered ? '#166534' : '#1d4ed8'
+                          }}
+                        >
+                          <span>{isDelivered ? 'View Deliveries' : 'Open Customer'}</span>
+                          <ArrowRight size={14} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -3192,6 +3251,29 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             <Edit3 size={14} />
                             <span>Edit / Correct</span>
                           </button>
+
+                          {/* Revert Item to Pending */}
+                          <button
+                            type="button"
+                            onClick={() => handleRevertPending(item.id)}
+                            style={{
+                              background: 'var(--bg-surface)',
+                              color: '#d97706',
+                              border: '1.5px solid #fed7aa',
+                              borderRadius: '8px',
+                              fontWeight: 800,
+                              fontSize: '0.82rem',
+                              padding: '7px 12px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              cursor: 'pointer'
+                            }}
+                            title="Revert this delivery back to Pending"
+                          >
+                            <RotateCcw size={14} />
+                            <span>Revert</span>
+                          </button>
                         </>
                       ) : (
                         <>
@@ -3225,6 +3307,29 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                           >
                             <Edit3 size={14} />
                             <span>Edit / Correct</span>
+                          </button>
+
+                          {/* Revert Skipped to Pending */}
+                          <button
+                            type="button"
+                            onClick={() => handleRevertPending(item.id)}
+                            style={{
+                              background: 'var(--bg-surface)',
+                              color: '#d97706',
+                              border: '1.5px solid #fed7aa',
+                              borderRadius: '8px',
+                              fontWeight: 800,
+                              fontSize: '0.82rem',
+                              padding: '7px 12px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              cursor: 'pointer'
+                            }}
+                            title="Revert back to Pending"
+                          >
+                            <RotateCcw size={14} />
+                            <span>Revert</span>
                           </button>
                         </>
                       )}
@@ -3322,16 +3427,27 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 </button>
               )}
 
-              {/* Revert if delivered */}
-              {activeCustomer.status === 'DELIVERED' && (
+              {/* Revert all customer deliveries back to Pending if any item is delivered or skipped */}
+              {activeCustomer.items?.some((it) => it.status === 'DELIVERED' || it.status === 'SKIPPED') && (
                 <button
                   type="button"
-                  onClick={() => handleRevertPending(activeCustomer.items[0]?.id)}
+                  onClick={() => handleRevertCustomer(activeCustomer)}
                   className="btn btn-outline btn-sm"
-                  style={{ fontSize: '0.82rem', padding: '7px 12px', borderRadius: '8px' }}
-                  title="Undo delivery status"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '0.82rem',
+                    padding: '7px 14px',
+                    borderRadius: '8px',
+                    borderColor: '#f59e0b',
+                    color: '#d97706',
+                    fontWeight: 700
+                  }}
+                  title="Revert all deliveries for this customer back to Pending"
                 >
-                  Revert
+                  <RotateCcw size={14} />
+                  <span>Revert All to Pending</span>
                 </button>
               )}
             </div>
