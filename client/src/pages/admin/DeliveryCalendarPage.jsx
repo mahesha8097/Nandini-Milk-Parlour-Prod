@@ -441,11 +441,11 @@ export default function DeliveryCalendarPage() {
         marginBottom: '20px'
       }}>
         <div>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 900, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Calendar size={28} color="var(--primary)" />
             <span>Customer Delivery Calendar</span>
           </h1>
-          <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '0.88rem', fontWeight: 500 }}>
+          <p style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.88rem', fontWeight: 500 }}>
             Schedule milk pauses & vacations, notify delivery boys, get prior resume reminders, and sync to Google Calendar.
           </p>
         </div>
@@ -815,7 +815,7 @@ export default function DeliveryCalendarPage() {
               <div key={dw} style={{
                 fontSize: '0.78rem',
                 fontWeight: 900,
-                color: i === 0 ? '#dc2626' : '#64748b',
+                color: i === 0 ? '#ef4444' : 'var(--text-primary)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em'
               }}>
@@ -833,9 +833,9 @@ export default function DeliveryCalendarPage() {
                     key={cell.key}
                     style={{
                       minHeight: '105px',
-                      background: '#f8fafc',
+                      background: 'var(--bg-surface)',
                       borderRadius: '8px',
-                      border: '1px dashed #e2e8f0',
+                      border: '1px dashed var(--border-color)',
                       opacity: 0.5
                     }}
                   />

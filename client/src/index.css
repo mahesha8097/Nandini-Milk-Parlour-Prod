@@ -45,9 +45,9 @@
 }
 
 [data-theme="dark"] {
-  --primary: #3ea6ff;
-  --primary-dark: #2563eb;
-  --primary-light: rgba(62, 166, 255, 0.15);
+  --primary: #38bdf8;
+  --primary-dark: #60a5fa;
+  --primary-light: rgba(56, 189, 248, 0.15);
   --primary-gradient: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
   --secondary: #10b981;
   --secondary-light: rgba(16, 185, 129, 0.15);
@@ -58,27 +58,27 @@
   --accent-indigo: #818cf8;
   --accent-indigo-light: rgba(99, 102, 241, 0.15);
 
-  --bg-main: #0f0f0f;
-  --bg-card: #181818;
-  --bg-surface: #212121;
-  --bg-sidebar: #0f0f0f;
-  --bg-header: #0f0f0f;
-  --bg-input: #121212;
-  --bg-table-header: #1a1a1a;
-  --bg-table-hover: #272727;
+  --bg-main: #000000;
+  --bg-card: #0a0a0a;
+  --bg-surface: #141414;
+  --bg-sidebar: #000000;
+  --bg-header: #000000;
+  --bg-input: #111111;
+  --bg-table-header: #141414;
+  --bg-table-hover: #1c1c1c;
   
-  --text-primary: #f1f1f1;
-  --text-secondary: #aaaaaa;
-  --text-muted: #717171;
+  --text-primary: #ffffff;
+  --text-secondary: #e2e8f0;
+  --text-muted: #94a3b8;
   --text-on-dark: #ffffff;
 
-  --border-color: #272727;
-  --border-focus: #3ea6ff;
+  --border-color: #262626;
+  --border-focus: #38bdf8;
 
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.6);
-  --shadow-md: 0 4px 8px -1px rgb(0 0 0 / 0.7);
-  --shadow-lg: 0 10px 20px -3px rgb(0 0 0 / 0.8);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.9);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.8);
+  --shadow-md: 0 4px 8px -1px rgb(0 0 0 / 0.9);
+  --shadow-lg: 0 10px 20px -3px rgb(0 0 0 / 0.95);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 1);
 }
 
 * {
@@ -789,34 +789,57 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ==========================================================================
-   YOUTUBE-GRADE GLOBAL DARK THEME ENGINE
+   PURE BLACK & CRISP WHITE GLOBAL DARK THEME ENGINE
    Eliminates all white containers, leakages, and contrast issues across entire app
    ========================================================================== */
 [data-theme="dark"],
 [data-theme="dark"] body,
+[data-theme="dark"] #root,
 [data-theme="dark"] .app-container,
-[data-theme="dark"] .main-content {
-  background-color: #0f0f0f !important;
-  color: #f1f1f1 !important;
+[data-theme="dark"] .main-content,
+[data-theme="dark"] .zone-delivery-container,
+[data-theme="dark"] .page-wrapper,
+[data-theme="dark"] .page-container {
+  background-color: #000000 !important;
+  color: #ffffff !important;
 }
 
 [data-theme="dark"] header {
-  background-color: #0f0f0f !important;
-  border-bottom-color: #272727 !important;
+  background-color: #000000 !important;
+  border-bottom-color: #262626 !important;
 }
 
 [data-theme="dark"] aside {
-  background-color: #0f0f0f !important;
-  border-right-color: #272727 !important;
+  background-color: #000000 !important;
+  border-right-color: #262626 !important;
 }
 
 [data-theme="dark"] .card,
 [data-theme="dark"] .stat-card,
 [data-theme="dark"] .mobile-data-card,
 [data-theme="dark"] .table-container {
-  background-color: #181818 !important;
-  border-color: #272727 !important;
-  color: #f1f1f1 !important;
+  background-color: #0a0a0a !important;
+  border-color: #262626 !important;
+  color: #ffffff !important;
+}
+
+/* Headings & Prominent Text in Dark Theme: Highlighted in crisp pure white */
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) h1,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) h2,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) h3,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) h4,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) h5,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) h6,
+[data-theme="dark"] .page-title,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) strong,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) b,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) label,
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) th {
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .page-subtitle {
+  color: #cbd5e1 !important;
 }
 
 /* Form controls & inputs in dark theme */
@@ -826,68 +849,76 @@ h1, h2, h3, h4, h5, h6 {
 [data-theme="dark"] .form-input,
 [data-theme="dark"] .form-select,
 [data-theme="dark"] .form-control {
-  background-color: #121212 !important;
-  color: #f1f1f1 !important;
-  border-color: #272727 !important;
+  background-color: #111111 !important;
+  color: #ffffff !important;
+  border-color: #333333 !important;
 }
 
 [data-theme="dark"] input::placeholder,
 [data-theme="dark"] textarea::placeholder {
-  color: #717171 !important;
+  color: #94a3b8 !important;
+  opacity: 1 !important;
 }
 
 [data-theme="dark"] select option {
-  background-color: #181818 !important;
-  color: #f1f1f1 !important;
+  background-color: #111111 !important;
+  color: #ffffff !important;
 }
 
-/* Modals & Popups */
+[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="month"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.5);
+  cursor: pointer;
+}
+
+/* Modals & Popups & Dropdowns */
 [data-theme="dark"] .modal-content,
 [data-theme="dark"] .coupon-modal-content,
-[data-theme="dark"] .coupon-modal-form {
-  background-color: #181818 !important;
-  color: #f1f1f1 !important;
-  border-color: #272727 !important;
+[data-theme="dark"] .coupon-modal-form,
+[data-theme="dark"] .dropdown-menu {
+  background-color: #0a0a0a !important;
+  color: #ffffff !important;
+  border-color: #262626 !important;
 }
 
 [data-theme="dark"] .modal-header,
 [data-theme="dark"] .modal-footer {
-  background-color: #212121 !important;
-  border-color: #272727 !important;
+  background-color: #141414 !important;
+  border-color: #262626 !important;
 }
 
 /* Tables */
 [data-theme="dark"] table {
-  background-color: #181818 !important;
-  color: #f1f1f1 !important;
+  background-color: #0a0a0a !important;
+  color: #ffffff !important;
 }
 [data-theme="dark"] thead tr,
 [data-theme="dark"] th {
-  background-color: #1a1a1a !important;
-  color: #aaaaaa !important;
-  border-color: #272727 !important;
+  background-color: #141414 !important;
+  color: #ffffff !important;
+  border-color: #262626 !important;
 }
 [data-theme="dark"] td {
-  border-color: #272727 !important;
-  color: #f1f1f1 !important;
+  border-color: #262626 !important;
+  color: #ffffff !important;
 }
 [data-theme="dark"] tbody tr:hover td {
-  background-color: #212121 !important;
+  background-color: #181818 !important;
 }
 
 /* Mobile Nav Bar */
 [data-theme="dark"] .mobile-nav {
-  background-color: #0f0f0f !important;
-  border-top-color: #272727 !important;
+  background-color: #000000 !important;
+  border-top-color: #262626 !important;
 }
 [data-theme="dark"] .mobile-nav-item {
-  color: #aaaaaa;
+  color: #94a3b8;
 }
 [data-theme="dark"] .mobile-nav-item.active {
-  color: #3ea6ff !important;
+  color: #38bdf8 !important;
 }
 
-/* Target all inline white/light backgrounds EXCEPT inside printable sheets */
+/* Target all light/white backgrounds (Both HEX and Chrome's serialized RGB) */
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #ffffff" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#ffffff" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="backgroundColor: #ffffff" i],
@@ -900,81 +931,177 @@ h1, h2, h3, h4, h5, h6 {
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:white" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(255, 255, 255)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(255,255,255)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background-color: rgb(255, 255, 255)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background-color: rgb(255,255,255)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #f8fafc" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#f8fafc" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background-color: #f8fafc" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(248, 250, 252)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(248,250,252)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background-color: rgb(248, 250, 252)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background-color: rgb(248,250,252)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #f1f5f9" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#f1f5f9" i] {
-  background-color: #181818 !important;
-  border-color: #272727 !important;
-  color: #f1f1f1 !important;
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#f1f5f9" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background-color: #f1f5f9" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(241, 245, 249)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(241,245,249)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background-color: rgb(241, 245, 249)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(249, 250, 251)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(243, 244, 246)" i] {
+  background-color: #0d0d0d !important;
+  border-color: #262626 !important;
+  color: #ffffff !important;
 }
 
 /* Light background tints converted to comfortable dark mode tints */
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #f0fdf4" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#f0fdf4" i] {
-  background-color: rgba(16, 185, 129, 0.15) !important;
-}
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #eff6ff" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#eff6ff" i] {
-  background-color: rgba(62, 166, 255, 0.15) !important;
-}
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #fef2f2" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#fef2f2" i] {
-  background-color: rgba(239, 68, 68, 0.15) !important;
-}
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #fef3c7" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #fffbeb" i] {
-  background-color: rgba(245, 158, 11, 0.15) !important;
-}
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #e0e7ff" i] {
-  background-color: rgba(99, 102, 241, 0.15) !important;
-}
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #dcfce7" i] {
-  background-color: rgba(16, 185, 129, 0.15) !important;
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#f0fdf4" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #dcfce7" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #ecfdf5" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(240, 253, 244)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(220, 252, 231)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(236, 253, 245)" i] {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
 }
 
-/* Override inline dark text colors that become unreadable on dark backgrounds */
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #eff6ff" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#eff6ff" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #dbeafe" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(239, 246, 255)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(219, 234, 254)" i] {
+  background-color: rgba(56, 189, 248, 0.18) !important;
+  border-color: rgba(56, 189, 248, 0.35) !important;
+}
+
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #fef2f2" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background:#fef2f2" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #fee2e2" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(254, 242, 242)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(254, 226, 226)" i] {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #fef3c7" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #fffbeb" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(254, 243, 199)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(255, 251, 235)" i] {
+  background-color: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #f3e8ff" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: #e0e7ff" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(243, 232, 255)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="background: rgb(224, 231, 255)" i] {
+  background-color: rgba(168, 85, 247, 0.18) !important;
+  border-color: rgba(168, 85, 247, 0.35) !important;
+}
+
+/* OVERRIDE ALL INLINE DARK TEXT COLORS: Make everything crisp highlighted white */
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(15, 23, 42)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:rgb(15,23,42)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #0f172a" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#0f172a" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(30, 41, 59)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:rgb(30,41,59)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #1e293b" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#1e293b" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(51, 65, 85)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:rgb(51,65,85)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #334155" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#334155" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(71, 85, 105)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:rgb(71,85,105)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #475569" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#475569" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(17, 24, 39)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #111827" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(31, 41, 55)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #1f2937" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(55, 65, 81)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #374151" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(75, 85, 99)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #4b5563" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: black" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(0, 0, 0)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #000000" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #000" i] {
-  color: #f1f1f1 !important;
+  color: #ffffff !important;
 }
 
-/* Secondary muted text */
+/* Secondary & Muted Text: Bright silver for clear visibility on black */
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(100, 116, 139)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:rgb(100,116,139)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #64748b" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#64748b" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(148, 163, 184)" i],
 [data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #94a3b8" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#94a3b8" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #475569" i],
-[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#475569" i] {
-  color: #aaaaaa !important;
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color:#94a3b8" i] {
+  color: #cbd5e1 !important;
+}
+
+/* Vibrant Status Badges & Accents in Dark Theme */
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #15803d" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #16a34a" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(21, 128, 61)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(22, 163, 74)" i] {
+  color: #34d399 !important;
+}
+
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #b45309" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #d97706" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(180, 83, 9)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(217, 119, 6)" i] {
+  color: #fbbf24 !important;
+}
+
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #b91c1c" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #991b1b" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #dc2626" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(185, 28, 28)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(153, 27, 27)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(220, 38, 38)" i] {
+  color: #f87171 !important;
+}
+
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #1d4ed8" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #1e40af" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #2563eb" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #0054a6" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(29, 78, 216)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(30, 64, 175)" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(37, 99, 235)" i] {
+  color: #38bdf8 !important;
+}
+
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: #7c3aed" i],
+[data-theme="dark"] :not(.invoice-sheet):not(.invoice-sheet *) [style*="color: rgb(124, 58, 237)" i] {
+  color: #c084fc !important;
 }
 
 /* Light borders overridden */
 [data-theme="dark"] [style*="border: 1px solid #e2e8f0" i],
 [data-theme="dark"] [style*="border: 1.5px solid #e2e8f0" i],
 [data-theme="dark"] [style*="border: 1px solid #cbd5e1" i],
-[data-theme="dark"] [style*="border:1px solid #e2e8f0" i] {
-  border-color: #272727 !important;
+[data-theme="dark"] [style*="border: 1.5px solid #cbd5e1" i],
+[data-theme="dark"] [style*="border:1px solid #e2e8f0" i],
+[data-theme="dark"] [style*="border: 1px solid rgb(226, 232, 240)" i],
+[data-theme="dark"] [style*="border: 1px solid rgb(203, 213, 225)" i] {
+  border-color: #262626 !important;
 }
 
-/* Scrollbars */
+/* Scrollbars in Dark Theme */
 [data-theme="dark"] ::-webkit-scrollbar-track {
-  background: #0f0f0f !important;
+  background: #000000 !important;
 }
 [data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: #272727 !important;
+  background: #262626 !important;
   border-radius: 9999px;
 }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
-  background: #383838 !important;
+  background: #3f3f46 !important;
 }
 
 [data-theme="dark"] .bill-gen-product-card {
@@ -986,6 +1113,7 @@ h1, h2, h3, h4, h5, h6 {
 body, .main-content, .card, .stat-card, .table-container, .mobile-data-card, .modal-content, .mobile-nav, header {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
+
 
 
 

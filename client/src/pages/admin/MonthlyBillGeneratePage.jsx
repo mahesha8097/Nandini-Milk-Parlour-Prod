@@ -1016,7 +1016,7 @@ export default function MonthlyBillGeneratePage() {
                   className="form-select"
                   value={routeFilter}
                   onChange={(e) => setRouteFilter(e.target.value)}
-                  style={{ width: 'auto', fontSize: '0.8rem', fontWeight: '700', padding: '6px 10px', background: '#f8fafc' }}
+                  style={{ width: 'auto', fontSize: '0.8rem', fontWeight: '700', padding: '6px 10px', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
                   title="Filter by route"
                 >
                   <option value="ALL">All Routes ({availableRoutes.length})</option>
@@ -1035,27 +1035,27 @@ export default function MonthlyBillGeneratePage() {
                 left: 0,
                 right: 0,
                 zIndex: 1000,
-                background: 'white',
+                background: 'var(--bg-card)',
                 borderRadius: '10px',
-                border: '1.5px solid #cbd5e1',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                border: '1.5px solid var(--border-color)',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
                 maxHeight: '320px',
                 overflowY: 'auto',
                 marginTop: '4px'
               }}>
-                <div style={{ padding: '6px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '0.72rem', fontWeight: '700', color: '#64748b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ padding: '8px 12px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)', fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>Found {filteredCustomers.length} of {customers.length} customers</span>
                   <button
                     type="button"
                     onClick={() => setIsCustomerDropdownOpen(false)}
-                    style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontWeight: '800', fontSize: '0.75rem' }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: '800', fontSize: '0.75rem' }}
                   >
                     Close ✕
                   </button>
                 </div>
 
                 {filteredCustomers.length === 0 ? (
-                  <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                  <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     No customers found matching "{customerSearchQuery}"
                   </div>
                 ) : (
@@ -1071,17 +1071,17 @@ export default function MonthlyBillGeneratePage() {
                         }}
                         style={{
                           padding: '10px 14px',
-                          borderBottom: '1px solid #f1f5f9',
+                          borderBottom: '1px solid var(--border-color)',
                           cursor: 'pointer',
-                          background: isSelected ? '#eff6ff' : 'white',
+                          background: isSelected ? 'var(--primary-light)' : 'var(--bg-card)',
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
                           gap: '8px',
                           transition: 'background 0.1s'
                         }}
-                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#f8fafc'; }}
-                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'white'; }}
+                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-table-hover)'; }}
+                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-card)'; }}
                       >
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1090,16 +1090,16 @@ export default function MonthlyBillGeneratePage() {
                                 Flat {c.flat_no}
                               </span>
                             )}
-                            <span style={{ fontWeight: '800', fontSize: '0.9rem', color: '#0f172a' }}>
+                            <span style={{ fontWeight: '800', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
                               {c.name}
                             </span>
                             {c.customer_category === 'BULK_HOTEL' && (
-                              <span style={{ background: '#f3e8ff', color: '#7c3aed', fontSize: '0.7rem', fontWeight: '800', padding: '1px 6px', borderRadius: '4px' }}>
+                              <span style={{ background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', fontSize: '0.7rem', fontWeight: '800', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(168, 85, 247, 0.4)' }}>
                                 Bulk Hotel
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                             📞 {c.phone || 'No phone'} • 📍 {c.zone_name || 'No Zone'} ({c.route || 'General'})
                           </div>
                         </div>
@@ -1110,13 +1110,14 @@ export default function MonthlyBillGeneratePage() {
                             fontWeight: '800',
                             padding: '2px 8px',
                             borderRadius: '999px',
-                            background: c.billing_type === 'PREPAID' ? '#dcfce7' : '#fef3c7',
-                            color: c.billing_type === 'PREPAID' ? '#15803d' : '#b45309'
+                            background: c.billing_type === 'PREPAID' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                            color: c.billing_type === 'PREPAID' ? '#34d399' : '#fbbf24',
+                            border: `1px solid ${c.billing_type === 'PREPAID' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(245, 158, 11, 0.4)'}`
                           }}>
                             {c.billing_type || 'POSTPAID'}
                           </span>
                           {isSelected && (
-                            <div style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: '900', marginTop: '2px' }}>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: '900', marginTop: '2px' }}>
                               ✓ Selected
                             </div>
                           )}
@@ -1133,23 +1134,24 @@ export default function MonthlyBillGeneratePage() {
               <div style={{
                 marginTop: '6px',
                 padding: '6px 10px',
-                background: '#eff6ff',
-                border: '1px solid #bfdbfe',
+                background: 'var(--primary-light)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '6px',
                 fontSize: '0.78rem',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: '8px'
+                gap: '8px',
+                color: 'var(--text-primary)'
               }}>
                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  <strong style={{ color: '#1e40af' }}>{selectedCustomer.name}</strong>
+                  <strong style={{ color: 'var(--primary)' }}>{selectedCustomer.name}</strong>
                   {selectedCustomer.flat_no ? ` [Flat ${selectedCustomer.flat_no}]` : ''} • {selectedCustomer.phone || 'No phone'} • Route: {selectedCustomer.route || 'General'}
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsCustomerDropdownOpen(true)}
-                  style={{ background: 'white', border: '1px solid #93c5fd', color: '#1d4ed8', borderRadius: '4px', padding: '2px 6px', fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
+                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', padding: '2px 8px', fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
                 >
                   Change
                 </button>

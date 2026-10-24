@@ -1179,7 +1179,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   };
 
   return (
-    <div className="zone-delivery-container" style={{ padding: '20px 24px 96px 24px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: '#f8fafc' }}>
+    <div className="zone-delivery-container" style={{ padding: '20px 24px 96px 24px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: 'var(--bg-main)' }}>
       {/* Toast Notification */}
       {toastMessage && (
         <div style={{
@@ -1209,14 +1209,14 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
               <Truck size={22} />
             </div>
             <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: '900', color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: '900', color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
                 Daily Delivery Route
               </h1>
-              <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: '600' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
                 {formatDisplayDate(selectedDate)}
               </div>
             </div>
@@ -1224,11 +1224,11 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         </div>
 
         {/* Date Stepper Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'white', padding: '6px 10px', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)', padding: '6px 10px', borderRadius: '10px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <button
             onClick={handlePrevDay}
             className="btn btn-outline btn-sm"
-            style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', background: '#f1f5f9' }}
+            style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
             title="Previous Day"
           >
             <ChevronLeft size={16} />
@@ -1243,7 +1243,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               if (userRole === 'DELIVERY_BOY' && val > getLocalDateString()) return;
               setSelectedDate(val);
             }}
-            style={{ border: 'none', fontWeight: '800', fontSize: '0.9rem', color: '#1e293b', outline: 'none', background: 'transparent', cursor: 'pointer' }}
+            style={{ border: 'none', fontWeight: '800', fontSize: '0.9rem', color: 'var(--text-primary)', outline: 'none', background: 'transparent', cursor: 'pointer' }}
           />
 
           {/* Next Day button: hidden for Delivery Boy when on today or future */}
@@ -1251,7 +1251,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             <button
               onClick={handleNextDay}
               className="btn btn-outline btn-sm"
-              style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', background: '#f1f5f9' }}
+              style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
               title="Next Day"
             >
               <ChevronRight size={16} />
@@ -1559,9 +1559,9 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       {/* ========================================================================= */}
       {!activeZone && (
         <div style={{
-          background: 'white',
+          background: 'var(--bg-card)',
           borderRadius: '14px',
-          border: '1px solid #e2e8f0',
+          border: '1px solid var(--border-color)',
           padding: '16px 20px',
           marginBottom: '24px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
@@ -1571,21 +1571,21 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           alignItems: 'center'
         }}>
           {/* Left: Overall Zones Completion */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderRight: '1px solid #f1f5f9', paddingRight: '20px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderRight: '1px solid var(--border-color)', paddingRight: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: '800', fontSize: '0.95rem', color: '#0f172a' }}>
+              <span style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--text-primary)' }}>
                 {routeSummary.completedZones} of {routeSummary.totalZones} zones completed
               </span>
-              <span style={{ fontWeight: '900', color: '#2563eb', fontSize: '0.95rem' }}>
+              <span style={{ fontWeight: '900', color: 'var(--primary)', fontSize: '0.95rem' }}>
                 {routeSummary.overallPercent}%
               </span>
             </div>
-            <div style={{ width: '100%', height: '10px', background: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '10px', background: 'var(--bg-surface)', borderRadius: '999px', overflow: 'hidden' }}>
               <div
                 style={{
                   width: `${routeSummary.overallPercent}%`,
                   height: '100%',
-                  background: routeSummary.overallPercent === 100 ? '#10b981' : '#2563eb',
+                  background: routeSummary.overallPercent === 100 ? '#10b981' : 'var(--primary)',
                   borderRadius: '999px',
                   transition: 'width 0.4s ease'
                 }}
@@ -1597,45 +1597,45 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
             {/* Total Scheduled */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 120px' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
                 <ShoppingBag size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Total</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#0f172a' }}>{routeSummary.totalScheduled}</div>
+                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-primary)' }}>{routeSummary.totalScheduled}</div>
               </div>
             </div>
 
             {/* Delivered */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 120px' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--secondary)' }}>
                 <CheckCircle2 size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Delivered</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#15803d' }}>{routeSummary.deliveredCount}</div>
+                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Delivered</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--secondary)' }}>{routeSummary.deliveredCount}</div>
               </div>
             </div>
 
             {/* Pending */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 120px' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--accent-amber-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-amber)' }}>
                 <Clock size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Pending</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#b45309' }}>{routeSummary.pendingCount}</div>
+                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Pending</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--accent-amber)' }}>{routeSummary.pendingCount}</div>
               </div>
             </div>
 
             {/* Skipped */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 120px' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--accent-red-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-red)' }}>
                 <XCircle size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Skipped</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#b91c1c' }}>{routeSummary.skippedCount}</div>
+                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Skipped</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--accent-red)' }}>{routeSummary.skippedCount}</div>
               </div>
             </div>
           </div>
@@ -1663,11 +1663,11 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 width: '32px',
                 height: '32px',
                 borderRadius: '8px',
-                background: '#eff6ff',
+                background: 'var(--primary-light)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#2563eb',
+                color: 'var(--primary)',
                 flexShrink: 0
               }}>
                 <MapPin size={18} />
@@ -1675,7 +1675,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               <h2 style={{
                 fontSize: '1.1rem',
                 fontWeight: '900',
-                color: '#0f172a',
+                color: 'var(--text-primary)',
                 margin: 0,
                 whiteSpace: 'nowrap'
               }}>
@@ -1740,8 +1740,9 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   fontWeight: '700',
                   padding: '6px 10px',
                   borderRadius: '8px',
-                  border: '1px solid #cbd5e1',
-                  background: 'white',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
                   cursor: 'pointer',
                   outline: 'none',
                   whiteSpace: 'nowrap'
@@ -1766,11 +1767,12 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 width: '100%',
                 padding: '8px 12px 8px 36px',
                 borderRadius: '8px',
-                border: '1px solid #cbd5e1',
+                border: '1px solid var(--border-color)',
                 fontSize: '0.85rem',
                 fontWeight: '600',
                 outline: 'none',
-                background: 'white'
+                background: 'var(--bg-input)',
+                color: 'var(--text-primary)'
               }}
             />
           </div>
@@ -1824,7 +1826,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 </p>
               </div>
             ) : (
-              <div style={{ background: 'white', padding: '30px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+              <div style={{ background: 'var(--bg-card)', padding: '30px', textAlign: 'center', borderRadius: '12px', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
                 {zoneSearchQuery ? `No zones found matching "${zoneSearchQuery}".` : 'No zones found for this route.'}
               </div>
             )
