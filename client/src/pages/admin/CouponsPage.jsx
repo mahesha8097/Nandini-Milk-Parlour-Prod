@@ -512,10 +512,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
 
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Coupon Customers</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--accent-amber-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
               <User size={20} />
             </div>
           </div>
@@ -527,10 +527,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
         </div>
 
-        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Coupon Books</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5' }}>
+            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--accent-indigo-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5' }}>
               <BookOpen size={20} />
             </div>
           </div>
@@ -542,10 +542,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
         </div>
 
-        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Remaining Coupons Left</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
               <Ticket size={20} />
             </div>
           </div>
@@ -557,10 +557,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
         </div>
 
-        <div style={{ background: '#ffffff', backgroundColor: '#ffffff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Used In {selectedMonth}</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
+            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--accent-red-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
               <ArrowDownLeft size={20} />
             </div>
           </div>
@@ -625,8 +625,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           {/* Filter and Month Toolbar */}
           <div
             style={{
-              background: '#ffffff',
-              backgroundColor: '#ffffff',
+              background: 'var(--bg-card)',
               padding: '16px 20px',
               borderRadius: '12px',
               border: '1px solid var(--border-color)',
@@ -696,7 +695,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
 
           {/* Customer Coupon Report Table */}
-          <div style={{ background: '#ffffff', backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
                 <thead>
@@ -932,8 +931,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           {/* Books Toolbar */}
           <div
             style={{
-              background: '#ffffff',
-              backgroundColor: '#ffffff',
+              background: 'var(--bg-card)',
               padding: '16px 20px',
               borderRadius: '12px',
               border: '1px solid var(--border-color)',
@@ -1026,7 +1024,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </div>
 
           {/* All Books Table */}
-          <div style={{ background: '#ffffff', backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>

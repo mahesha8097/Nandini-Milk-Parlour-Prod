@@ -836,7 +836,7 @@ export default function ZonesPage({ onNavigate }) {
           </div>
 
           {/* Search Box in Zone */}
-          <div className="card" style={{ padding: '14px 18px', background: 'white' }}>
+          <div className="card" style={{ padding: '14px 18px' }}>
             <div style={{ position: 'relative', maxWidth: '380px' }}>
               <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
               <input

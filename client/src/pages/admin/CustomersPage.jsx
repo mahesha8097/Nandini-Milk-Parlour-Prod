@@ -1110,7 +1110,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           </div>
 
           {/* Active Zone Customer Filter Toolbar */}
-          <div className="card" style={{ padding: '14px 16px', background: 'white' }}>
+          <div className="card" style={{ padding: '14px 16px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'center' }}>
               {/* Customer Search Box */}
               <div style={{ position: 'relative' }}>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import {
   LayoutDashboard,
   Users,
@@ -19,11 +20,15 @@ import {
   LogOut,
   Building2,
   Route as RouteIcon,
-  X
+  X,
+  Sun,
+  Moon,
+  Monitor
 } from 'lucide-react';
 
 export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) {
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
 
   if (!user) return null;
 
@@ -194,6 +199,52 @@ export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) 
           borderTop: '1px solid rgba(255,255,255,0.08)',
           background: 'rgba(0,0,0,0.2)'
         }}>
+          {/* Appearance Switcher */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            background: 'rgba(255, 255, 255, 0.06)',
+            borderRadius: '8px',
+            padding: '3px',
+            marginBottom: '14px',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            {[
+              { id: 'light', label: 'Light', icon: Sun },
+              { id: 'dark', label: 'Dark', icon: Moon },
+              { id: 'system', label: 'System', icon: Monitor }
+            ].map((opt) => {
+              const Icon = opt.icon;
+              const isSelected = theme === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => setTheme(opt.id)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                    padding: '5px 0',
+                    fontSize: '0.72rem',
+                    fontWeight: isSelected ? 700 : 500,
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: isSelected ? 'var(--primary)' : 'transparent',
+                    color: isSelected ? '#ffffff' : '#94a3b8',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title={`${opt.label} Theme`}
+                >
+                  <Icon size={12} />
+                  <span>{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <div style={{
             display: 'flex',
             alignItems: 'center',

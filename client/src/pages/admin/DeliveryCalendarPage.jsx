@@ -506,8 +506,8 @@ export default function DeliveryCalendarPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px', marginBottom: '22px' }}>
         {/* Banner 1: Paused Today (Delivery Boy Do Not Deliver Warning) */}
         <div style={{
-          background: notifications.pausedCount > 0 ? '#fef2f2' : '#f8fafc',
-          border: `1.5px solid ${notifications.pausedCount > 0 ? '#fecaca' : '#e2e8f0'}`,
+          background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-card)',
+          border: `1.5px solid ${notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--border-color)'}`,
           borderRadius: '12px',
           padding: '14px 18px',
           display: 'flex',
@@ -515,8 +515,8 @@ export default function DeliveryCalendarPage() {
           gap: '12px'
         }}>
           <div style={{
-            background: notifications.pausedCount > 0 ? '#fee2e2' : '#f1f5f9',
-            color: notifications.pausedCount > 0 ? '#dc2626' : '#64748b',
+            background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-surface)',
+            color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)',
             width: '40px',
             height: '40px',
             borderRadius: '10px',
@@ -529,33 +529,33 @@ export default function DeliveryCalendarPage() {
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.pausedCount > 0 ? '#b91c1c' : '#64748b', textTransform: 'uppercase' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
                 Today's Paused Deliveries ({notifications.pausedCount})
               </span>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>
                 {formatDisplayDate(todayStr)}
               </span>
             </div>
             {notifications.pausedCount > 0 ? (
               <div style={{ marginTop: '4px' }}>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#991b1b' }}>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-red)' }}>
                   ⛔ DO NOT DELIVER: {notifications.pausedCount} customer{notifications.pausedCount > 1 ? 's' : ''} requested milk stop today.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
                   {notifications.pausedToday.slice(0, 3).map((p, i) => (
-                    <span key={i} style={{ background: 'white', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
+                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
                       {p.flat_no ? `${p.flat_no} - ` : ''}{p.customer_name}
                     </span>
                   ))}
                   {notifications.pausedCount > 3 && (
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#b91c1c' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-red)' }}>
                       +{notifications.pausedCount - 3} more
                     </span>
                   )}
                 </div>
               </div>
             ) : (
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: '#64748b' }}>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                 No active delivery pauses today. Normal route delivery in progress.
               </p>
             )}
@@ -564,8 +564,8 @@ export default function DeliveryCalendarPage() {
 
         {/* Banner 2: 1-Day Prior Resume Reminder (Agent Procurement Notice) */}
         <div style={{
-          background: notifications.resumingCount > 0 ? '#eff6ff' : '#f8fafc',
-          border: `1.5px solid ${notifications.resumingCount > 0 ? '#bfdbfe' : '#e2e8f0'}`,
+          background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-card)',
+          border: `1.5px solid ${notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--border-color)'}`,
           borderRadius: '12px',
           padding: '14px 18px',
           display: 'flex',
@@ -573,8 +573,8 @@ export default function DeliveryCalendarPage() {
           gap: '12px'
         }}>
           <div style={{
-            background: notifications.resumingCount > 0 ? '#dbeafe' : '#f1f5f9',
-            color: notifications.resumingCount > 0 ? '#2563eb' : '#64748b',
+            background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-surface)',
+            color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)',
             width: '40px',
             height: '40px',
             borderRadius: '10px',
@@ -587,28 +587,28 @@ export default function DeliveryCalendarPage() {
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.resumingCount > 0 ? '#1d4ed8' : '#64748b', textTransform: 'uppercase' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
                 🔔 1-Day Prior Alert: Resumes Tomorrow ({notifications.resumingCount})
               </span>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>
                 Tomorrow: {formatDisplayDate(notifications.tomorrow || addDays(todayStr, 1))}
               </span>
             </div>
             {notifications.resumingCount > 0 ? (
               <div style={{ marginTop: '4px' }}>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#1e40af' }}>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: 'var(--primary)' }}>
                   Procure milk today: {notifications.resumingCount} customer{notifications.resumingCount > 1 ? 's' : ''} resume milk tomorrow!
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
                   {notifications.resumingTomorrow.map((r, i) => (
-                    <span key={i} style={{ background: 'white', border: '1px solid #93c5fd', color: '#1d4ed8', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
+                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
                       {r.flat_no ? `${r.flat_no} - ` : ''}{r.customer_name} ({r.products_summary || 'Milk'})
                     </span>
                   ))}
                 </div>
               </div>
             ) : (
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: '#64748b' }}>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                 No customer delivery pauses are scheduled to resume tomorrow.
               </p>
             )}
@@ -857,9 +857,9 @@ export default function DeliveryCalendarPage() {
                   }}
                   style={{
                     minHeight: '105px',
-                    background: cell.isToday ? '#f0fdf4' : (isFiltered ? '#eff6ff' : '#ffffff'),
+                    background: cell.isToday ? 'var(--secondary-light)' : (isFiltered ? 'var(--primary-light)' : 'var(--bg-card)'),
                     borderRadius: '10px',
-                    border: `1.5px solid ${cell.isToday ? '#22c55e' : (isFiltered ? '#2563eb' : '#e2e8f0')}`,
+                    border: `1.5px solid ${cell.isToday ? 'var(--secondary)' : (isFiltered ? 'var(--primary)' : 'var(--border-color)')}`,
                     padding: '8px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -875,7 +875,7 @@ export default function DeliveryCalendarPage() {
                     <span style={{
                       fontSize: '0.88rem',
                       fontWeight: cell.isToday ? 900 : 700,
-                      color: cell.isToday ? '#15803d' : '#1e293b'
+                      color: cell.isToday ? 'var(--secondary)' : 'var(--text-primary)'
                     }}>
                       {cell.dayNumber}
                     </span>
@@ -1403,11 +1403,11 @@ export default function DeliveryCalendarPage() {
                         onClick={() => toggleCustomDate(cell.dateStr)}
                         style={{
                           height: '46px',
-                          background: cell.isSelected ? '#dc2626' : (cell.isToday ? '#f0fdf4' : '#ffffff'),
-                          color: cell.isSelected ? '#ffffff' : (cell.isToday ? '#15803d' : '#1e293b'),
+                          background: cell.isSelected ? '#dc2626' : (cell.isToday ? 'var(--secondary-light)' : 'var(--bg-surface)'),
+                          color: cell.isSelected ? '#ffffff' : (cell.isToday ? 'var(--secondary)' : 'var(--text-primary)'),
                           border: cell.isSelected
                             ? '2px solid #b91c1c'
-                            : (cell.isToday ? '1.5px solid #22c55e' : '1px solid #e2e8f0'),
+                            : (cell.isToday ? '1.5px solid var(--secondary)' : '1px solid var(--border-color)'),
                           borderRadius: '8px',
                           display: 'flex',
                           flexDirection: 'column',

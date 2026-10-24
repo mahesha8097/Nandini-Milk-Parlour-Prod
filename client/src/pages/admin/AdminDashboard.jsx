@@ -93,7 +93,7 @@ export default function AdminDashboard({ onNavigate }) {
       </div>
 
       {/* Quick Action Bar */}
-      <div className="card" style={{ marginBottom: '24px', padding: '16px 20px', background: 'white' }}>
+      <div className="card" style={{ marginBottom: '24px', padding: '16px 20px' }}>
         <div style={{ fontSize: '0.813rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '12px' }}>
           Quick Actions
         </div>

@@ -51,7 +51,7 @@ export default function SettingsPage() {
   const themeOptions = [
     {
       id: 'light',
-      label: 'Light Theme',
+      label: 'Light theme',
       description: 'Clean, crisp daytime appearance with bright white cards & Nandini blue',
       icon: Sun,
       color: '#0054a6',
@@ -60,21 +60,21 @@ export default function SettingsPage() {
     },
     {
       id: 'dark',
-      label: 'Dark Theme',
-      description: 'Obsidian dark mode with reduced glare and comfortable night-time contrast',
+      label: 'Dark theme',
+      description: 'Obsidian YouTube dark mode with pure black surface (#0f0f0f) and high-contrast white text',
       icon: Moon,
-      color: '#38bdf8',
-      bgPreview: '#131b2e',
-      borderPreview: '#334155'
+      color: '#3ea6ff',
+      bgPreview: '#0f0f0f',
+      borderPreview: '#272727'
     },
     {
       id: 'system',
-      label: 'System Auto',
+      label: 'System default',
       description: 'Automatically follows your operating system / device appearance preference',
       icon: Monitor,
       color: '#10b981',
-      bgPreview: 'linear-gradient(135deg, #ffffff 50%, #131b2e 50%)',
-      borderPreview: '#64748b'
+      bgPreview: 'linear-gradient(135deg, #ffffff 50%, #0f0f0f 50%)',
+      borderPreview: '#383838'
     }
   ];
 

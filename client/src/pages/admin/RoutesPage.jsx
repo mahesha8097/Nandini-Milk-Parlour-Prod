@@ -575,10 +575,10 @@ export default function RoutesPage({ onNavigate }) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
-                background: '#ffffff',
+                background: 'var(--bg-card)',
                 padding: '10px 16px',
                 borderRadius: '12px',
-                border: '1.5px solid #e2e8f0',
+                border: '1px solid var(--border-color)',
                 boxShadow: '0 2px 6px rgba(0,0,0,0.04)'
               }}>
                 <Truck size={20} color="#2563eb" />
