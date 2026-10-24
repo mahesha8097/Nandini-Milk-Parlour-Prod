@@ -19,6 +19,8 @@ const {
   generateWeeklyBillsForPeriod
 } = require('../services/billingService');
 
+const { calculateDeliveryChargesForCustomerDay } = require('../services/deliveryChargeService');
+
 async function runWeeklyAndCouponTests() {
   console.log('\n================================================================');
   console.log(' NANDINI MILK PARLOUR — WEEKLY BILLING & COUPON SYSTEM TESTS ');
@@ -487,6 +489,44 @@ async function runWeeklyAndCouponTests() {
   assert.strictEqual(custAfterMilkSkip.coupon_balance, balBeforeCurd, 'Skipping Milk must restore deducted coupons');
 
   console.log('[TEST 13] Separate Products for Coupon Books: Non-coupon items never deduct coupons, Milk deducts & restores perfectly ✓');
+
+  // Test [TEST 14] Coupon System delivery charges: 1 coupon (500ml) = ₹1.50, 2 coupons (1L) = ₹3.00
+  const couponItem1Pkt = [{
+    productId: prodA.id,
+    productName: 'Toned Milk',
+    category: 'Milk',
+    variantLabel: '500 ml',
+    unitVolumeLitres: 0.5,
+    quantity: 1,
+    sellingPrice: 24.0,
+    deliveryChargeType: 'MILK_RULE'
+  }];
+  const couponItem2Pkt = [{
+    productId: prodA.id,
+    productName: 'Toned Milk',
+    category: 'Milk',
+    variantLabel: '500 ml',
+    unitVolumeLitres: 0.5,
+    quantity: 2,
+    sellingPrice: 24.0,
+    deliveryChargeType: 'MILK_RULE'
+  }];
+
+  // For COUPON customer:
+  const couponDeliv1 = calculateDeliveryChargesForCustomerDay('HOUSE', couponItem1Pkt, 'COUPON');
+  assert.strictEqual(couponDeliv1[0].deliveryCharge, 1.5, '1 coupon (500ml) delivery charge must be ₹1.50');
+
+  const couponDeliv2 = calculateDeliveryChargesForCustomerDay('HOUSE', couponItem2Pkt, 'COUPON');
+  assert.strictEqual(couponDeliv2[0].deliveryCharge, 3.0, '2 coupons (1000ml) delivery charge must be ₹3.00');
+
+  // For regular PREPAID/POSTPAID customer:
+  const regularDeliv1 = calculateDeliveryChargesForCustomerDay('HOUSE', couponItem1Pkt, 'PREPAID');
+  assert.strictEqual(regularDeliv1[0].deliveryCharge, 2.0, 'Regular 1 packet (500ml) delivery charge must remain ₹2.00');
+
+  const regularDeliv2 = calculateDeliveryChargesForCustomerDay('HOUSE', couponItem2Pkt, 'PREPAID');
+  assert.strictEqual(regularDeliv2[0].deliveryCharge, 3.0, 'Regular 2 packets (1000ml) delivery charge must remain ₹3.00');
+
+  console.log('[TEST 14] Coupon Delivery Charge Rule (1 coupon = ₹1.50, 2 coupons = ₹3.00, regular = ₹2.00) verified! ✓');
 
   // Clean test data
   await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);

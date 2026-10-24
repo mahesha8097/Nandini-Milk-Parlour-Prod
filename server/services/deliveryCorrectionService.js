@@ -138,7 +138,7 @@ async function correctDelivery({ deliveryId, correctedQuantity, status, reason, 
   }
 
   // 3. Recalculate daily delivery charges for all items for that customer on that day
-  const calculatedCharges = calculateDeliveryChargesForCustomerDay(customer.customer_category, nonSkippedItems);
+  const calculatedCharges = calculateDeliveryChargesForCustomerDay(customer.customer_category, nonSkippedItems, customer.billing_type);
 
   let targetNewTotalAmount = 0;
   let targetNewDelCharge = 0;

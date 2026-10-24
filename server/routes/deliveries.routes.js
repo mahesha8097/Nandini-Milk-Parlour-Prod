@@ -94,7 +94,7 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
     SELECT s.*, 
            p.name as product_name, p.category, p.variant_label, p.unit_volume_litres,
            p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge,
-           c.id as customer_id, c.customer_category, c.delivery_boy_id, c.agent_id as cust_agent_id
+           c.id as customer_id, c.customer_category, c.billing_type, c.delivery_boy_id, c.agent_id as cust_agent_id
     FROM subscriptions s
     JOIN customers c ON s.customer_id = c.id
     JOIN products p ON s.product_id = p.id
@@ -181,6 +181,7 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
       customerSubsMap.set(s.customer_id, {
         customer_id: s.customer_id,
         customer_category: s.customer_category,
+        billing_type: s.billing_type,
         delivery_boy_id: s.delivery_boy_id,
         agent_id: s.cust_agent_id,
         subs: []
@@ -244,7 +245,8 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
 
     const calculated = calculateDeliveryChargesForCustomerDay(
       cust.customer_category,
-      items.filter(it => it.quantity > 0)
+      items.filter(it => it.quantity > 0),
+      cust.billing_type
     );
 
     for (const item of items) {
@@ -708,7 +710,7 @@ async function recalculateCustomerDayDeliveries(customerId, deliveryDate) {
     }
   }
 
-  const calculated = calculateDeliveryChargesForCustomerDay(customer.customer_category, nonSkippedItems);
+  const calculated = calculateDeliveryChargesForCustomerDay(customer.customer_category, nonSkippedItems, customer.billing_type);
 
   for (const d of dayDeliveries) {
     if (d.status === 'SKIPPED' || d.quantity === 0) {
@@ -1227,7 +1229,8 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
 
     const calculatedCharges = calculateDeliveryChargesForCustomerDay(
       customer.customer_category,
-      activeForCharges
+      activeForCharges,
+      customer.billing_type
     );
 
     for (const d of dayDeliveries) {
@@ -1379,7 +1382,7 @@ router.post('/extra', verifyToken, async (req, res) => {
         sellingPrice: product.selling_price,
         deliveryChargeType: product.delivery_charge_type,
         fixedDeliveryCharge: product.fixed_delivery_charge
-      }]);
+      }], customer.billing_type);
 
       const deliveryCharge = calc[0] ? (calc[0].deliveryCharge || 0) : 0;
       const totalAmount = parseFloat((totalProductAmount + deliveryCharge).toFixed(2));
@@ -1421,7 +1424,7 @@ router.post('/extra', verifyToken, async (req, res) => {
         sellingPrice: product.selling_price,
         deliveryChargeType: product.delivery_charge_type,
         fixedDeliveryCharge: product.fixed_delivery_charge
-      }]);
+      }], customer.billing_type);
 
       const deliveryCharge = calc[0] ? (calc[0].deliveryCharge || 0) : 0;
       const totalAmount = parseFloat((totalProductAmount + deliveryCharge).toFixed(2));
@@ -1554,7 +1557,7 @@ router.post('/adhoc', verifyToken, async (req, res) => {
         sellingPrice: product.selling_price,
         deliveryChargeType: product.delivery_charge_type,
         fixedDeliveryCharge: product.fixed_delivery_charge
-      }]);
+      }], customer.billing_type);
       const charge = itemCalc[0] ? (itemCalc[0].deliveryCharge || 0) : 0;
       const totalAmount = parseFloat((totalProduct + charge).toFixed(2));
 
@@ -1578,7 +1581,7 @@ router.post('/adhoc', verifyToken, async (req, res) => {
         sellingPrice: product.selling_price,
         deliveryChargeType: product.delivery_charge_type,
         fixedDeliveryCharge: product.fixed_delivery_charge
-      }]);
+      }], customer.billing_type);
       const charge = itemCalc[0] ? (itemCalc[0].deliveryCharge || 0) : 0;
       const totalAmount = parseFloat((totalProduct + charge).toFixed(2));
 

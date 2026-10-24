@@ -21,9 +21,19 @@
  *    they are NOT combined into 1.0L. Each product's total volume calculates independently (₹2 + ₹2 = ₹4).
  */
 
-function calculateMilkDeliveryCharge(totalLitres) {
+function calculateMilkDeliveryCharge(totalLitres, isCoupon = false) {
   if (totalLitres <= 0) return 0;
-  // Exactly or less than 500ml (0.5L) is ₹2
+  // COUPON SYSTEM DELIVERY RULE:
+  // Customers purchase coupon books in advance where each 500ml coupon has a flat ₹1.50 delivery charge (₹3.00/L).
+  // 1 coupon (500ml / 0.5L) = ₹1.50
+  // 2 coupons (1000ml / 1.0L) = ₹3.00
+  // Delivery charge is strictly ₹3.00 per litre (vol × 3.0) with no minimum ₹2 step for 1 packet.
+  if (isCoupon) {
+    return parseFloat((totalLitres * 3.0).toFixed(2));
+  }
+
+  // Standard rule for HOUSE (Prepaid / Postpaid):
+  // Exactly or less than 500ml (0.5L) is ₹2.00
   if (totalLitres <= 0.5) {
     return 2.0;
   }
@@ -34,13 +44,38 @@ function calculateMilkDeliveryCharge(totalLitres) {
 /**
  * Calculates delivery charges for a list of delivered items for a single customer on a given day.
  * All Milk products (e.g. Shubham + Toned) delivered to the customer on the same day are combined
- * together under the Milk rule: <= 500ml total is ₹2, 1L is ₹3 (and ₹3/L proportional for > 0.5L).
- * @param {string} customerCategory - 'HOUSE' or 'BULK_HOTEL'
+ * together under the Milk rule:
+ * - Standard HOUSE: <= 500ml total is ₹2, 1L is ₹3 (and ₹3/L proportional for > 0.5L).
+ * - COUPON Customers: 1 coupon (500ml) is ₹1.50, 2 coupons (1L) is ₹3.00 (strictly ₹3/L).
+ * @param {string|Object} customerCategoryOrCustomer - 'HOUSE'/'BULK_HOTEL' or customer object
  * @param {Array} items - Array of { productId, productName, category, unitVolumeLitres, variantLabel, quantity, deliveryChargeType, fixedDeliveryCharge }
+ * @param {string} [billingTypeArg] - Optional billing type ('PREPAID', 'POSTPAID', 'COUPON', 'WEEKLY')
  * @returns {Array} items with calculated deliveryCharge attached to each item
  */
-function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
+function calculateDeliveryChargesForCustomerDay(customerCategoryOrCustomer, items, billingTypeArg = null) {
   if (!items || items.length === 0) return [];
+
+  let customerCategory = 'HOUSE';
+  let billingType = billingTypeArg;
+
+  if (typeof customerCategoryOrCustomer === 'object' && customerCategoryOrCustomer !== null) {
+    customerCategory = customerCategoryOrCustomer.customer_category || customerCategoryOrCustomer.category || 'HOUSE';
+    billingType = billingType || customerCategoryOrCustomer.billing_type || customerCategoryOrCustomer.billingType;
+  } else if (typeof customerCategoryOrCustomer === 'string') {
+    customerCategory = customerCategoryOrCustomer;
+  }
+
+  // If billingType was not explicitly supplied, check if items carry it
+  if (!billingType) {
+    for (const item of items) {
+      if (item.billing_type || item.billingType) {
+        billingType = item.billing_type || item.billingType;
+        break;
+      }
+    }
+  }
+
+  const isCoupon = billingType === 'COUPON';
 
   // Bulk / Hotel / Restaurant has ₹0 delivery charge
   if (customerCategory === 'BULK_HOTEL') {
@@ -86,7 +121,7 @@ function calculateDeliveryChargesForCustomerDay(customerCategory, items) {
       totalMilkLitres += vol * m.quantity;
     }
 
-    const totalMilkDeliveryCharge = calculateMilkDeliveryCharge(totalMilkLitres);
+    const totalMilkDeliveryCharge = calculateMilkDeliveryCharge(totalMilkLitres, isCoupon);
 
     // Distribute group charge across milk items proportionally
     let remainingCharge = totalMilkDeliveryCharge;

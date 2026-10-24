@@ -82,7 +82,8 @@ async function updatePendingDeliveryForRequirement(customerId, productId, delive
 
   const calculated = calculateDeliveryChargesForCustomerDay(
     customer.customer_category,
-    dailyItems.filter(it => it.quantity > 0)
+    dailyItems.filter(it => it.quantity > 0),
+    customer.billing_type
   );
 
   const targetCalculated = calculated.find(c => c.productId === targetProductId);
@@ -506,7 +507,7 @@ router.post('/bulk-order', requireAdmin, async (req, res) => {
         sellingPrice: product.selling_price,
         deliveryChargeType: product.delivery_charge_type,
         fixedDeliveryCharge: product.fixed_delivery_charge
-      }]);
+      }], customer.billing_type);
       const charge = calc[0] ? (calc[0].deliveryCharge || 0) : 0;
       const totalAmt = parseFloat((totalProd + charge).toFixed(2));
 
