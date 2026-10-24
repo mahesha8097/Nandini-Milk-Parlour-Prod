@@ -370,6 +370,11 @@ export default function CustomerStatementView() {
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#38bdf8', marginTop: '2px' }}>
                 ₹ {monthBillValue.toFixed(2)}
               </div>
+              {summary.deliveryChargesTotal > 0 && (
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px', fontWeight: 600 }}>
+                  Includes ₹{summary.deliveryChargesTotal.toFixed(2)} delivery
+                </div>
+              )}
             </div>
           </div>
 
@@ -623,6 +628,11 @@ export default function CustomerStatementView() {
                           </div>
                           <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.95rem' }}>
                             ₹ {day.totalAmount.toFixed(2)}
+                            {day.deliveryCharge > 0 && (
+                              <span style={{ fontSize: '0.7rem', color: '#38bdf8', fontWeight: 600, marginLeft: '6px' }}>
+                                (incl. ₹{day.deliveryCharge.toFixed(2)} delivery)
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
