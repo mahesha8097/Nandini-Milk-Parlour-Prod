@@ -499,7 +499,12 @@ export default function RoutesPage({ onNavigate }) {
           <div>
             <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Assigned Routes</div>
             <div style={{ fontSize: '1.35rem', fontWeight: '800', color: 'var(--text-main)' }}>
-              {stats.assigned} <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#ea580c' }}>({stats.unassigned} Unassigned)</span>
+              {stats.assigned}{' '}
+              {stats.unassigned === 0 ? (
+                <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#16a34a' }}>(All Assigned)</span>
+              ) : (
+                <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#ea580c' }}>({stats.unassigned} Unassigned)</span>
+              )}
             </div>
           </div>
         </div>
