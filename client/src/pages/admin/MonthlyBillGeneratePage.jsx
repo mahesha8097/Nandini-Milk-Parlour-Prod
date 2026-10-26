@@ -39,6 +39,7 @@ export default function MonthlyBillGeneratePage() {
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [routeFilter, setRouteFilter] = useState('ALL');
   const dropdownRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -1082,6 +1083,7 @@ export default function MonthlyBillGeneratePage() {
               <div style={{ position: 'relative', flex: 1 }}>
                 <Search size={15} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
+                  ref={searchInputRef}
                   type="text"
                   className="form-input"
                   placeholder="Search name, phone, flat, route..."
@@ -1091,6 +1093,18 @@ export default function MonthlyBillGeneratePage() {
                     setIsCustomerDropdownOpen(true);
                   }}
                   onFocus={() => setIsCustomerDropdownOpen(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (filteredCustomers.length > 0) {
+                        handleSelectCustomer(filteredCustomers[0].id);
+                        setIsCustomerDropdownOpen(false);
+                        setCustomerSearchQuery('');
+                      }
+                    } else if (e.key === 'Escape') {
+                      setIsCustomerDropdownOpen(false);
+                    }
+                  }}
                   style={{ paddingLeft: '32px', fontSize: '0.85rem', fontWeight: '600' }}
                 />
                 {customerSearchQuery && (
@@ -1157,7 +1171,14 @@ export default function MonthlyBillGeneratePage() {
                     return (
                       <div
                         key={c.id}
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleSelectCustomer(c.id);
+                          setIsCustomerDropdownOpen(false);
+                          setCustomerSearchQuery('');
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault();
                           handleSelectCustomer(c.id);
                           setIsCustomerDropdownOpen(false);
                           setCustomerSearchQuery('');
@@ -1166,6 +1187,7 @@ export default function MonthlyBillGeneratePage() {
                           padding: '10px 14px',
                           borderBottom: '1px solid var(--border-color)',
                           cursor: 'pointer',
+                          userSelect: 'none',
                           background: isSelected ? 'var(--primary-light)' : 'var(--bg-card)',
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -1174,7 +1196,7 @@ export default function MonthlyBillGeneratePage() {
                           transition: 'background 0.1s'
                         }}
                         onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-table-hover)'; }}
-                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-card)'; }}
+                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = isSelected ? 'var(--primary-light)' : 'var(--bg-card)'; }}
                       >
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1243,7 +1265,12 @@ export default function MonthlyBillGeneratePage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsCustomerDropdownOpen(true)}
+                  onClick={() => {
+                    setIsCustomerDropdownOpen(true);
+                    setTimeout(() => {
+                      if (searchInputRef.current) searchInputRef.current.focus();
+                    }, 50);
+                  }}
                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', padding: '2px 8px', fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
                 >
                   Change

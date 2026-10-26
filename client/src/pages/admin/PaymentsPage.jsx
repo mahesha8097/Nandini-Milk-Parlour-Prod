@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
+import CustomerSearchSelect from '../../components/common/CustomerSearchSelect';
 import {
   CreditCard,
   PlusCircle,
@@ -26,7 +27,6 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentTypeFilter, setPaymentTypeFilter] = useState('ALL');
-  const [modalCustomerSearch, setModalCustomerSearch] = useState('');
 
   // Add Payment Modal
   const [isModalOpen, setIsModalOpen] = useState(initialOpenAdd);
@@ -75,10 +75,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
   const fetchCustomers = async () => {
     try {
       const res = await api.get('/customers');
-      setCustomers(res);
-      if (res.length > 0 && !formData.customer_id) {
-        setFormData((prev) => ({ ...prev, customer_id: res[0].id }));
-      }
+      setCustomers(res || []);
     } catch (e) {
       console.error(e);
     }
@@ -91,7 +88,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
 
   const handleOpenAdd = () => {
     setFormData({
-      customer_id: customers.length > 0 ? customers[0].id : '',
+      customer_id: '',
       payment_type: 'ADVANCE_PAYMENT',
       amount: '',
       payment_date: getLocalDateString(),
@@ -470,49 +467,14 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
           )}
 
           <div className="form-group">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <label className="form-label" style={{ marginBottom: 0 }}>Customer *</label>
-              {modalCustomerSearch && (
-                <button
-                  type="button"
-                  onClick={() => setModalCustomerSearch('')}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer' }}
-                >
-                  Clear filter
-                </button>
-              )}
-            </div>
-            <div style={{ position: 'relative', marginBottom: '8px' }}>
-              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search customer by name, phone, flat..."
-                value={modalCustomerSearch}
-                onChange={(e) => setModalCustomerSearch(e.target.value)}
-                style={{ paddingLeft: '32px', fontSize: '0.82rem', paddingBlock: '6px' }}
-              />
-            </div>
-            <select
-              className="form-select"
+            <label className="form-label">Customer *</label>
+            <CustomerSearchSelect
+              customers={customers}
               value={formData.customer_id}
-              onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
+              onChange={(id) => setFormData((prev) => ({ ...prev, customer_id: id }))}
+              placeholder="Search customer by name, phone, flat..."
               required
-            >
-              {customers
-                .filter(c => {
-                  if (!modalCustomerSearch.trim()) return true;
-                  const q = modalCustomerSearch.toLowerCase();
-                  return (c.name || '').toLowerCase().includes(q) ||
-                         (c.phone || '').includes(q) ||
-                         (c.flat_no || '').toLowerCase().includes(q);
-                })
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.phone}) - {c.customer_category === 'HOUSE' ? 'House' : 'Bulk'} {c.flat_no ? `[Flat: ${c.flat_no}]` : ''}
-                  </option>
-                ))}
-            </select>
+            />
           </div>
 
           <div className="form-row">

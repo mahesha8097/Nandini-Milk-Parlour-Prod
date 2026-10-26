@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
 import BillInvoiceModal from './BillInvoiceModal';
+import CustomerSearchSelect from '../../components/common/CustomerSearchSelect';
 import {
   Receipt,
   Calendar,
@@ -37,7 +38,6 @@ export default function BillsPage() {
   // Weekly Billing Modal States
   const [isWeeklyModalOpen, setIsWeeklyModalOpen] = useState(false);
   const [weeklyCustomerList, setWeeklyCustomerList] = useState([]);
-  const [weeklyCustomerSearch, setWeeklyCustomerSearch] = useState('');
   const [weeklyFormData, setWeeklyFormData] = useState({
     customerId: '',
     startDate: '',
@@ -802,49 +802,16 @@ export default function BillsPage() {
           )}
 
           <div className="form-group">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <label className="form-label" style={{ marginBottom: 0 }}>Customer Selection *</label>
-              {weeklyCustomerSearch && (
-                <button
-                  type="button"
-                  onClick={() => setWeeklyCustomerSearch('')}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' }}
-                >
-                  Clear filter
-                </button>
-              )}
-            </div>
-            <div style={{ position: 'relative', marginBottom: '8px' }}>
-              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search customers by name, phone, flat..."
-                value={weeklyCustomerSearch}
-                onChange={(e) => setWeeklyCustomerSearch(e.target.value)}
-                style={{ paddingLeft: '32px', fontSize: '0.8rem', paddingBlock: '6px' }}
-              />
-            </div>
-            <select
-              className="form-select"
+            <label className="form-label">Customer Selection *</label>
+            <CustomerSearchSelect
+              customers={weeklyCustomerList}
               value={weeklyFormData.customerId}
-              onChange={(e) => setWeeklyFormData({ ...weeklyFormData, customerId: e.target.value })}
-            >
-              <option value="">⚡ All Weekly Customers ({weeklyCustomerList.filter(c => c.billing_type === 'WEEKLY').length} configured)</option>
-              {weeklyCustomerList
-                .filter(c => {
-                  if (!weeklyCustomerSearch.trim()) return true;
-                  const q = weeklyCustomerSearch.toLowerCase();
-                  return (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.flat_no || '').toLowerCase().includes(q);
-                })
-                .map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.phone}) {c.flat_no ? `[${c.flat_no}]` : ''} - {c.billing_type}
-                  </option>
-                ))}
-            </select>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
-              Select a single customer or leave default to generate bills for all weekly customers in one click.
+              onChange={(id) => setWeeklyFormData((prev) => ({ ...prev, customerId: id }))}
+              placeholder="Search weekly customers by name, phone, flat..."
+              allOptionLabel={`⚡ All Weekly Customers (${weeklyCustomerList.filter(c => c.billing_type === 'WEEKLY').length} configured)`}
+            />
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Select a single customer or keep all weekly customers to batch-generate bills.
             </div>
           </div>
 

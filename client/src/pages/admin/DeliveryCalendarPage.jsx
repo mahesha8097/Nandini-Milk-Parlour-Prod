@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
+import CustomerSearchSelect from '../../components/common/CustomerSearchSelect';
 import {
   Calendar,
   ChevronLeft,
@@ -62,7 +63,6 @@ export default function DeliveryCalendarPage() {
     custom_reason: '',
     syncGoogle: true
   });
-  const [scheduleCustomerSearch, setScheduleCustomerSearch] = useState('');
   const [submittingSchedule, setSubmittingSchedule] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
 
@@ -238,7 +238,7 @@ export default function DeliveryCalendarPage() {
       setCustomPickerMonth(selectedMonth || todayStr.slice(0, 7));
     }
     setScheduleForm({
-      customer_id: customers[0]?.id ? String(customers[0].id) : '',
+      customer_id: '',
       start_date: presetDate || todayStr,
       end_date: presetDate || todayStr,
       reason: 'Out of town / Vacation',
@@ -1155,51 +1155,14 @@ export default function DeliveryCalendarPage() {
 
             {/* Select Customer */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <label className="form-label" style={{ fontWeight: 800, margin: 0 }}>Select Customer:</label>
-                {scheduleCustomerSearch && (
-                  <button
-                    type="button"
-                    onClick={() => setScheduleCustomerSearch('')}
-                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    Clear Filter
-                  </button>
-                )}
-              </div>
-              <div style={{ position: 'relative', marginBottom: '8px' }}>
-                <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input
-                  type="text"
-                  placeholder="Type to filter customer, flat, phone, route..."
-                  className="form-input"
-                  style={{ paddingLeft: '32px', fontSize: '0.82rem', paddingBlock: '6px' }}
-                  value={scheduleCustomerSearch}
-                  onChange={(e) => setScheduleCustomerSearch(e.target.value)}
-                />
-              </div>
-              <select
-                className="form-select"
-                style={{ fontWeight: 700 }}
+              <label className="form-label" style={{ fontWeight: 800, marginBottom: '6px' }}>Select Customer *</label>
+              <CustomerSearchSelect
+                customers={customers}
                 value={scheduleForm.customer_id}
-                onChange={(e) => setScheduleForm(prev => ({ ...prev, customer_id: e.target.value }))}
+                onChange={(id) => setScheduleForm(prev => ({ ...prev, customer_id: id ? String(id) : '' }))}
+                placeholder="Type to search customer, flat, phone, route..."
                 required
-              >
-                {customers
-                  .filter(c => {
-                    if (!scheduleCustomerSearch.trim()) return true;
-                    const q = scheduleCustomerSearch.toLowerCase();
-                    return (c.name || '').toLowerCase().includes(q) ||
-                           (c.flat_no || '').toLowerCase().includes(q) ||
-                           (c.phone || '').includes(q) ||
-                           (c.route || '').toLowerCase().includes(q);
-                  })
-                  .map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.flat_no ? `[${c.flat_no}] ` : ''}{c.name} — {c.phone || 'No phone'} ({c.route || 'General'})
-                    </option>
-                  ))}
-              </select>
+              />
             </div>
 
             {/* Selection Mode Switcher: Continuous Range vs Custom Dates */}

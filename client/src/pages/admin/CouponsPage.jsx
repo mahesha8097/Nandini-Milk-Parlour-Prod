@@ -25,6 +25,7 @@ import {
   Check,
   Filter
 } from 'lucide-react';
+import CustomerSearchSelect from '../../components/common/CustomerSearchSelect';
 
 export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
   const [activeTab, setActiveTab] = useState('CUSTOMERS'); // 'CUSTOMERS' or 'BOOKS'
@@ -51,7 +52,6 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
 
   // Customer dropdown list for issuing books
   const [allCustomers, setAllCustomers] = useState([]);
-  const [issueCustomerSearch, setIssueCustomerSearch] = useState('');
 
   // Available milk products list
   const [allProducts, setAllProducts] = useState([]);
@@ -1261,69 +1261,27 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Customer Selector */}
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', margin: 0 }}>
-                      Customer *
-                    </label>
-                    {issueCustomerSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setIssueCustomerSearch('')}
-                        style={{ background: 'none', border: 'none', color: '#d97706', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                      >
-                        Clear Filter
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ position: 'relative', marginBottom: '8px' }}>
-                    <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="Search customer by name, phone, flat or zone..."
-                      value={issueCustomerSearch}
-                      onChange={(e) => setIssueCustomerSearch(e.target.value)}
-                      style={{ paddingLeft: '32px', fontSize: '13px', paddingBlock: '8px', width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
-                    />
-                  </div>
-
-                  <select
-                    className="form-control"
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Customer *
+                  </label>
+                  <CustomerSearchSelect
+                    customers={allCustomers}
                     value={issueForm.customer_id}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      const c = allCustomers.find(item => item.id === parseInt(id, 10));
+                    onChange={(id, c) => {
                       const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
                       const total = parseInt(issueForm.total_coupons, 10) || 30;
                       const { totalRate } = calculateCouponRate(selectedProd, c);
                       setIssueForm({
                         ...issueForm,
-                        customer_id: id,
+                        customer_id: id ? String(id) : '',
                         price_paid: parseFloat((total * totalRate).toFixed(2)),
                         book_number: `BK-${id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
                       });
                       setSelectedCustomer(c || null);
                     }}
+                    placeholder="Search customer by name, phone, flat or zone..."
                     required
-                    style={{ width: '100%', borderRadius: '8px', padding: '10px', background: '#ffffff', backgroundColor: '#ffffff' }}
-                  >
-                    <option value="">-- Choose Customer --</option>
-                    {allCustomers
-                      .filter(c => {
-                        if (!issueCustomerSearch.trim()) return true;
-                        const q = issueCustomerSearch.toLowerCase();
-                        return (c.name || '').toLowerCase().includes(q) ||
-                               (c.phone || '').includes(q) ||
-                               (c.flat_no || '').toLowerCase().includes(q) ||
-                               (c.zone_name || '').toLowerCase().includes(q);
-                      })
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.phone}) - {c.zone_name || 'No Zone'} {c.billing_type === 'COUPON' ? '★ COUPON' : ''}
-                        </option>
-                      ))}
-                  </select>
+                  />
                 </div>
 
                 {/* Milk Product Selection */}

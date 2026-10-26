@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import { api } from '../../api/client';
 import Modal from '../common/Modal';
 import EmptyState from '../common/EmptyState';
+import CustomerSearchSelect from '../common/CustomerSearchSelect';
 import ProductPacketImage from '../ProductPacketImage';
 import DeliveryCorrectionModal from './DeliveryCorrectionModal';
 import SkipConfirmModal from './SkipConfirmModal';
@@ -178,7 +179,6 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   // Assign Customer to Zone modal state
   const [showAssignCustomerModal, setShowAssignCustomerModal] = useState(false);
   const [assignCustomerData, setAssignCustomerData] = useState({ customer_id: '', flat_no: '' });
-  const [assignCustomerSearch, setAssignCustomerSearch] = useState('');
   const [allCustomersList, setAllCustomersList] = useState([]);
   const [assigningCustomer, setAssigningCustomer] = useState(false);
 
@@ -4221,51 +4221,18 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       >
         <form onSubmit={handleAssignCustomerToZone}>
           <div className="form-group">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <label className="form-label" style={{ marginBottom: 0 }}>Select Customer *</label>
-              {assignCustomerSearch && (
-                <button
-                  type="button"
-                  onClick={() => setAssignCustomerSearch('')}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' }}
-                >
-                  Clear filter
-                </button>
-              )}
-            </div>
-            <div style={{ position: 'relative', marginBottom: '8px' }}>
-              <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search by name, phone, flat or zone..."
-                value={assignCustomerSearch}
-                onChange={(e) => setAssignCustomerSearch(e.target.value)}
-                style={{ paddingLeft: '32px', fontSize: '0.8rem', paddingBlock: '6px' }}
-              />
-            </div>
-            <select
-              className="form-select"
+            <label className="form-label">Select Customer *</label>
+            <CustomerSearchSelect
+              customers={allCustomersList}
               value={assignCustomerData.customer_id}
-              onChange={(e) => setAssignCustomerData({ ...assignCustomerData, customer_id: e.target.value })}
+              onChange={(id, c) => setAssignCustomerData(prev => ({
+                ...prev,
+                customer_id: id ? String(id) : '',
+                flat_no: c?.flat_no || prev.flat_no || ''
+              }))}
+              placeholder="Search by name, phone, flat or zone..."
               required
-            >
-              <option value="">-- Choose Customer --</option>
-              {allCustomersList
-                .filter(c => {
-                  if (!assignCustomerSearch.trim()) return true;
-                  const q = assignCustomerSearch.toLowerCase();
-                  return (c.name || '').toLowerCase().includes(q) ||
-                         (c.phone || '').includes(q) ||
-                         (c.flat_no || '').toLowerCase().includes(q) ||
-                         (c.zone_name || '').toLowerCase().includes(q);
-                })
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.phone}) {c.flat_no ? `[Flat ${c.flat_no}]` : ''} {c.zone_name ? `— current: ${c.zone_name}` : '— (No Zone)'}
-                  </option>
-                ))}
-            </select>
+            />
           </div>
 
           <div className="form-group">
