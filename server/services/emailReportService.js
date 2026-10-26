@@ -190,29 +190,7 @@ async function generateDailyReportData(targetDate, agentId = 1) {
     }
   }
 
-  // 4. Route-wise Delivery Totals
-  const routeWiseQuery = `
-    SELECT 
-      COALESCE(r.name, c.route, 'Unassigned Route') as route_name,
-      COUNT(DISTINCT CASE WHEN d.status = 'DELIVERED' THEN d.customer_id END) as customers_count,
-      COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN d.quantity ELSE 0 END), 0) as total_packets,
-      COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN d.total_amount ELSE 0 END), 0) as total_amount,
-      d.category_snapshot,
-      p.category as prod_category,
-      d.product_name_snapshot,
-      d.variant_snapshot,
-      d.unit_volume_litres_snapshot,
-      p.unit_volume_litres as p_unit_volume,
-      p.variant_label as p_variant_label,
-      d.quantity,
-      d.status
-    FROM deliveries d
-    JOIN customers c ON d.customer_id = c.id
-    LEFT JOIN zones z ON c.zone_id = z.id
-    LEFT JOIN routes r ON z.route_id = r.id
-    LEFT JOIN products p ON d.product_id = p.id
-    WHERE d.delivery_date = ? AND (d.agent_id = ? OR ? IS NULL)
-  `;
+  // 4. Route-wise Delivery Totals (calculated via rawRouteRows below)
   // We process route totals accurately in JS to calculate exact litres per product volume
   const rawRouteRows = await db.prepare(`
     SELECT 

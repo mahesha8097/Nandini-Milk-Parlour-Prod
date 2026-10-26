@@ -131,8 +131,35 @@ async function runTests() {
   assert.strictEqual(afterDeliveryCount, initialDeliveryCount, 'Preview MUST BE read-only: no deliveries records modified');
   console.log(`  ✓ Passed: Preview generates HTML (${previewHtml.length} bytes) and strictly preserves all data without side effects`);
 
+  // [TEST 7] Regression Test: PostgreSQL Parameter Typing & Cron Path Integrity
+  console.log('\n[TEST 7] Verify PostgreSQL parameter typing & cron execution path');
+  const fs = require('fs');
+  const serviceCode = fs.readFileSync(__dirname + '/../services/emailReportService.js', 'utf8');
+
+  // Assert no untyped parameter IS NULL patterns exist in SQL strings
+  const untypedParamRegex = /\?\s+IS\s+NULL/i;
+  assert.strictEqual(
+    untypedParamRegex.test(serviceCode),
+    false,
+    'Regression check: No "? IS NULL" untyped parameter expressions allowed in SQL queries'
+  );
+
+  // Assert exact cron execution path completes without throwing unhandled parameter errors
+  const cronDispatchResult = await sendDailyReportEmail({
+    targetDate: testDate,
+    triggerType: 'CRON',
+    force: true
+  });
+  assert.ok(cronDispatchResult, 'Cron dispatch must return result object');
+  assert.ok(
+    !cronDispatchResult.message || !cronDispatchResult.message.includes('could not determine data type'),
+    'Cron dispatch must not encounter PostgreSQL parameter typing error 42P18'
+  );
+  console.log('  ✓ Passed: Zero untyped parameter expressions in service code');
+  console.log(`  ✓ Passed: Exact cron dispatch path executed cleanly (status: ${cronDispatchResult.status})`);
+
   console.log('\n================================================================');
-  console.log(' ALL 6 EMAIL REPORT & CRON SUITE TESTS PASSED WITH 100% SUCCESS! ');
+  console.log(' ALL 7 EMAIL REPORT & CRON SUITE TESTS PASSED WITH 100% SUCCESS! ');
   console.log('================================================================\n');
 }
 
