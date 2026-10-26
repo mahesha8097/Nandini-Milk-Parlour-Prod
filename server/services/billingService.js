@@ -1340,6 +1340,25 @@ async function deletePaymentTransaction(paymentId, agentId = null) {
       WHERE id = ?
     `).run(currentAdvance, currentPending, customer.id);
 
+    // If payment linked to a bill, revert its paid_amount and status
+    if (payment.bill_id) {
+      const bill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(payment.bill_id);
+      if (bill) {
+        const newPaid = Math.max(0, parseFloat((bill.paid_amount - pAmt).toFixed(2)));
+        let newStatus = 'GENERATED';
+        if (newPaid > 0 && newPaid < bill.net_payable) {
+          newStatus = 'PARTIALLY_PAID';
+        } else if (newPaid >= bill.net_payable) {
+          newStatus = 'PAID';
+        }
+        await db.prepare(`
+          UPDATE bills
+          SET paid_amount = ?, status = ?, updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(newPaid, newStatus, bill.id);
+      }
+    }
+
     // Delete customer_ledger entry for this payment
     const ledgerRef = `PAY-${paymentId}`;
     await db.prepare(`
