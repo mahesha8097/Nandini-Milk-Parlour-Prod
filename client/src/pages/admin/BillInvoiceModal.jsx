@@ -7,7 +7,8 @@ import {
   RotateCcw,
   CheckCircle2,
   MessageCircle,
-  Download
+  Download,
+  Truck
 } from 'lucide-react';
 
 export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculate }) {
@@ -18,6 +19,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
   const [successMsg, setSuccessMsg] = useState('');
   const [capturing, setCapturing] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [whatsappDirectUrl, setWhatsappDirectUrl] = useState('');
 
   const fetchBill = async () => {
     try {
@@ -38,12 +40,13 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
     }
   }, [isOpen, billId]);
 
-  const handleRecalculate = async () => {
+  const handleRecalculate = async (basis = 'AUTO') => {
     try {
       setRecalculating(true);
       setSuccessMsg('');
-      const res = await api.post(`/bills/${billId}/regenerate`);
-      setSuccessMsg('Invoice recalculated successfully with latest subscription start/end dates!');
+      const res = await api.post(`/bills/${billId}/regenerate`, { billingBasis: basis });
+      const basisDesc = basis === 'DELIVERIES' ? 'using actual deliveries marked till today' : 'successfully';
+      setSuccessMsg(`Invoice recalculated ${basisDesc}!`);
       await fetchBill();
       onRecalculate?.();
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -59,6 +62,10 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
   const bill = data?.bill || {};
   const profile = data?.businessProfile || {};
   const items = data?.items || [];
+  const isDeliveredBill = Boolean(
+    bill.notes?.includes('Delivered Milk') ||
+    (bill.total_deliveries_count > 0 && bill.total_deliveries_count < 28)
+  );
 
   // Summary calculations
   const grossAmount = bill.gross_amount || 0;
@@ -234,8 +241,16 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
       return;
     }
 
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const phoneFormatted = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    let cleanPhone = String(phone).replace(/[^0-9]/g, '').replace(/^0+/, '');
+    if (cleanPhone.length === 10) {
+      cleanPhone = `91${cleanPhone}`;
+    }
+    const phoneFormatted = cleanPhone;
+
+    if (!phoneFormatted || phoneFormatted.length < 10) {
+      alert(`Customer phone number (${phone}) is invalid.`);
+      return;
+    }
 
     let msg = `*${profile.invoice_business_name || profile.business_name || 'NANDINI MILK PARLOUR'} — INVOICE*\n`;
     msg += `*Invoice No:* ${bill.bill_number}\n`;
@@ -271,9 +286,42 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
     msg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
     msg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
 
+    const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`;
+    setWhatsappDirectUrl(whatsappUrl);
+
+    // Synchronously pre-open blank tab within the user click gesture to avoid browser popup blockers on desktop
+    let whatsappTab = null;
+    if (!isMobile) {
+      try {
+        whatsappTab = window.open('about:blank', '_blank');
+        if (whatsappTab) {
+          whatsappTab.document.write(`
+            <!DOCTYPE html>
+            <html>
+              <head><title>Opening WhatsApp...</title></head>
+              <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 90vh; margin: 0; background: #f8fafc; color: #1e293b;">
+                <div style="text-align: center; padding: 28px; max-width: 420px; background: white; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+                  <div style="font-size: 36px; margin-bottom: 12px;">⏳</div>
+                  <h3 style="margin: 0 0 8px; font-size: 18px; color: #0f172a;">Connecting to WhatsApp...</h3>
+                  <p style="margin: 0; color: #64748b; font-size: 14px; line-height: 1.5;">Preparing invoice picture and redirecting to customer chat (${phoneFormatted}). Please hold on...</p>
+                </div>
+              </body>
+            </html>
+          `);
+        }
+      } catch (e) {
+        console.warn('Pre-open tab note:', e);
+      }
+    }
+
     const invoiceElement = document.getElementById('printable-invoice-content');
     if (!invoiceElement) {
-      window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
+      if (whatsappTab && !whatsappTab.closed) {
+        whatsappTab.location.href = whatsappUrl;
+      } else {
+        window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
+      }
       return;
     }
 
@@ -313,17 +361,21 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
 
       if (scrollParent) scrollParent.scrollLeft = prevScrollLeft;
 
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
-          window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
-          setCapturing(false);
-          return;
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) {
+        if (whatsappTab && !whatsappTab.closed) {
+          whatsappTab.location.href = whatsappUrl;
+        } else {
+          window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
         }
+        return;
+      }
 
-        const fileName = `Invoice_${bill.bill_number || 'bill'}.png`;
-        const file = new File([blob], fileName, { type: 'image/png' });
+      const fileName = `Invoice_${bill.bill_number || 'bill'}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
 
-        // 1. Mobile / Web Share API with File
+      // 1. Mobile / Web Share API with File
+      if (isMobile) {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
@@ -331,44 +383,85 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
               text: msg,
               files: [file]
             });
-            setCapturing(false);
             return;
           } catch (shareErr) {
-            console.log('Native share canceled, using fallback:', shareErr);
+            console.log('Native share canceled or fallback:', shareErr);
           }
         }
+        // Direct redirect on mobile to WhatsApp app
+        window.location.href = whatsappUrl;
+        return;
+      }
 
-        // 2. Desktop Fallback: Copy Image to Clipboard + Auto Download + Open WhatsApp
+      // 2. Desktop Flow:
+      // Try to copy Image to Clipboard
+      let clipboardCopied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.write) {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]);
+          clipboardCopied = true;
+        }
+      } catch (clipErr) {
+        console.log('Clipboard write note (document not focused):', clipErr);
+      }
+
+      // Redirect pre-opened WhatsApp window
+      let tabOpened = false;
+      if (whatsappTab && !whatsappTab.closed) {
         try {
-          if (navigator.clipboard && navigator.clipboard.write) {
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': blob })
-            ]);
-          }
-        } catch (clipErr) {
-          console.log('Clipboard write note:', clipErr);
+          whatsappTab.location.href = whatsappUrl;
+          whatsappTab.focus();
+          tabOpened = true;
+        } catch (e) {
+          console.warn('Redirect tab failed:', e);
         }
+      }
 
-        // Trigger automatic image download
-        const downloadUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+      if (!tabOpened) {
+        try {
+          const directWin = window.open(whatsappUrl, '_blank');
+          if (directWin && !directWin.closed) {
+            tabOpened = true;
+          }
+        } catch (e) {
+          console.warn('Direct window.open failed:', e);
+        }
+      }
 
-        setToastMsg('📸 Invoice picture copied to clipboard & downloaded! Simply press Ctrl+V in WhatsApp to send the invoice picture.');
-        setTimeout(() => setToastMsg(''), 9000);
+      // Download file backup (slight delay so it doesn't interrupt navigation)
+      setTimeout(() => {
+        try {
+          const downloadUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+        } catch (dErr) {
+          console.warn('Download error:', dErr);
+        }
+      }, 350);
 
-        // Open WhatsApp Web
-        window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
-        setCapturing(false);
-      }, 'image/png');
+      setToastMsg(
+        clipboardCopied
+          ? '📸 Invoice picture copied to clipboard & downloaded! In WhatsApp, press Ctrl+V to paste the invoice picture.'
+          : '📸 Invoice picture downloaded! Redirecting to WhatsApp customer chat...'
+      );
+      setTimeout(() => setToastMsg(''), 10000);
     } catch (err) {
       console.error('Invoice capture error:', err);
-      window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
+      if (whatsappTab && !whatsappTab.closed) {
+        whatsappTab.location.href = whatsappUrl;
+      } else {
+        window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
+      }
+      setToastMsg('Redirecting to WhatsApp with invoice details.');
+      setTimeout(() => setToastMsg(''), 6000);
+    } finally {
       setCapturing(false);
     }
   };
@@ -388,7 +481,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
         <div id="printable-invoice">
           {/* Action Bar */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }} className="no-print">
-            <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               {successMsg && (
                 <span style={{ fontSize: '0.8rem', color: '#166534', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <CheckCircle2 size={16} /> {successMsg}
@@ -399,16 +492,48 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
                   {toastMsg}
                 </span>
               )}
+              {whatsappDirectUrl && (
+                <a
+                  href={whatsappDirectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-sm"
+                  style={{
+                    background: '#25D366',
+                    color: 'white',
+                    borderColor: '#22c55e',
+                    fontWeight: '700',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 8px',
+                    textDecoration: 'none'
+                  }}
+                  title="Direct link to open customer chat on WhatsApp"
+                >
+                  <MessageCircle size={14} /> Open WhatsApp Chat
+                </a>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
-                onClick={handleRecalculate}
+                onClick={() => handleRecalculate('DELIVERIES')}
                 className="btn btn-outline btn-sm"
                 disabled={recalculating || capturing}
-                title="Recalculate invoice based on latest subscription start and end dates"
+                style={{ color: '#16a34a', borderColor: '#86efac', fontWeight: '700', background: '#f0fdf4' }}
+                title="Recalculate using actual deliveries marked till today and deduct from advance"
+              >
+                <Truck size={15} />
+                {recalculating ? 'Recalculating...' : 'Recalculate (Delivered Till Today)'}
+              </button>
+              <button
+                onClick={() => handleRecalculate('SUBSCRIPTION')}
+                className="btn btn-outline btn-sm"
+                disabled={recalculating || capturing}
+                title="Recalculate invoice based on full month scheduled days"
               >
                 <RotateCcw size={15} />
-                {recalculating ? 'Recalculating...' : 'Recalculate Invoice'}
+                Full Month
               </button>
               <button
                 onClick={handleDownloadImage}
@@ -585,7 +710,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
               <div style={{ width: '310px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '12px 14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
                   <span style={{ color: '#64748b' }}>
-                    {bill.billing_type === 'PREPAID' ? 'Sub Total (Scheduled Days):' : 'Sub Total (Delivered Milk):'}
+                    {isDeliveredBill ? 'Sub Total (Delivered Milk Till Today):' : (bill.billing_type === 'PREPAID' ? 'Sub Total (Scheduled Days):' : 'Sub Total (Delivered Milk):')}
                   </span>
                   <span style={{ fontWeight: '600' }}>₹{grossAmount.toFixed(2)}</span>
                 </div>
@@ -597,7 +722,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
                       <span>₹{totalAdvancePaid.toFixed(2)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#dc2626', marginBottom: '3px', fontWeight: '700' }}>
-                      <span>{bill.billing_type === 'PREPAID' ? 'Advance Settled / Deducted:' : 'Delivered Milk Deducted:'}</span>
+                      <span>{isDeliveredBill ? 'Delivered Milk Deducted:' : (bill.billing_type === 'PREPAID' ? 'Advance Settled / Deducted:' : 'Delivered Milk Deducted:')}</span>
                       <span>- ₹{advanceAdjusted.toFixed(2)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#15803d', fontWeight: '800', borderTop: '1px dashed #86efac', paddingTop: '3px' }}>
@@ -639,7 +764,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
             {/* Advance Deduction Banner if applicable */}
             {advanceAdjusted > 0 && (
               <div style={{ marginBottom: '12px', padding: '8px 12px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '4px', fontSize: '0.75rem', color: '#065f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>✓ <strong>Advance Settled:</strong> ₹{advanceAdjusted.toFixed(2)} {bill.billing_type === 'PREPAID' ? 'has been settled from advance deposit for scheduled deliveries.' : 'for delivered milk has been deducted from advance deposit.'}</span>
+                <span>✓ <strong>Advance Settled:</strong> ₹{advanceAdjusted.toFixed(2)} {isDeliveredBill ? `for ${bill.total_deliveries_count || ''} delivered items has been deducted from advance deposit.` : (bill.billing_type === 'PREPAID' ? 'has been settled from advance deposit for scheduled deliveries.' : 'for delivered milk has been deducted from advance deposit.')}</span>
                 <span>Customer Remaining Advance: <strong>₹{remainingAdvance.toFixed(2)}</strong></span>
               </div>
             )}

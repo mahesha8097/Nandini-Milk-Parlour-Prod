@@ -349,6 +349,7 @@ export default function BillsPage() {
               <option value="PREPAID">Prepaid (Advance)</option>
               <option value="POSTPAID">Postpaid (Monthly)</option>
               <option value="WEEKLY">Weekly (Actual Delivery)</option>
+              <option value="DAILY">Daily Payment</option>
               <option value="COUPON">Coupon Customers</option>
             </select>
 
@@ -439,6 +440,10 @@ export default function BillsPage() {
                       ) : bill.billing_type === 'COUPON' ? (
                         <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                           <Ticket size={11} /> Coupon
+                        </span>
+                      ) : bill.billing_type === 'DAILY' ? (
+                        <span className="badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+                          Daily Payment
                         </span>
                       ) : (
                         <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
@@ -549,6 +554,10 @@ export default function BillsPage() {
                   ) : bill.billing_type === 'COUPON' ? (
                     <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                       <Ticket size={11} /> Coupon
+                    </span>
+                  ) : bill.billing_type === 'DAILY' ? (
+                    <span className="badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+                      Daily Payment
                     </span>
                   ) : (
                     <span className={`badge ${bill.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>

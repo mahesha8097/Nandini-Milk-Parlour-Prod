@@ -45,6 +45,13 @@ function renderBillingBadge(c) {
       </span>
     );
   }
+  if (c.billing_type === 'DAILY') {
+    return (
+      <span className="badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+        Daily Payment
+      </span>
+    );
+  }
   if (c.billing_type === 'WEEKLY') {
     return (
       <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe' }}>
@@ -461,16 +468,26 @@ export default function CustomersPage({ initialOpenAdd = false }) {
     if (!targetZoneId && activeZone && activeZone.type === 'ZONE') {
       targetZoneId = activeZone.id;
     }
+    const matchedZone = targetZoneId ? zones.find((z) => String(z.id) === String(targetZoneId)) : null;
+    let initialDboyId = deliveryBoyFilter || '';
+    if (!initialDboyId && matchedZone) {
+      if (matchedZone.route_delivery_boy_id) initialDboyId = String(matchedZone.route_delivery_boy_id);
+      else if (matchedZone.delivery_boy_id) initialDboyId = String(matchedZone.delivery_boy_id);
+      else if (matchedZone.route_name && deliveryBoys && deliveryBoys.length > 0) {
+        const mb = deliveryBoys.find((b) => b.assigned_route && (b.assigned_route.toLowerCase() === matchedZone.route_name.toLowerCase() || String(b.assigned_route) === String(matchedZone.route_id)));
+        if (mb) initialDboyId = String(mb.id);
+      }
+    }
     setFormData({
       name: '',
       phone: '',
-      address: activeZone && activeZone.address ? activeZone.address : '',
+      address: matchedZone?.address || (activeZone && activeZone.address ? activeZone.address : ''),
       flat_no: '',
       zone_id: targetZoneId || '',
       customer_category: activeZone && activeZone.type === 'BULK' ? 'BULK_HOTEL' : 'HOUSE',
       billing_type: 'PREPAID',
-      delivery_boy_id: deliveryBoyFilter || '',
-      route: '',
+      delivery_boy_id: initialDboyId,
+      route: matchedZone?.route_name || '',
       notes: '',
       advance_balance: 0,
       initial_advance: 0,
@@ -483,6 +500,16 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   const handleOpenEdit = (customer) => {
     setEditingCustomer(customer);
     const adv = customer.advance_balance !== undefined ? customer.advance_balance : customer.initial_advance || 0;
+    let currentDboy = customer.delivery_boy_id ? String(customer.delivery_boy_id) : '';
+    if (!currentDboy && customer.zone_id) {
+      const mz = zones.find((z) => String(z.id) === String(customer.zone_id));
+      if (mz?.route_delivery_boy_id) currentDboy = String(mz.route_delivery_boy_id);
+      else if (mz?.delivery_boy_id) currentDboy = String(mz.delivery_boy_id);
+      else if (mz?.route_name && deliveryBoys && deliveryBoys.length > 0) {
+        const mb = deliveryBoys.find((b) => b.assigned_route && (b.assigned_route.toLowerCase() === mz.route_name.toLowerCase() || String(b.assigned_route) === String(mz.route_id)));
+        if (mb) currentDboy = String(mb.id);
+      }
+    }
     setFormData({
       name: customer.name,
       phone: customer.phone,
@@ -491,7 +518,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       zone_id: customer.zone_id || '',
       customer_category: customer.customer_category,
       billing_type: customer.billing_type,
-      delivery_boy_id: customer.delivery_boy_id || '',
+      delivery_boy_id: currentDboy,
       route: customer.route || '',
       notes: customer.notes || '',
       advance_balance: adv,
@@ -1151,6 +1178,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                   <option value="PREPAID">Prepaid (Advance)</option>
                   <option value="POSTPAID">Postpaid</option>
                   <option value="WEEKLY">Weekly (Actual Delivery)</option>
+                  <option value="DAILY">Daily Payment</option>
                   <option value="COUPON">Coupon Based</option>
                 </select>
               </div>
@@ -1577,6 +1605,9 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                   <option value="">All Billing Types</option>
                   <option value="PREPAID">Prepaid (Advance)</option>
                   <option value="POSTPAID">Postpaid</option>
+                  <option value="WEEKLY">Weekly (Actual Delivery)</option>
+                  <option value="DAILY">Daily Payment</option>
+                  <option value="COUPON">Coupon Based</option>
                 </select>
 
                 <select
@@ -2081,18 +2112,29 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 onChange={(e) => {
                   const newZId = e.target.value;
                   const matchedZone = zones.find((z) => String(z.id) === String(newZId));
+                  let autoDboyId = '';
+                  if (matchedZone) {
+                    if (matchedZone.route_delivery_boy_id) {
+                      autoDboyId = String(matchedZone.route_delivery_boy_id);
+                    } else if (matchedZone.delivery_boy_id) {
+                      autoDboyId = String(matchedZone.delivery_boy_id);
+                    } else if (matchedZone.route_name && deliveryBoys && deliveryBoys.length > 0) {
+                      const mb = deliveryBoys.find((b) => b.assigned_route && (b.assigned_route.toLowerCase() === matchedZone.route_name.toLowerCase() || String(b.assigned_route) === String(matchedZone.route_id)));
+                      if (mb) autoDboyId = String(mb.id);
+                    }
+                  }
                   setFormData((prev) => ({
                     ...prev,
                     zone_id: newZId,
                     route: matchedZone?.route_name || prev.route || '',
-                    delivery_boy_id: matchedZone?.route_delivery_boy_id ? String(matchedZone.route_delivery_boy_id) : prev.delivery_boy_id
+                    delivery_boy_id: autoDboyId || prev.delivery_boy_id || ''
                   }));
                 }}
               >
                 <option value="">-- No Zone (Unassigned / Independent) --</option>
                 {zones.map((z) => (
                   <option key={z.id} value={z.id}>
-                    {z.name} {z.address ? `(${z.address})` : ''}
+                    {z.name} {z.address ? `(${z.address})` : ''} {z.delivery_boy_name ? `— 🚴 ${z.delivery_boy_name}` : ''}
                   </option>
                 ))}
               </select>
@@ -2145,6 +2187,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 <option value="PREPAID">Prepaid / Monthly Advance (Auto-generated monthly)</option>
                 <option value="POSTPAID">Postpaid (Monthly based on actual deliveries)</option>
                 <option value="WEEKLY">Weekly Bill (Based on actual deliveries)</option>
+                <option value="DAILY">Daily Payment (Pay daily on delivery / cash / UPI)</option>
                 <option value="COUPON">Coupon System (Pre-purchased coupon book)</option>
               </select>
             </div>
@@ -2194,6 +2237,26 @@ export default function CustomersPage({ initialOpenAdd = false }) {
               <Calendar size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
               <div>
                 <strong>Weekly Billing Customer:</strong> Bills are generated weekly based strictly on actual milk delivered during that 7-day period (e.g. Mon–Sun).
+              </div>
+            </div>
+          )}
+
+          {formData.billing_type === 'DAILY' && (
+            <div style={{
+              background: '#ecfdf5',
+              border: '1px solid #a7f3d0',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 14px',
+              marginBottom: '16px',
+              fontSize: '0.82rem',
+              color: '#065f46',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '8px'
+            }}>
+              <Calendar size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
+              <div>
+                <strong>Daily Payment Customer:</strong> Customer pays daily on delivery via direct UPI or cash. Deliveries are verified and marked daily by the delivery boy.
               </div>
             </div>
           )}

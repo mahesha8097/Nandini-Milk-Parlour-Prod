@@ -1146,9 +1146,23 @@ export default function DailyRequirementsPage() {
                             {item.customer_name}
                           </h3>
 
-                          <span className={`badge ${item.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.68rem' }}>
-                            {item.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
-                          </span>
+                          {item.billing_type === 'COUPON' ? (
+                            <span className="badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', fontSize: '0.68rem' }}>
+                              Coupon
+                            </span>
+                          ) : item.billing_type === 'WEEKLY' ? (
+                            <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', fontSize: '0.68rem' }}>
+                              Weekly
+                            </span>
+                          ) : item.billing_type === 'DAILY' ? (
+                            <span className="badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', fontSize: '0.68rem' }}>
+                              Daily Payment
+                            </span>
+                          ) : (
+                            <span className={`badge ${item.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '0.68rem' }}>
+                              {item.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}
+                            </span>
+                          )}
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>

@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { calculateDeliveryChargesForCustomerDay } = require('./deliveryChargeService');
+const { getLocalDateString } = require('../utils/dateUtils');
 
 /**
  * Returns number of days in a given YYYY-MM month
@@ -457,8 +458,13 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
 
   const billNumber = existing ? existing.bill_number : await generateBillNumber(billingMonth);
   const daysInMonth = getDaysInMonth(billingMonth);
-  const billDate = `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
-  const dueDate = `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
+  const todayStr = getLocalDateString();
+  const isCurrentMonth = todayStr.startsWith(billingMonth);
+  const billDate = isCurrentMonth ? todayStr : `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
+  const dueDate = billDate;
+
+  const delStartDate = deliveries.length > 0 ? deliveries[0].delivery_date : `${billingMonth}-01`;
+  const delEndDate = deliveries.length > 0 ? deliveries[deliveries.length - 1].delivery_date : billDate;
 
   let billId = existing ? existing.id : null;
   const billingType = customer.billing_type || 'POSTPAID';
@@ -468,12 +474,15 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
       UPDATE bills
       SET total_deliveries_count = ?, product_subtotal = ?, delivery_charges_total = ?,
           gross_amount = ?, previous_due = ?, advance_adjusted = ?, net_payable = ?,
-          paid_amount = ?, status = ?, items_json = ?, notes = ?, updated_at = datetime('now', 'localtime')
+          paid_amount = ?, status = ?, items_json = ?, notes = ?,
+          bill_date = ?, due_date = ?, start_date = ?, end_date = ?,
+          updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
       deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(groupedItems), `Delivered Milk Bill for ${deliveries.length} items (Deducted from Advance: ₹${advanceToAdjust})`,
+      JSON.stringify(groupedItems), `Delivered Milk Bill (${delStartDate} to ${delEndDate}, ${deliveries.length} items, Deducted from Advance: ₹${advanceToAdjust})`,
+      billDate, dueDate, delStartDate, delEndDate,
       existing.id
     );
     billId = existing.id;
@@ -481,20 +490,23 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
     const info = await db.prepare(`
       INSERT INTO bills (
         bill_number, customer_id, billing_month, billing_type, bill_date, due_date,
+        start_date, end_date,
         total_deliveries_count, product_subtotal, delivery_charges_total, gross_amount,
         previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
         items_json, notes, agent_id, created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
+        ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, 'FINALIZED',
         ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
       )
     `).run(
       billNumber, customer.id, billingMonth, billingType, billDate, dueDate,
+      delStartDate, delEndDate,
       deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(groupedItems), `Delivered Milk Bill for ${deliveries.length} items (Deducted from Advance: ₹${advanceToAdjust})`,
+      JSON.stringify(groupedItems), `Delivered Milk Bill (${delStartDate} to ${delEndDate}, ${deliveries.length} items, Deducted from Advance: ₹${advanceToAdjust})`,
       customer.agent_id || 1
     );
     billId = info.lastInsertRowid;
@@ -814,31 +826,50 @@ async function generateBillForCustomer(customer, billingMonth, { billingBasis = 
     return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
   }
 
-  // 2. PREPAID Customers:
-  // Prepaid customers pay in advance for the month according to their scheduled days!
-  // Unless admin explicitly forced billingBasis to 'DELIVERIES'.
-  if (customer.billing_type === 'PREPAID' && billingBasis !== 'DELIVERIES') {
-    return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
-  }
-
-  // 3. POSTPAID Customers:
-  // Postpaid customers pay based on actual milk packets delivered in that month!
-  if (customer.billing_type === 'POSTPAID' || billingBasis === 'DELIVERIES') {
-    return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
-  }
-
-  // 4. If billingBasis is explicitly 'SUBSCRIPTION':
-  if (billingBasis === 'SUBSCRIPTION') {
-    return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
-  }
-
-  // 5. Fallback for unclassified customers: check if deliveries exist, else advance bill
+  // Check if actual deliveries exist for this customer in billingMonth
   const delCountRow = await db.prepare(`
     SELECT COUNT(*) as count FROM deliveries
     WHERE customer_id = ? AND delivery_date LIKE ? AND status = 'DELIVERED'
   `).get(customer.id, `${billingMonth}%`);
-  const hasDeliveries = delCountRow && delCountRow.count > 0;
+  const hasDeliveries = delCountRow && Number(delCountRow.count) > 0;
 
+  // 2. Explicit billingBasis choices:
+  if (billingBasis === 'DELIVERIES') {
+    if (!hasDeliveries) {
+      return null;
+    }
+    return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
+  }
+
+  if (billingBasis === 'SUBSCRIPTION') {
+    return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
+  }
+
+  // 3. POSTPAID Customers:
+  if (customer.billing_type === 'POSTPAID') {
+    return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
+  }
+
+  // 4. PREPAID Customers:
+  if (customer.billing_type === 'PREPAID') {
+    // If the customer already has recorded deliveries marked DELIVERED in this month,
+    // prioritize DELIVERED MILK so the bill calculates actual delivered milk and deducts it from advance!
+    if (hasDeliveries) {
+      return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
+    }
+    // Otherwise, before deliveries begin (e.g. at the beginning of the month), generate the advance scheduled bill
+    return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
+  }
+
+  // 5. DAILY customers:
+  if (customer.billing_type === 'DAILY') {
+    if (hasDeliveries) {
+      return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
+    }
+    return null;
+  }
+
+  // 6. Fallback for unclassified customers:
   if (hasDeliveries) {
     return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
   }
@@ -900,7 +931,14 @@ async function recalculateSingleBill(billId, billingBasis = 'AUTO') {
     throw new Error('Customer not found');
   }
 
-  return await generateBillForCustomer(customer, bill.billing_month, { billingBasis, forceRegenerate: true });
+  let effBasis = billingBasis;
+  if (effBasis === 'AUTO') {
+    if (bill.notes?.includes('Delivered Milk') || (bill.total_deliveries_count > 0 && bill.total_deliveries_count < 28)) {
+      effBasis = 'DELIVERIES';
+    }
+  }
+
+  return await generateBillForCustomer(customer, bill.billing_month, { billingBasis: effBasis, forceRegenerate: true });
 }
 
 /**

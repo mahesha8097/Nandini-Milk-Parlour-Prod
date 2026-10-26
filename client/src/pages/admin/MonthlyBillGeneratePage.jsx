@@ -61,6 +61,7 @@ export default function MonthlyBillGeneratePage() {
   const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [whatsappDirectUrl, setWhatsappDirectUrl] = useState('');
 
   // Calculate days in month whenever selectedMonth changes
   useEffect(() => {
@@ -672,8 +673,16 @@ export default function MonthlyBillGeneratePage() {
       return;
     }
 
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const phoneFormatted = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    let cleanPhone = String(phone).replace(/[^0-9]/g, '').replace(/^0+/, '');
+    if (cleanPhone.length === 10) {
+      cleanPhone = `91${cleanPhone}`;
+    }
+    const phoneFormatted = cleanPhone;
+
+    if (!phoneFormatted || phoneFormatted.length < 10) {
+      alert(`Customer phone number (${phone}) is invalid.`);
+      return;
+    }
 
     const itemsSummary = calculatedItems.map(it =>
       `• ${it.productName} (${it.variantLabel}) × ${it.quantity}/day for ${it.itemDays} days (${it.totalQty} total @ ₹${it.effectiveUnitPrice.toFixed(2)}) = ₹${it.lineTotal.toFixed(2)}`
@@ -708,9 +717,42 @@ export default function MonthlyBillGeneratePage() {
     msg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
     msg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
 
+    const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`;
+    setWhatsappDirectUrl(whatsappUrl);
+
+    // Synchronously pre-open blank tab within the user click gesture to avoid browser popup blockers on desktop
+    let whatsappTab = null;
+    if (!isMobile) {
+      try {
+        whatsappTab = window.open('about:blank', '_blank');
+        if (whatsappTab) {
+          whatsappTab.document.write(`
+            <!DOCTYPE html>
+            <html>
+              <head><title>Opening WhatsApp...</title></head>
+              <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 90vh; margin: 0; background: #f8fafc; color: #1e293b;">
+                <div style="text-align: center; padding: 28px; max-width: 420px; background: white; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+                  <div style="font-size: 36px; margin-bottom: 12px;">⏳</div>
+                  <h3 style="margin: 0 0 8px; font-size: 18px; color: #0f172a;">Connecting to WhatsApp...</h3>
+                  <p style="margin: 0; color: #64748b; font-size: 14px; line-height: 1.5;">Preparing invoice picture and redirecting to customer chat (${phoneFormatted}). Please hold on...</p>
+                </div>
+              </body>
+            </html>
+          `);
+        }
+      } catch (e) {
+        console.warn('Pre-open tab note:', e);
+      }
+    }
+
     const invoiceElement = document.getElementById('printable-invoice-content');
     if (!invoiceElement) {
-      window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
+      if (whatsappTab && !whatsappTab.closed) {
+        whatsappTab.location.href = whatsappUrl;
+      } else {
+        window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
+      }
       return;
     }
 
@@ -767,17 +809,21 @@ export default function MonthlyBillGeneratePage() {
       invoiceElement.style.maxWidth = prevMaxWidth;
       if (scrollParent) scrollParent.scrollLeft = prevScrollLeft;
 
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
-          window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
-          setCapturing(false);
-          return;
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) {
+        if (whatsappTab && !whatsappTab.closed) {
+          whatsappTab.location.href = whatsappUrl;
+        } else {
+          window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
         }
+        return;
+      }
 
-        const fileName = `Invoice_${invoiceNumber}.png`;
-        const file = new File([blob], fileName, { type: 'image/png' });
+      const fileName = `Invoice_${invoiceNumber}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
 
-        // 1. Mobile / Web Share API with File
+      // 1. Mobile / Web Share API with File
+      if (isMobile) {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
@@ -785,41 +831,75 @@ export default function MonthlyBillGeneratePage() {
               text: msg,
               files: [file]
             });
-            setCapturing(false);
             return;
           } catch (shareErr) {
-            console.log('Native share canceled, using fallback:', shareErr);
+            console.log('Native share canceled or fallback:', shareErr);
           }
         }
+        // Direct redirect on mobile to WhatsApp app
+        window.location.href = whatsappUrl;
+        return;
+      }
 
-        // 2. Desktop Fallback: Copy Image to Clipboard + Auto Download + Open WhatsApp
+      // 2. Desktop Flow:
+      // Try to copy Image to Clipboard
+      let clipboardCopied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.write) {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]);
+          clipboardCopied = true;
+        }
+      } catch (clipErr) {
+        console.log('Clipboard write note (document not focused):', clipErr);
+      }
+
+      // Redirect pre-opened WhatsApp window
+      let tabOpened = false;
+      if (whatsappTab && !whatsappTab.closed) {
         try {
-          if (navigator.clipboard && navigator.clipboard.write) {
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': blob })
-            ]);
-          }
-        } catch (clipErr) {
-          console.log('Clipboard write note:', clipErr);
+          whatsappTab.location.href = whatsappUrl;
+          whatsappTab.focus();
+          tabOpened = true;
+        } catch (e) {
+          console.warn('Redirect tab failed:', e);
         }
+      }
 
-        // Trigger automatic image download
-        const downloadUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+      if (!tabOpened) {
+        try {
+          const directWin = window.open(whatsappUrl, '_blank');
+          if (directWin && !directWin.closed) {
+            tabOpened = true;
+          }
+        } catch (e) {
+          console.warn('Direct window.open failed:', e);
+        }
+      }
 
-        setToastMsg('📸 Invoice picture copied to clipboard & downloaded! Simply press Ctrl+V in WhatsApp to send the invoice picture.');
-        setTimeout(() => setToastMsg(''), 9000);
+      // Download file backup (slight delay so it doesn't interrupt navigation)
+      setTimeout(() => {
+        try {
+          const downloadUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+        } catch (dErr) {
+          console.warn('Download error:', dErr);
+        }
+      }, 350);
 
-        // Open WhatsApp Web
-        window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
-        setCapturing(false);
-      }, 'image/png');
+      setToastMsg(
+        clipboardCopied
+          ? '📸 Invoice picture copied to clipboard & downloaded! In WhatsApp, press Ctrl+V to paste the invoice picture.'
+          : '📸 Invoice picture downloaded! Redirecting to WhatsApp customer chat...'
+      );
+      setTimeout(() => setToastMsg(''), 10000);
     } catch (err) {
       if (invoiceElement) {
         invoiceElement.style.width = prevWidth;
@@ -827,7 +907,14 @@ export default function MonthlyBillGeneratePage() {
         invoiceElement.style.maxWidth = prevMaxWidth;
       }
       console.error('Invoice capture error:', err);
-      window.open(`https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`, '_blank');
+      if (whatsappTab && !whatsappTab.closed) {
+        whatsappTab.location.href = whatsappUrl;
+      } else {
+        window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
+      }
+      setToastMsg('Redirecting to WhatsApp with invoice details.');
+      setTimeout(() => setToastMsg(''), 6000);
+    } finally {
       setCapturing(false);
     }
   };
@@ -1494,8 +1581,8 @@ export default function MonthlyBillGeneratePage() {
         </div>
       </Modal>
 
-      {/* Toast Notification for Clipboard / Share */}
-      {toastMsg && (
+      {/* Toast Notification Banner */}
+      {(toastMsg || whatsappDirectUrl) && (
         <div style={{
           marginBottom: '14px',
           padding: '10px 16px',
@@ -1507,11 +1594,37 @@ export default function MonthlyBillGeneratePage() {
           fontSize: '0.82rem',
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
           gap: '8px',
           boxShadow: '0 2px 8px rgba(16,185,129,0.15)'
         }}>
-          <CheckCircle2 size={18} color="#059669" />
-          <span>{toastMsg}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircle2 size={18} color="#059669" />
+            <span>{toastMsg}</span>
+          </div>
+          {whatsappDirectUrl && (
+            <a
+              href={whatsappDirectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-sm"
+              style={{
+                background: '#25D366',
+                color: 'white',
+                borderColor: '#22c55e',
+                fontWeight: '700',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                textDecoration: 'none'
+              }}
+              title="Direct link to open customer chat on WhatsApp"
+            >
+              <MessageCircle size={15} /> Open WhatsApp Chat
+            </a>
+          )}
         </div>
       )}
 

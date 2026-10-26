@@ -41,22 +41,54 @@ async function syncSupabase() {
     `);
     console.log('Ensured compatibility functions');
 
-    // Inspect columns of customers and products
-    const custCols = await client.query(`
-      SELECT column_name, data_type 
-      FROM information_schema.columns 
-      WHERE table_name = 'customers'
-      ORDER BY ordinal_position;
-    `);
-    console.log('Customer columns:', custCols.rows.map(r => r.column_name).join(', '));
+    // 4. Update billing_type check constraints on customers and bills to include 'DAILY'
+    console.log('Updating billing_type check constraints...');
+    const constraintQueries = [
+      // Find and drop existing billing_type check constraints on customers
+      `DO $$
+      DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN (
+          SELECT conname 
+          FROM pg_constraint 
+          WHERE conrelid = 'customers'::regclass 
+            AND contype = 'c' 
+            AND pg_get_constraintdef(oid) LIKE '%billing_type%'
+        ) LOOP
+          EXECUTE 'ALTER TABLE customers DROP CONSTRAINT ' || quote_ident(r.conname);
+        END LOOP;
+      END $$;`,
+      `ALTER TABLE customers ADD CONSTRAINT customers_billing_type_check CHECK (billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON', 'DAILY'));`,
+      
+      // Find and drop existing billing_type check constraints on bills
+      `DO $$
+      DECLARE
+        r RECORD;
+      BEGIN
+        FOR r IN (
+          SELECT conname 
+          FROM pg_constraint 
+          WHERE conrelid = 'bills'::regclass 
+            AND contype = 'c' 
+            AND pg_get_constraintdef(oid) LIKE '%billing_type%'
+        ) LOOP
+          EXECUTE 'ALTER TABLE bills DROP CONSTRAINT ' || quote_ident(r.conname);
+        END LOOP;
+      END $$;`,
+      `ALTER TABLE bills ADD CONSTRAINT bills_billing_type_check CHECK (billing_type IN ('PREPAID', 'POSTPAID', 'WEEKLY', 'COUPON', 'DAILY'));`,
+      
+      // Ensure routes table has delivery_boy_id column referencing users(id)
+      `ALTER TABLE routes ADD COLUMN IF NOT EXISTS delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL;`,
+      
+      // Sync route delivery_boy_id if missing from users where role = 'DELIVERY_BOY'
+      `UPDATE routes SET delivery_boy_id = (SELECT id FROM users WHERE role = 'DELIVERY_BOY' AND (assigned_route = routes.name OR assigned_route = CAST(routes.id AS TEXT)) LIMIT 1) WHERE delivery_boy_id IS NULL;`
+    ];
 
-    const prodCols = await client.query(`
-      SELECT column_name, data_type 
-      FROM information_schema.columns 
-      WHERE table_name = 'products'
-      ORDER BY ordinal_position;
-    `);
-    console.log('Product columns:', prodCols.rows.map(r => r.column_name).join(', '));
+    for (const q of constraintQueries) {
+      await client.query(q);
+    }
+    console.log('Successfully updated billing_type check constraints and route sync.');
 
     console.log('\nSupabase Live DB schema synchronization complete and verified!');
   } finally {

@@ -111,6 +111,20 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const created = await db.prepare('SELECT id, name, username, role, phone, email, assigned_route, is_active, created_at FROM users WHERE id = ?').get(result.lastInsertRowid);
 
+    // Synchronize route table delivery_boy_id if assigned_route is specified
+    if (assigned_route && assigned_route.trim()) {
+      try {
+        const cleanRoute = assigned_route.trim();
+        await db.prepare(`
+          UPDATE routes
+          SET delivery_boy_id = ?
+          WHERE LOWER(name) = LOWER(?) OR CAST(id AS TEXT) = ?
+        `).run(created.id, cleanRoute, cleanRoute);
+      } catch (rErr) {
+        console.warn('Sync route delivery boy warning:', rErr.message);
+      }
+    }
+
     // Audit log
     await db.prepare(`
       INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
@@ -157,6 +171,20 @@ router.put('/:id', requireAdmin, async (req, res) => {
     );
 
     const updated = await db.prepare('SELECT id, name, username, role, phone, email, assigned_route, is_active, created_at FROM users WHERE id = ?').get(dboyId);
+
+    // Synchronize route table delivery_boy_id if assigned_route is specified
+    const finalRoute = assigned_route !== undefined ? (assigned_route ? assigned_route.trim() : '') : (existing.assigned_route || '');
+    if (finalRoute) {
+      try {
+        await db.prepare(`
+          UPDATE routes
+          SET delivery_boy_id = ?
+          WHERE LOWER(name) = LOWER(?) OR CAST(id AS TEXT) = ?
+        `).run(dboyId, finalRoute, finalRoute);
+      } catch (rErr) {
+        console.warn('Sync route delivery boy warning:', rErr.message);
+      }
+    }
 
     // Audit log
     await db.prepare(`

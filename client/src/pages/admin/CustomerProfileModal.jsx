@@ -279,7 +279,7 @@ export default function CustomerProfileModal({
     }
   };
 
-  const handleGenerateOrRecalculateBill = async (targetMonth = null) => {
+  const handleGenerateOrRecalculateBill = async (targetMonth = null, basis = 'AUTO') => {
     if (billLoading) return;
     const monthToUse = targetMonth || new Date().toISOString().slice(0, 7);
     try {
@@ -288,9 +288,11 @@ export default function CustomerProfileModal({
       const res = await api.post('/bills/generate-single', {
         customer_id: customerId,
         month: monthToUse,
+        billingBasis: basis,
         forceRegenerate: true
       });
-      setBillSuccessMsg(`Bill #${res.bill_number || res.id} calculated successfully for ${monthToUse}!`);
+      const basisDesc = basis === 'DELIVERIES' ? 'for delivered milk' : (basis === 'SUBSCRIPTION' ? 'as full month advance' : '');
+      setBillSuccessMsg(`Bill #${res.bill_number || res.id} calculated successfully ${basisDesc} for ${monthToUse}!`);
       await fetchCustomerProfile();
       onRefreshList?.();
       setTimeout(() => setBillSuccessMsg(''), 4000);
@@ -301,12 +303,12 @@ export default function CustomerProfileModal({
     }
   };
 
-  const handleRecalculateSpecificBill = async (billId) => {
+  const handleRecalculateSpecificBill = async (billId, basis = 'AUTO') => {
     if (billLoading) return;
     try {
       setBillLoading(true);
-      const res = await api.post(`/bills/${billId}/regenerate`);
-      alert(res.message || 'Bill recalculated successfully with latest subscription dates!');
+      const res = await api.post(`/bills/${billId}/regenerate`, { billingBasis: basis });
+      alert(res.message || 'Bill recalculated successfully!');
       await fetchCustomerProfile();
       onRefreshList?.();
     } catch (err) {
@@ -357,6 +359,10 @@ export default function CustomerProfileModal({
                 ) : customer.billing_type === 'WEEKLY' ? (
                   <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe' }}>
                     Weekly (Actual)
+                  </span>
+                ) : customer.billing_type === 'DAILY' ? (
+                  <span className="badge" style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+                    Daily Payment
                   </span>
                 ) : (
                   <span className={`badge ${customer.billing_type === 'PREPAID' ? 'badge-success' : 'badge-warning'}`}>
@@ -959,16 +965,30 @@ export default function CustomerProfileModal({
           {/* TAB: BILLS */}
           {activeTab === 'bills' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                 <h4 style={{ fontSize: '0.9rem', margin: 0 }}>Monthly Invoices & Bills</h4>
-                <button
-                  onClick={() => handleGenerateOrRecalculateBill()}
-                  className="btn btn-primary btn-sm"
-                  disabled={billLoading}
-                >
-                  <RotateCcw size={14} />
-                  {billLoading ? 'Processing...' : 'Recalculate / Generate Bill'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')}
+                    className="btn btn-primary btn-sm"
+                    disabled={billLoading}
+                    style={{ background: '#16a34a', borderColor: '#15803d', fontWeight: '800' }}
+                    title="Generate bill based on milk actually DELIVERED till today and deduct from advance"
+                  >
+                    <Truck size={14} />
+                    {billLoading ? 'Processing...' : 'Bill Delivered Milk (Till Today)'}
+                  </button>
+                  <button
+                    onClick={() => handleGenerateOrRecalculateBill(null, 'SUBSCRIPTION')}
+                    className="btn btn-outline btn-sm"
+                    disabled={billLoading}
+                    style={{ fontSize: '0.8rem', fontWeight: '700' }}
+                    title="Generate bill for all scheduled days of the full month in advance"
+                  >
+                    <Calendar size={14} />
+                    Full Month Advance Bill
+                  </button>
+                </div>
               </div>
 
               {billSuccessMsg && (
@@ -980,11 +1000,16 @@ export default function CustomerProfileModal({
               {profile.bills?.length === 0 ? (
                 <EmptyState
                   title="No monthly bills generated"
-                  description="Click 'Recalculate / Generate Bill' to generate the advance or postpaid bill for this customer."
+                  description="Click 'Bill Delivered Milk (Till Today)' to calculate delivered milk against customer advance, or 'Full Month Advance Bill' for scheduled days."
                   action={
-                    <button onClick={() => handleGenerateOrRecalculateBill()} className="btn btn-primary btn-sm" disabled={billLoading}>
-                      <RotateCcw size={14} /> Generate Bill Now
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')} className="btn btn-primary btn-sm" disabled={billLoading} style={{ background: '#16a34a', borderColor: '#15803d' }}>
+                        <Truck size={14} /> Bill Delivered Milk (Till Today)
+                      </button>
+                      <button onClick={() => handleGenerateOrRecalculateBill(null, 'SUBSCRIPTION')} className="btn btn-outline btn-sm" disabled={billLoading}>
+                        <Calendar size={14} /> Full Month Advance
+                      </button>
+                    </div>
                   }
                 />
               ) : (
@@ -1009,7 +1034,11 @@ export default function CustomerProfileModal({
                             <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{b.bill_number}</td>
                             <td>{b.billing_month}</td>
                             <td>
-                              {b.billing_type === 'WEEKLY' ? (
+                              {b.notes?.includes('Delivered Milk') || (b.total_deliveries_count > 0 && b.total_deliveries_count < 28) ? (
+                                <span className="badge" style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <Truck size={11} /> Delivered ({b.total_deliveries_count || 'Actual'} pkts)
+                                </span>
+                              ) : b.billing_type === 'WEEKLY' ? (
                                 <span className="badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe' }}>
                                   Weekly ({b.start_date && b.end_date ? `${b.start_date.slice(5)} to ${b.end_date.slice(5)}` : 'Actual'})
                                 </span>
@@ -1018,7 +1047,7 @@ export default function CustomerProfileModal({
                                   Coupon
                                 </span>
                               ) : (
-                                <span className="badge badge-gray">{b.billing_type}</span>
+                                <span className="badge badge-gray">{b.billing_type === 'PREPAID' ? 'Full Month Advance' : b.billing_type}</span>
                               )}
                             </td>
                             <td>₹{b.gross_amount?.toFixed(2)}</td>
@@ -1040,10 +1069,19 @@ export default function CustomerProfileModal({
                                   <Eye size={13} />
                                 </button>
                                 <button
-                                  onClick={() => handleRecalculateSpecificBill(b.id)}
+                                  onClick={() => handleRecalculateSpecificBill(b.id, 'DELIVERIES')}
+                                  className="btn btn-outline btn-sm"
+                                  style={{ padding: '4px 8px', color: '#16a34a', borderColor: '#bbf7d0' }}
+                                  title="Recalculate as Delivered Milk Till Today (deduct delivered milk from advance)"
+                                  disabled={billLoading}
+                                >
+                                  <Truck size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handleRecalculateSpecificBill(b.id, 'SUBSCRIPTION')}
                                   className="btn btn-outline btn-sm"
                                   style={{ padding: '4px 8px' }}
-                                  title="Recalculate Bill (apply updated subscription dates)"
+                                  title="Recalculate as Full Month Advance Bill"
                                   disabled={billLoading}
                                 >
                                   <RotateCcw size={13} />
@@ -1075,7 +1113,7 @@ export default function CustomerProfileModal({
                           <div style={{ color: '#16a34a' }}>Adv: <strong>₹{b.advance_adjusted?.toFixed(2)}</strong></div>
                           <div style={{ color: b.net_payable > 0 ? '#dc2626' : '#16a34a' }}>Net: <strong>₹{b.net_payable?.toFixed(2)}</strong></div>
                         </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           <button
                             type="button"
                             onClick={() => setSelectedBillId(b.id)}
@@ -1086,13 +1124,13 @@ export default function CustomerProfileModal({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleRecalculateSpecificBill(b.id)}
+                            onClick={() => handleRecalculateSpecificBill(b.id, 'DELIVERIES')}
                             className="btn btn-outline btn-sm"
-                            style={{ minHeight: '34px', padding: '4px 10px' }}
-                            title="Recalculate"
+                            style={{ minHeight: '34px', padding: '4px 10px', color: '#16a34a', borderColor: '#bbf7d0', fontWeight: '700' }}
+                            title="Recalculate as Delivered Milk Till Today"
                             disabled={billLoading}
                           >
-                            <RotateCcw size={13} />
+                            <Truck size={13} /> Till Today
                           </button>
                         </div>
                       </div>

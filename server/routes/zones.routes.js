@@ -24,13 +24,27 @@ router.get('/', verifyToken, async (req, res) => {
     let query = `
       SELECT z.*, 
              r.name as route_name,
-             r.delivery_boy_id as route_delivery_boy_id,
-             u.name as delivery_boy_name,
-             u.phone as delivery_boy_phone,
+             COALESCE(
+               r.delivery_boy_id,
+               (SELECT u2.id FROM users u2 WHERE u2.role = 'DELIVERY_BOY' AND (u2.assigned_route = r.name OR u2.assigned_route = CAST(r.id AS TEXT) OR u2.assigned_route LIKE '%' || r.name || '%') AND COALESCE(u2.agent_id, 1) = COALESCE(z.agent_id, 1) LIMIT 1),
+               (SELECT c.delivery_boy_id FROM customers c WHERE c.zone_id = z.id AND c.delivery_boy_id IS NOT NULL GROUP BY c.delivery_boy_id ORDER BY COUNT(*) DESC LIMIT 1)
+             ) as route_delivery_boy_id,
+             COALESCE(
+               u.name,
+               (SELECT u3.name FROM users u3 WHERE u3.id = (
+                 SELECT c2.delivery_boy_id FROM customers c2 WHERE c2.zone_id = z.id AND c2.delivery_boy_id IS NOT NULL GROUP BY c2.delivery_boy_id ORDER BY COUNT(*) DESC LIMIT 1
+               ))
+             ) as delivery_boy_name,
+             COALESCE(
+               u.phone,
+               (SELECT u4.phone FROM users u4 WHERE u4.id = (
+                 SELECT c3.delivery_boy_id FROM customers c3 WHERE c3.zone_id = z.id AND c3.delivery_boy_id IS NOT NULL GROUP BY c3.delivery_boy_id ORDER BY COUNT(*) DESC LIMIT 1
+               ))
+             ) as delivery_boy_phone,
              COUNT(c.id) as customer_count
       FROM zones z
       LEFT JOIN routes r ON z.route_id = r.id
-      LEFT JOIN users u ON r.delivery_boy_id = u.id
+      LEFT JOIN users u ON COALESCE(r.delivery_boy_id, (SELECT u2.id FROM users u2 WHERE u2.role = 'DELIVERY_BOY' AND (u2.assigned_route = r.name OR u2.assigned_route = CAST(r.id AS TEXT)) AND COALESCE(u2.agent_id, 1) = COALESCE(z.agent_id, 1) LIMIT 1)) = u.id
       LEFT JOIN customers c ON c.zone_id = z.id AND c.status = 'ACTIVE' AND COALESCE(c.agent_id, 1) = ?
       WHERE COALESCE(z.agent_id, 1) = ?
     `;

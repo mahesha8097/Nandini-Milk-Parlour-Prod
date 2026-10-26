@@ -314,10 +314,15 @@ router.post('/', requireAdmin, async (req, res) => {
       let assignedRouteName = route || '';
       let assignedDboyId = delivery_boy_id ? parseInt(delivery_boy_id, 10) || null : null;
 
-      // Automatically determine route and delivery boy from the zone's route (Requirement 6)
+      // Automatically determine route and delivery boy from the zone's route (Requirement 6 & Direct Zone Assign)
       if (parsedZoneId) {
         const zInfo = await db.prepare(`
-          SELECT z.*, r.name as route_name, r.delivery_boy_id as route_dboy_id
+          SELECT z.*, r.name as route_name,
+                 COALESCE(
+                   r.delivery_boy_id,
+                   (SELECT u.id FROM users u WHERE u.role = 'DELIVERY_BOY' AND (LOWER(u.assigned_route) = LOWER(r.name) OR u.assigned_route = CAST(r.id AS TEXT)) LIMIT 1),
+                   (SELECT c2.delivery_boy_id FROM customers c2 WHERE c2.zone_id = z.id AND c2.delivery_boy_id IS NOT NULL AND c2.status != 'INACTIVE' ORDER BY c2.id DESC LIMIT 1)
+                 ) as route_dboy_id
           FROM zones z
           LEFT JOIN routes r ON z.route_id = r.id
           WHERE z.id = ?
@@ -327,8 +332,21 @@ router.post('/', requireAdmin, async (req, res) => {
             assignedRouteName = zInfo.route_name;
           }
           if (!assignedDboyId && zInfo.route_dboy_id) {
-            assignedDboyId = zInfo.route_dboy_id;
+            assignedDboyId = parseInt(zInfo.route_dboy_id, 10) || null;
           }
+        }
+      }
+
+      // If delivery boy is still not resolved, but route is known, find delivery boy by route
+      if (!assignedDboyId && assignedRouteName) {
+        const routeUser = await db.prepare(`
+          SELECT id FROM users
+          WHERE role = 'DELIVERY_BOY'
+            AND (LOWER(assigned_route) = LOWER(?) OR assigned_route = ?)
+          LIMIT 1
+        `).get(assignedRouteName, assignedRouteName);
+        if (routeUser) {
+          assignedDboyId = routeUser.id;
         }
       }
 
@@ -466,21 +484,39 @@ router.put('/:id', requireAdmin, async (req, res) => {
       ? (delivery_boy_id && delivery_boy_id !== '' && delivery_boy_id !== null ? parseInt(delivery_boy_id, 10) || null : null)
       : (existing.delivery_boy_id ? parseInt(existing.delivery_boy_id, 10) || null : null);
 
-    // Automatically determine route and delivery boy if zone changed (Requirement 6)
-    if (newZoneId && newZoneId !== existing.zone_id) {
+    // Automatically determine route and delivery boy if zone specified or delivery boy unassigned
+    const targetZoneId = newZoneId || existing.zone_id;
+    if (targetZoneId && (!finalDboyId || newZoneId !== existing.zone_id)) {
       const zInfo = await db.prepare(`
-        SELECT z.*, r.name as route_name, r.delivery_boy_id as route_dboy_id
+        SELECT z.*, r.name as route_name,
+               COALESCE(
+                 r.delivery_boy_id,
+                 (SELECT u.id FROM users u WHERE u.role = 'DELIVERY_BOY' AND (LOWER(u.assigned_route) = LOWER(r.name) OR u.assigned_route = CAST(r.id AS TEXT)) LIMIT 1),
+                 (SELECT c2.delivery_boy_id FROM customers c2 WHERE c2.zone_id = z.id AND c2.delivery_boy_id IS NOT NULL AND c2.status != 'INACTIVE' ORDER BY c2.id DESC LIMIT 1)
+               ) as route_dboy_id
         FROM zones z
         LEFT JOIN routes r ON z.route_id = r.id
         WHERE z.id = ?
-      `).get(newZoneId);
+      `).get(targetZoneId);
       if (zInfo) {
-        if (zInfo.route_name) {
+        if (zInfo.route_name && (!finalRoute || newZoneId !== existing.zone_id)) {
           finalRoute = zInfo.route_name;
         }
-        if ((delivery_boy_id === undefined || delivery_boy_id === '' || delivery_boy_id === null) && zInfo.route_dboy_id) {
+        if (!finalDboyId && zInfo.route_dboy_id) {
           finalDboyId = parseInt(zInfo.route_dboy_id, 10) || null;
         }
+      }
+    }
+
+    if (!finalDboyId && finalRoute) {
+      const routeUser = await db.prepare(`
+        SELECT id FROM users
+        WHERE role = 'DELIVERY_BOY'
+          AND (LOWER(assigned_route) = LOWER(?) OR assigned_route = ?)
+        LIMIT 1
+      `).get(finalRoute, finalRoute);
+      if (routeUser) {
+        finalDboyId = routeUser.id;
       }
     }
 
