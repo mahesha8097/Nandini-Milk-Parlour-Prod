@@ -40,6 +40,7 @@ import {
   UserPlus,
   Trash2,
   RefreshCw,
+  Wallet,
   Route as RouteIcon
 } from 'lucide-react';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
@@ -195,6 +196,19 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   });
   const [vacationSubmitting, setVacationSubmitting] = useState(false);
   const [vacationError, setVacationError] = useState('');
+
+  // Daily / Spot Payment Recorder State
+  const [isDailyPaymentModalOpen, setIsDailyPaymentModalOpen] = useState(false);
+  const [paymentModalCustomer, setPaymentModalCustomer] = useState(null);
+  const [paymentModalData, setPaymentModalData] = useState({
+    amount: '',
+    payment_method: 'CASH',
+    reference_number: '',
+    notes: '',
+    mark_delivered: true
+  });
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [paymentModalError, setPaymentModalError] = useState('');
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -639,6 +653,10 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             }
           }
 
+          const totalAmount = validItems.reduce((sum, it) => sum + (Number(it.total_amount) || 0), 0);
+          const todayPayments = first.today_payments || [];
+          const paidTodayAmount = first.paid_today_amount || (todayPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0));
+
           return {
             customer_id: cid,
             customer_name: first.customer_name,
@@ -653,7 +671,11 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             rawItems: items,
             hasSpecialInstructions: items.some((it) => it.requirement_reason || (it.requirement_type && it.requirement_type !== 'NORMAL')),
             specialInstructions: items.find((it) => it.requirement_reason)?.requirement_reason || '',
-            status: custStatus
+            status: custStatus,
+            totalAmount,
+            todayPayments,
+            paidTodayAmount,
+            isPaidToday: paidTodayAmount >= totalAmount && totalAmount > 0
           };
         })
       };
@@ -866,12 +888,101 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     }
   };
 
+  // ----------------------------------------------------
+  // DAILY / SPOT PAYMENT RECORDER HANDLERS
+  // ----------------------------------------------------
+  const handleOpenDailyPaymentModal = (cust, isEdit = false) => {
+    if (!cust) return;
+    const totalScheduledAmt = cust.totalAmount !== undefined 
+      ? cust.totalAmount 
+      : (cust.items || []).reduce((sum, it) => sum + (Number(it.total_amount) || 0), 0);
+    const initialAmt = isEdit && cust.paidTodayAmount > 0 
+      ? Number(cust.paidTodayAmount).toFixed(2) 
+      : (totalScheduledAmt > 0 ? Number(totalScheduledAmt).toFixed(2) : '');
+    const existingPay = cust.todayPayments && cust.todayPayments.length > 0 ? cust.todayPayments[0] : null;
+
+    setPaymentModalCustomer(cust);
+    setPaymentModalData({
+      amount: initialAmt,
+      payment_method: existingPay?.payment_method || 'CASH',
+      reference_number: existingPay?.reference_number || '',
+      notes: existingPay?.notes || '',
+      mark_delivered: cust.status !== 'DELIVERED'
+    });
+    setPaymentModalError('');
+    setIsDailyPaymentModalOpen(true);
+  };
+
+  const handleSaveDailyPayment = async (e) => {
+    if (e) e.preventDefault();
+    if (!paymentModalCustomer) return;
+
+    const numAmt = parseFloat(paymentModalData.amount);
+    if (isNaN(numAmt) || numAmt <= 0) {
+      setPaymentModalError('Please enter a valid positive payment amount.');
+      return;
+    }
+
+    try {
+      setSubmittingPayment(true);
+      setPaymentModalError('');
+
+      const payload = {
+        customer_id: paymentModalCustomer.customer_id,
+        delivery_date: selectedDate,
+        amount: numAmt,
+        payment_method: paymentModalData.payment_method || 'CASH',
+        reference_number: paymentModalData.reference_number || '',
+        notes: paymentModalData.notes || '',
+        mark_delivered: paymentModalData.mark_delivered
+      };
+
+      const res = await api.post('/deliveries/record-payment', payload);
+      setIsDailyPaymentModalOpen(false);
+      showToast(res?.message || `Payment of ₹${numAmt.toFixed(2)} recorded in payment recorder!`);
+      await refreshDeliveriesOnly();
+    } catch (err) {
+      setPaymentModalError(err.message || 'Failed to record daily payment.');
+    } finally {
+      setSubmittingPayment(false);
+    }
+  };
+
+  const handleDeliverWithoutPayment = async () => {
+    if (!paymentModalCustomer) return;
+    try {
+      setSubmittingPayment(true);
+      setIsDailyPaymentModalOpen(false);
+      if (paymentModalCustomer.items && paymentModalCustomer.items.length === 1) {
+        await api.put(`/deliveries/${paymentModalCustomer.items[0].id}/status`, { status: 'DELIVERED' });
+      } else {
+        await api.post('/deliveries/bulk-status', {
+          deliveryIds: (paymentModalCustomer.items || []).map(it => it.id),
+          status: 'DELIVERED'
+        });
+      }
+      showToast(`Delivered to ${paymentModalCustomer.customer_name} (Payment Pending).`);
+      await refreshDeliveriesOnly();
+    } catch (err) {
+      alert(err.message || 'Failed to mark delivery');
+    } finally {
+      setSubmittingPayment(false);
+    }
+  };
+
   // Group delivery handler (for multi-product stops)
   const handleDeliverCustomerGroup = async (group) => {
     if (group.customer_category === 'BULK_HOTEL') {
       handleDeliverBulkGroup(group);
       return;
     }
+
+    // For Daily Payment customers, if payment not recorded yet, open payment recorder to enter amount
+    if (group.billing_type === 'DAILY' && (!group.paidTodayAmount || group.paidTodayAmount <= 0)) {
+      handleOpenDailyPaymentModal(group);
+      return;
+    }
+
     const pendingItems = group.items.filter((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED');
     if (pendingItems.length === 0) return;
 
@@ -906,6 +1017,12 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
   // Single item delivery handler
   const handleDeliverSingleItem = async (item, customerName) => {
+    // If daily payment customer, open payment recorder to enter amount paid
+    if (activeCustomer?.billing_type === 'DAILY' && (!activeCustomer.paidTodayAmount || activeCustomer.paidTodayAmount <= 0)) {
+      handleOpenDailyPaymentModal(activeCustomer);
+      return;
+    }
+
     // 1. Instant optimistic update
     setDeliveries((prev) =>
       prev.map((d) =>
@@ -2585,10 +2702,55 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             Bulk Hotel
                           </span>
                         )}
+                        {cust.billing_type === 'DAILY' && (
+                          <span style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px' }}>
+                            Daily Pay
+                          </span>
+                        )}
                       </div>
 
-                      {/* Status Badge */}
-                      <div>
+                      {/* Status & Payment Badges */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {/* Daily / Spot Payment Status Badge */}
+                        {cust.paidTodayAmount > 0 ? (
+                          <span
+                            style={{
+                              background: '#ecfdf5',
+                              color: '#047857',
+                              border: '1px solid #a7f3d0',
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              fontSize: '0.78rem',
+                              fontWeight: 800,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title={`Paid to ${cust.todayPayments[0]?.recorded_by_name || 'Delivery Boy'} via ${cust.todayPayments[0]?.payment_method || 'Cash'}`}
+                          >
+                            <Wallet size={12} />
+                            <span>Paid ₹{cust.paidTodayAmount.toFixed(2)} to {cust.todayPayments[0]?.recorded_by_name || 'Delivery Boy'}</span>
+                          </span>
+                        ) : cust.billing_type === 'DAILY' ? (
+                          <span
+                            style={{
+                              background: '#fff7ed',
+                              color: '#c2410c',
+                              border: '1px solid #fed7aa',
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              fontSize: '0.78rem',
+                              fontWeight: 800,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Wallet size={12} />
+                            <span>To Collect: ₹{cust.totalAmount?.toFixed(2) || '0.00'}</span>
+                          </span>
+                        ) : null}
+
                         {calendarNotifs?.pausedToday?.some(p => String(p.customer_id) === String(cust.customer_id)) ? (
                           <span style={{
                             background: '#fee2e2',
@@ -2733,6 +2895,35 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                           >
                             <RotateCcw size={13} />
                             <span>Revert</span>
+                          </button>
+                        )}
+
+                        {/* Daily / Spot Payment Action Button */}
+                        {cust.billing_type === 'DAILY' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDailyPaymentModal(cust, cust.paidTodayAmount > 0);
+                            }}
+                            className="btn btn-sm"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              fontWeight: '800',
+                              fontSize: '0.78rem',
+                              padding: '5px 11px',
+                              borderRadius: '8px',
+                              background: cust.paidTodayAmount > 0 ? '#f0fdf4' : '#16a34a',
+                              color: cust.paidTodayAmount > 0 ? '#15803d' : 'white',
+                              border: cust.paidTodayAmount > 0 ? '1.5px solid #86efac' : 'none',
+                              boxShadow: cust.paidTodayAmount > 0 ? 'none' : '0 2px 6px rgba(22, 163, 74, 0.25)'
+                            }}
+                            title={cust.paidTodayAmount > 0 ? 'Payment recorded. Click to adjust or view.' : 'Collect payment at customer location'}
+                          >
+                            <Wallet size={13} />
+                            <span>{cust.paidTodayAmount > 0 ? `Paid ₹${cust.paidTodayAmount.toFixed(2)} ✓` : `Collect ₹${cust.totalAmount?.toFixed(2) || '0.00'}`}</span>
                           </button>
                         )}
 
@@ -3038,6 +3229,80 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 <span><strong>Special Delivery Instruction:</strong> {activeCustomer.specialInstructions}</span>
               </div>
             )}
+            {/* PAYMENT RECORDER SECTION FOR DAILY & SPOT PAYMENTS */}
+            <div style={{
+              background: activeCustomer.paidTodayAmount > 0 ? '#f0fdf4' : (activeCustomer.billing_type === 'DAILY' ? '#fff7ed' : '#f8fafc'),
+              border: activeCustomer.paidTodayAmount > 0 ? '1.5px solid #86efac' : (activeCustomer.billing_type === 'DAILY' ? '1.5px solid #fdba74' : '1px solid #e2e8f0'),
+              borderRadius: '12px',
+              padding: '14px 18px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '14px',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+            }}>
+              <div style={{ flex: '1 1 260px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <Wallet size={19} color={activeCustomer.paidTodayAmount > 0 ? '#16a34a' : (activeCustomer.billing_type === 'DAILY' ? '#ea580c' : '#64748b')} />
+                  <span style={{ fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>
+                    Payment Recorder: {activeCustomer.billing_type === 'DAILY' ? 'Daily Payment Customer' : 'Delivery Spot Payment'}
+                  </span>
+                  {activeCustomer.billing_type === 'DAILY' && (
+                    <span style={{ background: '#ffedd5', color: '#c2410c', fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px' }}>
+                      Daily Cash/UPI
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ marginTop: '6px', fontSize: '0.84rem', color: '#475569', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <div>
+                    <span>Today's Order Total: </span>
+                    <strong style={{ color: '#0f172a' }}>₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'}</strong>
+                  </div>
+                  {activeCustomer.paidTodayAmount > 0 ? (
+                    <div style={{ color: '#15803d', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span>✓ Amount Paid: ₹{activeCustomer.paidTodayAmount.toFixed(2)}</span>
+                      <span>({activeCustomer.todayPayments[0]?.payment_method || 'CASH'})</span>
+                      {activeCustomer.todayPayments[0]?.receipt_number && (
+                        <span style={{ color: '#047857', fontFamily: 'monospace' }}>[{activeCustomer.todayPayments[0].receipt_number}]</span>
+                      )}
+                      {activeCustomer.todayPayments[0]?.recorded_by_name && (
+                        <span style={{ color: '#065f46' }}>— Recorded by {activeCustomer.todayPayments[0].recorded_by_name}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#c2410c', fontWeight: '700' }}>
+                      ⚠️ No payment recorded yet for today (Amount Due: ₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'})
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => handleOpenDailyPaymentModal(activeCustomer, activeCustomer.paidTodayAmount > 0)}
+                  className="btn btn-sm"
+                  style={{
+                    background: activeCustomer.paidTodayAmount > 0 ? '#059669' : '#16a34a',
+                    color: 'white',
+                    border: 'none',
+                    fontWeight: '800',
+                    fontSize: '0.85rem',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)'
+                  }}
+                >
+                  <Wallet size={15} />
+                  <span>{activeCustomer.paidTodayAmount > 0 ? 'Adjust Payment' : 'Enter Amount Paid'}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Products Heading */}
@@ -3386,6 +3651,31 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   }}
                 >
                   <CheckCircle2 size={16} /> Mark All Delivered
+                </button>
+              )}
+
+              {/* Record Payment Button */}
+              {activeCustomer.billing_type === 'DAILY' && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenDailyPaymentModal(activeCustomer, activeCustomer.paidTodayAmount > 0)}
+                  style={{
+                    background: activeCustomer.paidTodayAmount > 0 ? '#f0fdf4' : '#16a34a',
+                    color: activeCustomer.paidTodayAmount > 0 ? '#15803d' : 'white',
+                    border: activeCustomer.paidTodayAmount > 0 ? '1.5px solid #86efac' : 'none',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    boxShadow: activeCustomer.paidTodayAmount > 0 ? 'none' : '0 2px 6px rgba(22, 163, 74, 0.25)'
+                  }}
+                >
+                  <Wallet size={15} />
+                  <span>{activeCustomer.paidTodayAmount > 0 ? `Paid ₹${activeCustomer.paidTodayAmount.toFixed(2)} ✓` : `Record ₹${activeCustomer.totalAmount?.toFixed(2) || '0.00'} Payment`}</span>
                 </button>
               )}
 
@@ -4401,6 +4691,268 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             >
               <CheckCircle2 size={15} />
               {vacationSubmitting ? 'Saving...' : 'Confirm Pause & Update Route'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* DAILY / SPOT DELIVERY PAYMENT MODAL */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isDailyPaymentModalOpen}
+        onClose={() => !submittingPayment && setIsDailyPaymentModalOpen(false)}
+        title="Payment Recorder — Spot Delivery Collection"
+        maxWidth="500px"
+      >
+        <form onSubmit={handleSaveDailyPayment} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {paymentModalError && (
+            <div style={{ padding: '10px 14px', background: '#fee2e2', border: '1px solid #f87171', color: '#991b1b', borderRadius: '8px', fontSize: '0.85rem', fontWeight: '600' }}>
+              {paymentModalError}
+            </div>
+          )}
+
+          {/* Customer & Stop Banner */}
+          <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '10px', border: '1.5px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+              <div>
+                <span style={{
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
+                  border: '1px solid #bfdbfe',
+                  fontSize: '0.78rem',
+                  fontWeight: '800',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  display: 'inline-block',
+                  marginBottom: '4px'
+                }}>
+                  {paymentModalCustomer?.flat_no ? `${paymentModalCustomer.flat_no.toLowerCase().includes('flat') || paymentModalCustomer.flat_no.toLowerCase().includes('villa') ? '' : 'Flat '}${paymentModalCustomer.flat_no}` : 'House'}
+                </span>
+                <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                  {paymentModalCustomer?.customer_name}
+                </h4>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '3px' }}>
+                  {paymentModalCustomer?.customer_address}
+                </div>
+              </div>
+              <span className="badge badge-warning" style={{ fontSize: '0.72rem', fontWeight: 800 }}>
+                {paymentModalCustomer?.billing_type === 'DAILY' ? 'Daily Pay Customer' : 'Spot Payment'}
+              </span>
+            </div>
+
+            {/* Itemized Order Breakdown */}
+            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+              <div style={{ fontSize: '0.76rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: '4px' }}>
+                Today's Scheduled Deliveries
+              </div>
+              {(paymentModalCustomer?.items || []).map((it) => (
+                <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '2px 0' }}>
+                  <span>{it.quantity} x {it.product_name_snapshot} {it.variant_snapshot ? `(${it.variant_snapshot})` : ''}</span>
+                  <span style={{ fontWeight: 700 }}>₹{Number(it.total_amount || 0).toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', fontWeight: 900, borderTop: '1px solid #e2e8f0', marginTop: '6px', paddingTop: '6px', color: '#0f172a' }}>
+                <span>Total Expected:</span>
+                <span style={{ color: '#16a34a' }}>₹{paymentModalCustomer?.totalAmount?.toFixed(2) || '0.00'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Amount Paid Input with Quick Shortcuts */}
+          <div className="form-group">
+            <label className="form-label" style={{ fontWeight: 800 }}>
+              Amount Paid to Delivery Boy (₹) *
+            </label>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontWeight: 900, color: '#0f172a', fontSize: '1.1rem' }}>
+                ₹
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                autoFocus
+                className="form-input"
+                style={{ paddingLeft: '32px', fontSize: '1.15rem', fontWeight: 900, color: '#15803d' }}
+                placeholder="e.g. 56.00"
+                value={paymentModalData.amount}
+                onChange={(e) => setPaymentModalData({ ...paymentModalData, amount: e.target.value })}
+                required
+              />
+            </div>
+
+            {/* Quick Amount Chips */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+              {paymentModalCustomer?.totalAmount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalData({ ...paymentModalData, amount: Number(paymentModalCustomer.totalAmount).toFixed(2) })}
+                  style={{
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    color: '#166534',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Exact ₹{Number(paymentModalCustomer.totalAmount).toFixed(2)}
+                </button>
+              )}
+              {[50, 100, 200, 500].map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setPaymentModalData({ ...paymentModalData, amount: amt.toFixed(2) })}
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    color: '#475569',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ₹{amt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Payment Method Selector */}
+          <div className="form-group">
+            <label className="form-label" style={{ fontWeight: 800 }}>Payment Method *</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setPaymentModalData({ ...paymentModalData, payment_method: 'CASH' })}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: paymentModalData.payment_method === 'CASH' ? '2px solid #16a34a' : '1.5px solid #cbd5e1',
+                  background: paymentModalData.payment_method === 'CASH' ? '#f0fdf4' : 'white',
+                  color: paymentModalData.payment_method === 'CASH' ? '#15803d' : '#475569',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>💵 Cash</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentModalData({ ...paymentModalData, payment_method: 'UPI' })}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: paymentModalData.payment_method === 'UPI' ? '2px solid #2563eb' : '1.5px solid #cbd5e1',
+                  background: paymentModalData.payment_method === 'UPI' ? '#eff6ff' : 'white',
+                  color: paymentModalData.payment_method === 'UPI' ? '#1d4ed8' : '#475569',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>📱 UPI / QR</span>
+              </button>
+            </div>
+          </div>
+
+          {/* UPI Reference (optional) */}
+          {paymentModalData.payment_method === 'UPI' && (
+            <div className="form-group">
+              <label className="form-label">UPI Reference / Transaction ID (Optional)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. 329841892831"
+                value={paymentModalData.reference_number}
+                onChange={(e) => setPaymentModalData({ ...paymentModalData, reference_number: e.target.value })}
+              />
+            </div>
+          )}
+
+          {/* Notes (optional) */}
+          <div className="form-group">
+            <label className="form-label">Delivery Note (Optional)</label>
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. Paid cash at door to delivery boy"
+              value={paymentModalData.notes}
+              onChange={(e) => setPaymentModalData({ ...paymentModalData, notes: e.target.value })}
+            />
+          </div>
+
+          {/* Checkbox: Mark as Delivered */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 700, color: '#334155' }}>
+            <input
+              type="checkbox"
+              checked={paymentModalData.mark_delivered}
+              onChange={(e) => setPaymentModalData({ ...paymentModalData, mark_delivered: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
+            />
+            <span>Mark delivery items as DELIVERED now</span>
+          </label>
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+            <button
+              type="submit"
+              disabled={submittingPayment}
+              className="btn btn-primary"
+              style={{
+                background: '#16a34a',
+                borderColor: '#16a34a',
+                fontWeight: 900,
+                fontSize: '0.95rem',
+                padding: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              <Wallet size={18} />
+              <span>{submittingPayment ? 'Recording...' : `Confirm & Record ₹${paymentModalData.amount || '0'} in Payment Recorder`}</span>
+            </button>
+
+            {paymentModalCustomer?.status !== 'DELIVERED' && (
+              <button
+                type="button"
+                disabled={submittingPayment}
+                onClick={handleDeliverWithoutPayment}
+                className="btn btn-outline"
+                style={{ fontSize: '0.84rem', fontWeight: 700, padding: '9px', borderColor: '#fdba74', color: '#c2410c' }}
+                title="Customer will pay later or was not home"
+              >
+                Mark Delivered Without Payment (Pay Later)
+              </button>
+            )}
+
+            <button
+              type="button"
+              disabled={submittingPayment}
+              onClick={() => setIsDailyPaymentModalOpen(false)}
+              className="btn btn-outline"
+              style={{ fontSize: '0.84rem' }}
+            >
+              Cancel
             </button>
           </div>
         </form>

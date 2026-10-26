@@ -516,6 +516,35 @@ router.get('/', verifyToken, async (req, res) => {
       return (a.customer_name || '').localeCompare(b.customer_name || '');
     });
 
+    // Fetch payments recorded for targetDate to display spot / daily payment status
+    try {
+      const dayPayments = await db.prepare(`
+        SELECT p.id, p.receipt_number, p.customer_id, p.payment_type, p.amount,
+               p.payment_date, p.payment_method, p.reference_number, p.notes,
+               p.created_at, p.recorded_by_user_id, u.name as recorded_by_name
+        FROM payments p
+        LEFT JOIN users u ON p.recorded_by_user_id = u.id
+        WHERE p.payment_date = ? AND (p.agent_id = ? OR p.agent_id IS NULL)
+        ORDER BY p.id DESC
+      `).all(targetDate, agentId);
+
+      const paymentsByCustomer = {};
+      for (const p of dayPayments) {
+        if (!paymentsByCustomer[p.customer_id]) {
+          paymentsByCustomer[p.customer_id] = [];
+        }
+        paymentsByCustomer[p.customer_id].push(p);
+      }
+
+      for (const d of deliveries) {
+        const custPayments = paymentsByCustomer[d.customer_id] || [];
+        d.today_payments = custPayments;
+        d.paid_today_amount = custPayments.reduce((sum, cp) => sum + (Number(cp.amount) || 0), 0);
+      }
+    } catch (payErr) {
+      console.warn('Fetch day payments for deliveries warning:', payErr.message);
+    }
+
     res.json(deliveries);
   } catch (err) {
     console.error('Fetch deliveries error:', err);
@@ -792,6 +821,30 @@ router.put('/:id/status', verifyToken, async (req, res) => {
       WHERE id = ?
     `).run(status, notes !== undefined ? notes : delivery.notes, deliveryId);
 
+    // If payment details provided (e.g. daily cash / spot payment collected at location)
+    let recordedPayment = null;
+    if (req.body.payment && parseFloat(req.body.payment.amount) > 0) {
+      try {
+        const { recordPaymentTransaction } = require('../services/billingService');
+        const pAmt = parseFloat(req.body.payment.amount);
+        const pMethod = req.body.payment.payment_method || 'CASH';
+        const pNotes = req.body.payment.notes || `Collected on delivery by ${req.user.name || 'Delivery Boy'}`;
+        recordedPayment = await recordPaymentTransaction({
+          customerId: delivery.customer_id,
+          billId: null,
+          amount: pAmt,
+          paymentDate: delivery.delivery_date,
+          paymentType: 'DIRECT_PAYMENT',
+          paymentMethod: ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'].includes(pMethod) ? pMethod : 'CASH',
+          referenceNumber: req.body.payment.reference_number || '',
+          notes: pNotes,
+          recordedByUserId: req.user.id
+        });
+      } catch (payErr) {
+        console.error('Payment recording on delivery status update error:', payErr);
+      }
+    }
+
     // Handle coupon deduction or restoration via idempotent sync
     try {
       await syncCouponsForDelivery(deliveryId);
@@ -815,6 +868,27 @@ router.put('/:id/status', verifyToken, async (req, res) => {
       WHERE d.id = ?
     `).get(deliveryId);
 
+    if (updated) {
+      try {
+        const custPayments = await db.prepare(`
+          SELECT p.id, p.receipt_number, p.customer_id, p.payment_type, p.amount,
+                 p.payment_date, p.payment_method, p.reference_number, p.notes,
+                 p.created_at, p.recorded_by_user_id, u.name as recorded_by_name
+          FROM payments p
+          LEFT JOIN users u ON p.recorded_by_user_id = u.id
+          WHERE p.customer_id = ? AND p.payment_date = ?
+          ORDER BY p.id DESC
+        `).all(updated.customer_id, updated.delivery_date);
+        updated.today_payments = custPayments;
+        updated.paid_today_amount = custPayments.reduce((sum, cp) => sum + (Number(cp.amount) || 0), 0);
+        if (recordedPayment) {
+          updated.recorded_payment = recordedPayment;
+        }
+      } catch (e) {
+        console.warn('Updated delivery payment lookup warning:', e.message);
+      }
+    }
+
     res.json(updated);
   } catch (err) {
     console.error('Update delivery status error:', err);
@@ -825,7 +899,7 @@ router.put('/:id/status', verifyToken, async (req, res) => {
 // Bulk mark deliveries (e.g. "Mark all as delivered")
 router.post('/bulk-status', verifyToken, async (req, res) => {
   try {
-    const { deliveryIds, status, notes } = req.body;
+    const { deliveryIds, status, notes, payment } = req.body;
     if (!Array.isArray(deliveryIds) || deliveryIds.length === 0) {
       return res.status(400).json({ error: 'deliveryIds array is required' });
     }
@@ -863,6 +937,32 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
       WHERE id IN (${authPlaceholders})
     `).run(status, notes || null, ...authorizedIds);
 
+    // If payment details provided in bulk status update
+    let recordedPayment = null;
+    if (payment && parseFloat(payment.amount) > 0 && authorizedDels.length > 0) {
+      try {
+        const targetCustomerId = authorizedDels[0].customer_id;
+        const targetDate = authorizedDels[0].delivery_date;
+        const { recordPaymentTransaction } = require('../services/billingService');
+        const pAmt = parseFloat(payment.amount);
+        const pMethod = payment.payment_method || 'CASH';
+        const pNotes = payment.notes || `Collected on delivery by ${req.user.name || 'Delivery Boy'}`;
+        recordedPayment = await recordPaymentTransaction({
+          customerId: targetCustomerId,
+          billId: null,
+          amount: pAmt,
+          paymentDate: targetDate,
+          paymentType: 'DIRECT_PAYMENT',
+          paymentMethod: ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'].includes(pMethod) ? pMethod : 'CASH',
+          referenceNumber: payment.reference_number || '',
+          notes: pNotes,
+          recordedByUserId: req.user.id
+        });
+      } catch (payErr) {
+        console.error('Payment recording on bulk delivery status update error:', payErr);
+      }
+    }
+
     // Sync coupons in parallel
     await Promise.all(authorizedIds.map(id => 
       syncCouponsForDelivery(id).catch(e => console.warn('Coupon sync warning:', e.message))
@@ -879,10 +979,99 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
       await recalculateCustomerDayDeliveries(customerId, deliveryDate);
     }
 
-    res.json({ message: `Updated ${authorizedIds.length} deliveries to ${status}` });
+    res.json({
+      message: `Updated ${authorizedIds.length} deliveries to ${status}`,
+      payment: recordedPayment
+    });
   } catch (err) {
     console.error('Bulk update delivery error:', err);
     res.status(500).json({ error: 'Failed to update deliveries in bulk' });
+  }
+});
+
+// Dedicated Endpoint: Record Daily / Spot Payment at Delivery Location
+router.post('/record-payment', verifyToken, async (req, res) => {
+  try {
+    const {
+      customer_id,
+      delivery_date,
+      amount,
+      payment_method = 'CASH',
+      reference_number = '',
+      notes = '',
+      mark_delivered = false,
+      delivery_id = null
+    } = req.body;
+
+    if (!customer_id || !delivery_date || amount === undefined || amount === null || amount === '') {
+      return res.status(400).json({ error: 'Customer ID, delivery date, and payment amount are required.' });
+    }
+
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ error: 'Payment amount must be a positive number.' });
+    }
+
+    const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found.' });
+    }
+
+    // Route authorization check for Delivery Boy
+    if (req.user.role === 'DELIVERY_BOY') {
+      const authorized = await isCustomerAuthorized(customer_id, req.user, req.agentId || 1);
+      if (!authorized) {
+        return res.status(403).json({ error: 'Not authorized for this customer.' });
+      }
+    }
+
+    // 1. If mark_delivered is requested, mark deliveries as DELIVERED
+    if (mark_delivered) {
+      if (delivery_id) {
+        await db.prepare(`
+          UPDATE deliveries
+          SET status = 'DELIVERED', updated_at = datetime('now', 'localtime')
+          WHERE id = ? AND customer_id = ?
+        `).run(delivery_id, customer_id);
+        try {
+          await syncCouponsForDelivery(delivery_id);
+        } catch (e) {
+          console.warn('Coupon sync on delivery payment:', e.message);
+        }
+      } else {
+        await db.prepare(`
+          UPDATE deliveries
+          SET status = 'DELIVERED', updated_at = datetime('now', 'localtime')
+          WHERE customer_id = ? AND delivery_date = ? AND status != 'SKIPPED'
+        `).run(customer_id, delivery_date);
+
+        const dayDels = await db.prepare('SELECT id FROM deliveries WHERE customer_id = ? AND delivery_date = ?').all(customer_id, delivery_date);
+        await Promise.all(dayDels.map(d => syncCouponsForDelivery(d.id).catch(e => console.warn(e.message))));
+      }
+      await recalculateCustomerDayDeliveries(customer_id, delivery_date);
+    }
+
+    // 2. Record payment transaction in payments table & ledger
+    const { recordPaymentTransaction } = require('../services/billingService');
+    const paymentRecord = await recordPaymentTransaction({
+      customerId: parseInt(customer_id, 10),
+      billId: null,
+      amount: numAmount,
+      paymentDate: delivery_date,
+      paymentType: 'DIRECT_PAYMENT',
+      paymentMethod: ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'].includes(payment_method) ? payment_method : 'CASH',
+      referenceNumber: reference_number || '',
+      notes: notes || `Collected on delivery by ${req.user.name || 'Delivery Boy'}`,
+      recordedByUserId: req.user.id
+    });
+
+    res.status(201).json({
+      message: `Payment of ₹${numAmount.toFixed(2)} recorded successfully in payment recorder!`,
+      payment: paymentRecord
+    });
+  } catch (err) {
+    console.error('Record delivery payment error:', err);
+    res.status(500).json({ error: err.message || 'Failed to record delivery payment.' });
   }
 });
 

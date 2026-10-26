@@ -45,8 +45,12 @@ router.get('/', requireAdmin, async (req, res) => {
     }
 
     if (paymentType) {
-      query += ` AND p.payment_type = ?`;
-      params.push(paymentType);
+      if (paymentType === 'DAILY_PAYMENT' || paymentType === 'DIRECT_PAYMENT') {
+        query += ` AND p.payment_type IN ('DAILY_PAYMENT', 'DIRECT_PAYMENT')`;
+      } else {
+        query += ` AND p.payment_type = ?`;
+        params.push(paymentType);
+      }
     }
 
     query += ` ORDER BY p.payment_date DESC, p.id DESC`;
@@ -79,12 +83,17 @@ router.post('/', requireAdmin, async (req, res) => {
       });
     }
 
+    let effPaymentType = payment_type;
+    if (effPaymentType === 'DAILY_PAYMENT') {
+      effPaymentType = 'DIRECT_PAYMENT';
+    }
+
     const paymentRecord = await recordPaymentTransaction({
       customerId: parseInt(customer_id),
       billId: bill_id ? parseInt(bill_id) : null,
       amount: parseFloat(amount),
       paymentDate: payment_date,
-      paymentType: payment_type,
+      paymentType: effPaymentType,
       paymentMethod: payment_method,
       referenceNumber: reference_number || '',
       notes: notes || '',

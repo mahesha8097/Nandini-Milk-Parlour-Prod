@@ -197,7 +197,13 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
 
   const filteredPayments = useMemo(() => {
     return payments.filter(p => {
-      if (paymentTypeFilter !== 'ALL' && p.payment_type !== paymentTypeFilter) return false;
+      if (paymentTypeFilter !== 'ALL') {
+        if (paymentTypeFilter === 'DAILY_PAYMENT') {
+          if (p.payment_type !== 'DAILY_PAYMENT' && p.payment_type !== 'DIRECT_PAYMENT') return false;
+        } else if (p.payment_type !== paymentTypeFilter) {
+          return false;
+        }
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const receipt = (p.receipt_number || '').toLowerCase();
@@ -271,6 +277,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
               <option value="ALL">All Payment Types</option>
               <option value="ADVANCE_PAYMENT">Advance Payment</option>
               <option value="BILL_PAYMENT">Bill Payment (Postpaid)</option>
+              <option value="DAILY_PAYMENT">Daily Spot Payment (Delivery)</option>
             </select>
 
             {(searchQuery || paymentTypeFilter !== 'ALL') && (
@@ -347,9 +354,15 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                       </span>
                     </td>
                     <td>
-                      <span className={`badge ${p.payment_type === 'ADVANCE_PAYMENT' ? 'badge-success' : 'badge-gray'}`}>
-                        {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Postpaid Settle'}
-                      </span>
+                      {p.payment_type === 'ADVANCE_PAYMENT' ? (
+                        <span className="badge badge-success">Advance Payment</span>
+                      ) : (p.payment_type === 'DAILY_PAYMENT' || p.payment_type === 'DIRECT_PAYMENT') ? (
+                        <span className="badge" style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                          Daily Spot Pay
+                        </span>
+                      ) : (
+                        <span className="badge badge-gray">Postpaid Settle</span>
+                      )}
                     </td>
                     <td>
                       <div style={{ fontWeight: '600' }}>{p.payment_method}</div>
@@ -410,9 +423,15 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
 
                 <div className="mobile-card-row">
                   <span className="mobile-card-row-label">Payment Type</span>
-                  <span className={`badge ${p.payment_type === 'ADVANCE_PAYMENT' ? 'badge-success' : 'badge-gray'}`}>
-                    {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Postpaid Settle'}
-                  </span>
+                  {p.payment_type === 'ADVANCE_PAYMENT' ? (
+                    <span className="badge badge-success">Advance Payment</span>
+                  ) : (p.payment_type === 'DAILY_PAYMENT' || p.payment_type === 'DIRECT_PAYMENT') ? (
+                    <span className="badge" style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                      Daily Spot Pay
+                    </span>
+                  ) : (
+                    <span className="badge badge-gray">Postpaid Settle</span>
+                  )}
                 </div>
 
                 <div className="mobile-card-row">
@@ -514,6 +533,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
               >
                 <option value="ADVANCE_PAYMENT">Advance Deposit (Prepaid)</option>
                 <option value="POSTPAID_BILL_PAYMENT">Postpaid Bill Settlement</option>
+                <option value="DIRECT_PAYMENT">Daily Spot Payment (Cash/UPI on Delivery)</option>
               </select>
             </div>
 
