@@ -203,9 +203,25 @@ if (isProduction && process.env.DATABASE_URL) {
 
             CREATE INDEX IF NOT EXISTS idx_cust_vacations_dates ON customer_vacations(start_date, end_date);
             CREATE INDEX IF NOT EXISTS idx_cust_vacations_notify ON customer_vacations(notify_agent_date);
+
+            CREATE TABLE IF NOT EXISTS email_report_logs (
+              id SERIAL PRIMARY KEY,
+              report_date TEXT NOT NULL,
+              report_type TEXT NOT NULL DEFAULT 'DAILY_DELIVERY',
+              recipient_email TEXT NOT NULL,
+              sender_email TEXT NOT NULL,
+              resend_id TEXT,
+              status TEXT NOT NULL CHECK(status IN ('SENT', 'FAILED', 'SKIPPED_DUPLICATE', 'TEST_MODE')),
+              error_message TEXT,
+              report_summary_json TEXT,
+              trigger_type TEXT NOT NULL CHECK(trigger_type IN ('CRON', 'ADMIN_TEST', 'MANUAL')),
+              agent_id INTEGER DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+            CREATE INDEX IF NOT EXISTS idx_email_logs_date ON email_report_logs(report_date, report_type);
           `);
         } catch (e) {
-          console.warn('Postgres delivery_corrections / vacations init note:', e.message);
+          console.warn('Postgres delivery_corrections / vacations / email_logs init note:', e.message);
         }
 
         // Seed initial routes if none exist for agent 1
@@ -227,7 +243,7 @@ if (isProduction && process.env.DATABASE_URL) {
         const pgTenantTables = [
           'users', 'routes', 'zones', 'customers', 'products', 'deliveries', 'bills',
           'payments', 'expenses', 'daily_delivery_requirements', 'delivery_corrections',
-          'coupon_books', 'coupon_transactions', 'business_profile'
+          'coupon_books', 'coupon_transactions', 'business_profile', 'email_report_logs'
         ];
         for (const tbl of pgTenantTables) {
           try {
@@ -686,7 +702,24 @@ if (isProduction && process.env.DATABASE_URL) {
         updated_at TEXT NOT NULL
       );
 
+      -- Automated Email Report Audit Logs
+      CREATE TABLE IF NOT EXISTS email_report_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_date TEXT NOT NULL,
+        report_type TEXT NOT NULL DEFAULT 'DAILY_DELIVERY',
+        recipient_email TEXT NOT NULL,
+        sender_email TEXT NOT NULL,
+        resend_id TEXT,
+        status TEXT NOT NULL CHECK(status IN ('SENT', 'FAILED', 'SKIPPED_DUPLICATE', 'TEST_MODE')),
+        error_message TEXT,
+        report_summary_json TEXT,
+        trigger_type TEXT NOT NULL CHECK(trigger_type IN ('CRON', 'ADMIN_TEST', 'MANUAL')),
+        agent_id INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+
       -- Indexes for high performance queries
+      CREATE INDEX IF NOT EXISTS idx_email_logs_date ON email_report_logs(report_date, report_type);
       CREATE INDEX IF NOT EXISTS idx_deliveries_date ON deliveries(delivery_date);
       CREATE INDEX IF NOT EXISTS idx_deliveries_cust ON deliveries(customer_id);
       CREATE INDEX IF NOT EXISTS idx_deliveries_dboy ON deliveries(delivery_boy_id);
@@ -986,6 +1019,27 @@ if (isProduction && process.env.DATABASE_URL) {
       console.warn('business_profile multi-tenant migration note:', bpErr.message);
     }
 
+    // Ensure email_report_logs table exists on SQLite startup for existing databases
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS email_report_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          report_date TEXT NOT NULL,
+          report_type TEXT NOT NULL DEFAULT 'DAILY_DELIVERY',
+          recipient_email TEXT NOT NULL,
+          sender_email TEXT NOT NULL,
+          resend_id TEXT,
+          status TEXT NOT NULL CHECK(status IN ('SENT', 'FAILED', 'SKIPPED_DUPLICATE', 'TEST_MODE')),
+          error_message TEXT,
+          report_summary_json TEXT,
+          trigger_type TEXT NOT NULL CHECK(trigger_type IN ('CRON', 'ADMIN_TEST', 'MANUAL')),
+          agent_id INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_logs_date ON email_report_logs(report_date, report_type);
+      `);
+    } catch (e) {}
+
     // Ensure agent_id column exists on all relevant tables for multi-agent data isolation
     const tenantTables = [
       'users',
@@ -997,7 +1051,8 @@ if (isProduction && process.env.DATABASE_URL) {
       'payments',
       'expenses',
       'daily_delivery_requirements',
-      'delivery_corrections'
+      'delivery_corrections',
+      'email_report_logs'
     ];
 
     for (const tbl of tenantTables) {

@@ -165,4 +165,79 @@ router.get('/', requireAdmin, async (req, res) => {
   }
 });
 
+const {
+  getKolkataDateString,
+  generateDailyReportData,
+  buildDailyReportHtml,
+  sendDailyReportEmail,
+  getEmailReportLogs
+} = require('../services/emailReportService');
+
+// Get automated daily email report configuration and audit logs
+router.get('/daily-email/status', requireAdmin, async (req, res) => {
+  try {
+    const agentId = req.agentId || 1;
+    const isConfigured = !!(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim() !== '');
+    const logs = await getEmailReportLogs(15, agentId);
+
+    res.json({
+      isConfigured,
+      recipientEmail: process.env.ADMIN_REPORT_EMAIL || '',
+      senderEmail: process.env.RESEND_FROM_EMAIL || 'Nandini Milk Parlour <onboarding@resend.dev>',
+      hasCronSecret: !!(process.env.CRON_SECRET && process.env.CRON_SECRET.trim() !== ''),
+      scheduleTimeIst: '10:00 AM IST (04:30 UTC daily)',
+      cronPath: '/api/cron/daily-delivery-report',
+      todayKolkataDate: getKolkataDateString(),
+      recentLogs: logs
+    });
+  } catch (err) {
+    console.error('Failed to get email report status:', err);
+    res.status(500).json({ error: 'Failed to retrieve email report status' });
+  }
+});
+
+// Preview daily email report data and rendered HTML without sending
+router.get('/daily-email/preview', requireAdmin, async (req, res) => {
+  try {
+    const agentId = req.agentId || 1;
+    const targetDate = req.query.date || getKolkataDateString();
+    const data = await generateDailyReportData(targetDate, agentId);
+    const html = buildDailyReportHtml(data);
+
+    res.json({
+      targetDate,
+      data,
+      html
+    });
+  } catch (err) {
+    console.error('Failed to generate report preview:', err);
+    res.status(500).json({ error: 'Failed to generate email report preview' });
+  }
+});
+
+// Admin test-send action to verify email delivery format
+router.post('/daily-email/test', requireAdmin, async (req, res) => {
+  try {
+    const agentId = req.agentId || 1;
+    const { date, recipientEmail } = req.body;
+    const targetDate = date || getKolkataDateString();
+
+    const result = await sendDailyReportEmail({
+      targetDate,
+      recipientEmail,
+      triggerType: 'ADMIN_TEST',
+      force: true,
+      agentId
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Failed to execute test email send:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to send test email'
+    });
+  }
+});
+
 module.exports = router;

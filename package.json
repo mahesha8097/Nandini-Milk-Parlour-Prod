@@ -8,7 +8,7 @@
     "server": "node server/index.js",
     "client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
-    "test": "node server/tests/business_rules.test.js && node server/tests/agent_deliveries_correction.test.js && node server/tests/multi_tenant_agent_isolation.test.js && node server/tests/route_management.test.js && node server/tests/weekly_billing_and_coupons.test.js && node server/tests/delivery_calendar_vacation.test.js && node server/tests/public_statement.test.js",
+    "test": "node server/tests/business_rules.test.js && node server/tests/agent_deliveries_correction.test.js && node server/tests/multi_tenant_agent_isolation.test.js && node server/tests/route_management.test.js && node server/tests/weekly_billing_and_coupons.test.js && node server/tests/delivery_calendar_vacation.test.js && node server/tests/public_statement.test.js && node server/tests/email_reports.test.js",
     "test:supabase": "node server/scripts/test-supabase.js",
     "db:init": "node server/scripts/init-supabase-db.js",
     "db:migrate": "node server/scripts/migrate-sqlite-to-supabase.js",
@@ -29,6 +29,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "pg": "^8.23.1",
+    "resend": "^6.34.1",
     "xlsx": "^0.18.5"
   }
 }

@@ -82,13 +82,30 @@ async function syncSupabase() {
       `ALTER TABLE routes ADD COLUMN IF NOT EXISTS delivery_boy_id INTEGER REFERENCES users(id) ON DELETE SET NULL;`,
       
       // Sync route delivery_boy_id if missing from users where role = 'DELIVERY_BOY'
-      `UPDATE routes SET delivery_boy_id = (SELECT id FROM users WHERE role = 'DELIVERY_BOY' AND (assigned_route = routes.name OR assigned_route = CAST(routes.id AS TEXT)) LIMIT 1) WHERE delivery_boy_id IS NULL;`
+      `UPDATE routes SET delivery_boy_id = (SELECT id FROM users WHERE role = 'DELIVERY_BOY' AND (assigned_route = routes.name OR assigned_route = CAST(routes.id AS TEXT)) LIMIT 1) WHERE delivery_boy_id IS NULL;`,
+
+      // 5. Automated Email Report Audit Logs Table
+      `CREATE TABLE IF NOT EXISTS email_report_logs (
+        id SERIAL PRIMARY KEY,
+        report_date TEXT NOT NULL,
+        report_type TEXT NOT NULL DEFAULT 'DAILY_DELIVERY',
+        recipient_email TEXT NOT NULL,
+        sender_email TEXT NOT NULL,
+        resend_id TEXT,
+        status TEXT NOT NULL CHECK(status IN ('SENT', 'FAILED', 'SKIPPED_DUPLICATE', 'TEST_MODE')),
+        error_message TEXT,
+        report_summary_json TEXT,
+        trigger_type TEXT NOT NULL CHECK(trigger_type IN ('CRON', 'ADMIN_TEST', 'MANUAL')),
+        agent_id INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_email_logs_date ON email_report_logs(report_date, report_type);`
     ];
 
     for (const q of constraintQueries) {
       await client.query(q);
     }
-    console.log('Successfully updated billing_type check constraints and route sync.');
+    console.log('Successfully updated billing_type check constraints, route sync, and email_report_logs table.');
 
     console.log('\nSupabase Live DB schema synchronization complete and verified!');
   } finally {

@@ -3,6 +3,12 @@
   "installCommand": "npm install --include=dev && cd client && npm install --include=dev",
   "buildCommand": "cd client && npm run build",
   "outputDirectory": "client/dist",
+  "crons": [
+    {
+      "path": "/api/cron/daily-delivery-report",
+      "schedule": "30 4 * * *"
+    }
+  ],
   "routes": [
     {
       "src": "/api/(.*)",

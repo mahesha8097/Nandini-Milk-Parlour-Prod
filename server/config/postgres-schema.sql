@@ -365,7 +365,24 @@ CREATE TABLE IF NOT EXISTS customer_vacations (
   updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
 );
 
--- 18. Performance Indexes
+-- 18. Automated Email Report Audit Logs
+CREATE TABLE IF NOT EXISTS email_report_logs (
+  id SERIAL PRIMARY KEY,
+  report_date TEXT NOT NULL,
+  report_type TEXT NOT NULL DEFAULT 'DAILY_DELIVERY',
+  recipient_email TEXT NOT NULL,
+  sender_email TEXT NOT NULL,
+  resend_id TEXT,
+  status TEXT NOT NULL CHECK(status IN ('SENT', 'FAILED', 'SKIPPED_DUPLICATE', 'TEST_MODE')),
+  error_message TEXT,
+  report_summary_json TEXT,
+  trigger_type TEXT NOT NULL CHECK(trigger_type IN ('CRON', 'ADMIN_TEST', 'MANUAL')),
+  agent_id INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+-- 19. Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_email_logs_date ON email_report_logs(report_date, report_type);
 CREATE INDEX IF NOT EXISTS idx_deliveries_date ON deliveries(delivery_date);
 CREATE INDEX IF NOT EXISTS idx_deliveries_cust ON deliveries(customer_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_dboy ON deliveries(delivery_boy_id);
