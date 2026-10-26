@@ -6,7 +6,7 @@
   "crons": [
     {
       "path": "/api/cron/daily-delivery-report",
-      "schedule": "10 6 * * *"
+      "schedule": "30 15 * * *"
     }
   ],
   "routes": [
