@@ -170,15 +170,32 @@ const {
   generateDailyReportData,
   buildDailyReportHtml,
   sendDailyReportEmail,
-  getEmailReportLogs
+  getEmailReportLogs,
+  previewReport,
+  sendManualReportEmail
 } = require('../services/emailReportService');
 
-// Get automated daily email report configuration and audit logs
+const AVAILABLE_REPORT_TYPES = [
+  { id: 'DAILY_DELIVERY', label: 'Daily Delivery Report', description: 'Consolidated daily milk, curd, route/zone, payments & ledger breakdown', category: 'Operations', supportedPeriods: ['PRESET', 'SPECIFIC_DATE'] },
+  { id: 'MONTHLY_BUSINESS', label: 'Monthly Business Report', description: 'Comprehensive monthly sales, milk volume, collections, expenses & net profit', category: 'Executive', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE'] },
+  { id: 'DAILY_SALES', label: 'Daily Sales & Revenue', description: 'Day-by-day order counts, delivery charges & billed product totals', category: 'Sales', supportedPeriods: ['PRESET', 'CUSTOM_RANGE', 'SPECIFIC_DATE'] },
+  { id: 'MONTHLY_SALES', label: 'Monthly Sales Summary', description: 'Multi-month overview of completed deliveries and total revenue', category: 'Sales', supportedPeriods: ['PRESET'] },
+  { id: 'PRODUCT_SALES', label: 'Product-wise Sales & Volume', description: 'Litres delivered, packet counts, and sales revenue per product variant', category: 'Sales', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE'] },
+  { id: 'CUSTOMER_SALES', label: 'Customer-wise Sales & Statements', description: 'Order counts, billed totals, and advance/pending balances per customer', category: 'Customers', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE'] },
+  { id: 'HOTEL_BULK_SALES', label: 'Hotel & Commercial Bulk Orders', description: 'Commercial customer delivery quantities and revenue summaries', category: 'Customers', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE'] },
+  { id: 'COLLECTIONS', label: 'Payment Collections & Receipts', description: 'Itemized receipts by cash, UPI, bank transfer, and reference numbers', category: 'Finance', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE', 'SPECIFIC_DATE'] },
+  { id: 'PENDING_PAYMENTS', label: 'Pending Payments & Dues', description: 'Active customers with outstanding unpaid balances and phone numbers', category: 'Finance', supportedPeriods: ['PRESET'] },
+  { id: 'ADVANCE_BALANCES', label: 'Customer Advance Balances Held', description: 'Active customers holding advance wallet credits', category: 'Finance', supportedPeriods: ['PRESET'] },
+  { id: 'MISSED_DELIVERIES', label: 'Missed & Incomplete Deliveries', description: 'Audit list of missed, skipped, and incomplete deliveries with recorded reasons', category: 'Operations', supportedPeriods: ['PRESET', 'CUSTOM_RANGE', 'SPECIFIC_DATE'] },
+  { id: 'EXPENSES', label: 'Business Expenses Report', description: 'Operating expenses itemized by category (Rent, Salary, Petrol, Maintenance)', category: 'Finance', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE'] }
+];
+
+// Get automated email reports configuration, schedules, and audit logs
 router.get('/daily-email/status', requireAdmin, async (req, res) => {
   try {
     const agentId = req.agentId || 1;
     const isConfigured = !!(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim() !== '');
-    const logs = await getEmailReportLogs(15, agentId);
+    const logs = await getEmailReportLogs(20, agentId);
 
     res.json({
       isConfigured,
@@ -186,8 +203,12 @@ router.get('/daily-email/status', requireAdmin, async (req, res) => {
       senderEmail: process.env.RESEND_FROM_EMAIL || 'Nandini Milk Parlour <onboarding@resend.dev>',
       hasCronSecret: !!(process.env.CRON_SECRET && process.env.CRON_SECRET.trim() !== ''),
       scheduleTimeIst: '10:00 AM IST (04:30 UTC daily)',
+      dailySchedule: '10:00 AM IST daily (configured in vercel.json)',
+      monthlySchedule: '1st of each month at 10:00 AM IST (auto-dispatches previous month)',
       cronPath: '/api/cron/daily-delivery-report',
+      monthlyCronPath: '/api/cron/monthly-business-report',
       todayKolkataDate: getKolkataDateString(),
+      availableReportTypes: AVAILABLE_REPORT_TYPES,
       recentLogs: logs
     });
   } catch (err) {
@@ -196,22 +217,93 @@ router.get('/daily-email/status', requireAdmin, async (req, res) => {
   }
 });
 
-// Preview daily email report data and rendered HTML without sending
+// Unified Preview for ANY supported report type without sending email (strictly read-only)
+router.get('/preview', requireAdmin, async (req, res) => {
+  try {
+    const agentId = req.agentId || 1;
+    const { type, startDate, endDate, date, month } = req.query;
+    const reportType = type || 'DAILY_DELIVERY';
+
+    const result = await previewReport({
+      reportType,
+      startDate,
+      endDate,
+      date,
+      month,
+      agentId
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Report preview error:', err);
+    const safeMessage = err.message && !err.message.includes('://') && !err.message.toLowerCase().includes('password')
+      ? err.message
+      : 'An unexpected database error occurred while compiling the report preview.';
+    res.status(400).json({
+      error: 'Failed to generate report preview',
+      message: safeMessage
+    });
+  }
+});
+
+// Unified Manual Send for ANY supported report type
+router.post('/send-email', requireAdmin, async (req, res) => {
+  try {
+    const agentId = req.agentId || 1;
+    const { type, startDate, endDate, date, month, recipientEmail } = req.body;
+    const reportType = type || 'DAILY_DELIVERY';
+
+    // Validate recipient email format if provided
+    if (recipientEmail && recipientEmail.trim() !== '') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(recipientEmail.trim())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid recipient email format',
+          message: `The provided email "${recipientEmail}" is not a valid email address.`
+        });
+      }
+    }
+
+    const result = await sendManualReportEmail({
+      reportType,
+      startDate,
+      endDate,
+      date,
+      month,
+      recipientEmail: recipientEmail ? recipientEmail.trim() : undefined,
+      agentId
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('Manual email report dispatch error:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to dispatch email report',
+      message: err.message || 'An unexpected error occurred while sending email.'
+    });
+  }
+});
+
+// Backward-compatible: Preview daily delivery email report
 router.get('/daily-email/preview', requireAdmin, async (req, res) => {
   try {
     const agentId = req.agentId || 1;
     const targetDate = req.query.date || getKolkataDateString();
-    const data = await generateDailyReportData(targetDate, agentId);
-    const html = buildDailyReportHtml(data);
+    const result = await previewReport({
+      reportType: 'DAILY_DELIVERY',
+      date: targetDate,
+      agentId
+    });
 
     res.json({
       targetDate,
-      data,
-      html
+      data: result.data,
+      html: result.html
     });
   } catch (err) {
-    console.error('Failed to generate report preview:', err);
-    // Sanitize error message to prevent exposing connection strings or credentials
+    console.error('Failed to generate daily report preview:', err);
     const safeMessage = err.message && !err.message.includes('://') && !err.message.toLowerCase().includes('password')
       ? err.message
       : 'An unexpected database error occurred while compiling the report preview.';
@@ -222,7 +314,7 @@ router.get('/daily-email/preview', requireAdmin, async (req, res) => {
   }
 });
 
-// Admin test-send action to verify email delivery format
+// Backward-compatible: Admin test-send action for daily delivery report
 router.post('/daily-email/test', requireAdmin, async (req, res) => {
   try {
     const agentId = req.agentId || 1;
@@ -248,3 +340,4 @@ router.post('/daily-email/test', requireAdmin, async (req, res) => {
 });
 
 module.exports = router;
+

@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { sendDailyReportEmail, getKolkataDateString } = require('../services/emailReportService');
+const {
+  sendDailyReportEmail,
+  sendMonthlyBusinessReportEmail,
+  getKolkataDateString
+} = require('../services/emailReportService');
 
 /**
  * Validates the caller against CRON_SECRET.
@@ -70,6 +74,21 @@ async function handleDailyDeliveryReport(req, res) {
       force
     });
 
+    // On the 1st of any month, automatically trigger previous month's business report.
+    // This allows Vercel Hobby accounts (limited to 1 cron job in vercel.json) to reliably dispatch both reports
+    // without interference, protected by duplicate check so it runs only once per month.
+    if (process.env.AUTO_MONTHLY_REPORT !== 'false' && targetDate.endsWith('-01')) {
+      try {
+        console.log(`[Cron] Day 1 of month detected (${targetDate}). Checking/dispatching Monthly Business Report for previous month...`);
+        await sendMonthlyBusinessReportEmail({
+          triggerType: 'CRON',
+          force: false
+        });
+      } catch (mErr) {
+        console.warn('[Cron] Chained monthly business report note (non-blocking):', mErr.message);
+      }
+    }
+
     // We return 200 with result details so Vercel logs the status clearly
     res.status(200).json({
       success: result.success,
@@ -91,8 +110,57 @@ async function handleDailyDeliveryReport(req, res) {
   }
 }
 
-// Support both GET (Vercel Cron default) and POST
+/**
+ * Handler for the monthly business report cron job.
+ * Supports GET and POST. Can be invoked directly by external schedulers or Vercel Pro.
+ */
+async function handleMonthlyBusinessReport(req, res) {
+  try {
+    const auth = verifyCronAuth(req);
+    if (!auth.authorized) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: auth.reason
+      });
+    }
+
+    const month = req.query.month || req.body?.month;
+    const force = req.query.force === 'true' || req.body?.force === true;
+
+    console.log(`[Cron] Triggering monthly business report (month=${month || 'previous'}, force=${force})...`);
+
+    const result = await sendMonthlyBusinessReportEmail({
+      month,
+      triggerType: 'CRON',
+      force
+    });
+
+    res.status(200).json({
+      success: result.success,
+      status: result.status,
+      message: result.message,
+      reportPeriod: result.reportPeriod,
+      messageId: result.messageId || null,
+      summary: result.summary || null,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('[Cron] Unhandled monthly business report error:', err);
+    res.status(500).json({
+      success: false,
+      status: 'CRON_EXECUTION_ERROR',
+      error: err.message || 'Internal error executing monthly business report cron'
+    });
+  }
+}
+
+// Daily Delivery Report routes
 router.get('/daily-delivery-report', handleDailyDeliveryReport);
 router.post('/daily-delivery-report', handleDailyDeliveryReport);
 
+// Monthly Business Report routes
+router.get('/monthly-business-report', handleMonthlyBusinessReport);
+router.post('/monthly-business-report', handleMonthlyBusinessReport);
+
 module.exports = router;
+

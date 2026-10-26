@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import EmptyState from '../../components/common/EmptyState';
 import {
@@ -20,102 +20,182 @@ import {
   Clock,
   X,
   ExternalLink,
-  ShieldCheck
+  ShieldCheck,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Sliders,
+  Building,
+  AlertCircle
 } from 'lucide-react';
-import { getLocalDateString } from '../../utils/dateUtils';
+import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 
 export default function ReportsPage() {
-  // Main view tab: 'STANDARD' or 'EMAIL_REPORT'
+  // Main view tab: 'STANDARD' or 'EMAIL_REPORTS'
   const [activeTab, setActiveTab] = useState('STANDARD');
 
-  // Standard report state
-  const [reportType, setReportType] = useState('DAILY_SALES');
+  // =========================================================================
+  // 1. STANDARD TABULAR AUDIT REPORTS STATE
+  // =========================================================================
+  const [standardReportType, setStandardReportType] = useState('DAILY_SALES');
   const now = new Date();
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const [startDate, setStartDate] = useState(getLocalDateString(firstOfMonth));
-  const [endDate, setEndDate] = useState(getLocalDateString(now));
-  const [reportData, setReportData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [standardStartDate, setStandardStartDate] = useState(getLocalDateString(firstOfMonth));
+  const [standardEndDate, setStandardEndDate] = useState(getLocalDateString(now));
+  const [standardReportData, setStandardReportData] = useState(null);
+  const [standardLoading, setStandardLoading] = useState(true);
+  const [standardError, setStandardError] = useState('');
   const [exporting, setExporting] = useState(false);
 
-  // Automated Email Report state
+  // =========================================================================
+  // 2. EMAIL REPORTS SYSTEM STATE
+  // =========================================================================
   const [emailStatus, setEmailStatus] = useState(null);
   const [emailLoading, setEmailLoading] = useState(false);
-  const [testDate, setTestDate] = useState(getLocalDateString(now));
-  const [testRecipient, setTestRecipient] = useState('');
+
+  // On-Demand Report Generator Form State
+  const [selectedReportType, setSelectedReportType] = useState('DAILY_DELIVERY');
+  const [periodMode, setPeriodMode] = useState('PRESET'); // 'PRESET' | 'SPECIFIC_DATE' | 'MONTH' | 'CUSTOM_RANGE'
+  const [activePreset, setActivePreset] = useState('TODAY'); // 'TODAY' | 'YESTERDAY' | 'CURRENT_MONTH' | 'PREVIOUS_MONTH'
+  
+  const [reportStartDate, setReportStartDate] = useState(getLocalDateString(now));
+  const [reportEndDate, setReportEndDate] = useState(getLocalDateString(now));
+  const [selectedMonth, setSelectedMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  const [recipientEmail, setRecipientEmail] = useState('');
+  
+  // Execution & Action Results
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailActionResult, setEmailActionResult] = useState(null);
 
-  // Preview Modal state
+  // Advanced / Diagnostics Accordion State (Collapsed by default)
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [forceResend, setForceResend] = useState(false);
+
+  // Preview Modal State
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewData, setPreviewData] = useState(null);
+  const [previewTitle, setPreviewTitle] = useState('');
+  const [previewPeriodText, setPreviewPeriodText] = useState('');
 
-  // 1. Fetch Standard Tabular Report
-  const fetchReport = async () => {
+  // Log Details Modal State
+  const [logDetailsModalOpen, setLogDetailsModalOpen] = useState(false);
+  const [selectedLog, setSelectedLog] = useState(null);
+
+  // =========================================================================
+  // DATE RANGE CALCULATIONS & PRESET HANDLERS
+  // =========================================================================
+  const applyPreset = (preset) => {
+    setActivePreset(preset);
+    const currentDate = new Date();
+    
+    if (preset === 'TODAY') {
+      const todayStr = getLocalDateString(currentDate);
+      setReportStartDate(todayStr);
+      setReportEndDate(todayStr);
+    } else if (preset === 'YESTERDAY') {
+      const yest = new Date(currentDate);
+      yest.setDate(yest.getDate() - 1);
+      const yestStr = getLocalDateString(yest);
+      setReportStartDate(yestStr);
+      setReportEndDate(yestStr);
+    } else if (preset === 'CURRENT_MONTH') {
+      const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+      setReportStartDate(getLocalDateString(firstDay));
+      setReportEndDate(getLocalDateString(currentDate));
+      setSelectedMonth(`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`);
+    } else if (preset === 'PREVIOUS_MONTH') {
+      let prevYear = currentDate.getFullYear();
+      let prevMonth = currentDate.getMonth(); // 0-indexed: previous month index
+      if (prevMonth === 0) {
+        prevMonth = 12;
+        prevYear -= 1;
+      }
+      const firstDayPrev = `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`;
+      const lastDayNum = new Date(prevYear, prevMonth, 0).getDate();
+      const lastDayPrev = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+      setReportStartDate(firstDayPrev);
+      setReportEndDate(lastDayPrev);
+      setSelectedMonth(`${prevYear}-${String(prevMonth).padStart(2, '0')}`);
+    }
+  };
+
+  const handleMonthChange = (monthStr) => {
+    setSelectedMonth(monthStr);
+    if (!monthStr || !monthStr.includes('-')) return;
+    const [y, m] = monthStr.split('-');
+    const year = parseInt(y, 10);
+    const month = parseInt(m, 10);
+    const startDate = `${monthStr}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${monthStr}-${String(lastDay).padStart(2, '0')}`;
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
+  };
+
+  // Synchronize initial report type defaults
+  useEffect(() => {
+    if (selectedReportType === 'DAILY_DELIVERY') {
+      applyPreset('TODAY');
+    } else if (selectedReportType === 'MONTHLY_BUSINESS') {
+      applyPreset('PREVIOUS_MONTH');
+    }
+  }, [selectedReportType]);
+
+  // Date Range Validation Check
+  const dateRangeValidation = useMemo(() => {
+    if (!reportStartDate || !reportEndDate) {
+      return { isValid: false, message: 'Start date and End date must both be selected.' };
+    }
+    if (reportStartDate > reportEndDate) {
+      return { isValid: false, message: `Start date (${reportStartDate}) cannot be after End date (${reportEndDate}).` };
+    }
+    return { isValid: true, message: '' };
+  }, [reportStartDate, reportEndDate]);
+
+  // =========================================================================
+  // API CALLS: STANDARD REPORT
+  // =========================================================================
+  const fetchStandardReport = async () => {
     try {
-      setLoading(true);
-      setError('');
+      setStandardLoading(true);
+      setStandardError('');
       const params = new URLSearchParams();
-      params.append('type', reportType);
-      params.append('startDate', startDate);
-      params.append('endDate', endDate);
+      params.append('type', standardReportType);
+      params.append('startDate', standardStartDate);
+      params.append('endDate', standardEndDate);
 
       const res = await api.get(`/reports?${params.toString()}`);
-      setReportData(res);
+      setStandardReportData(res);
     } catch (err) {
-      setError(err.message || 'Unable to load report data.');
+      setStandardError(err.message || 'Unable to load report data.');
     } finally {
-      setLoading(false);
+      setStandardLoading(false);
     }
   };
 
   useEffect(() => {
     if (activeTab === 'STANDARD') {
-      fetchReport();
+      fetchStandardReport();
     }
-  }, [reportType, startDate, endDate, activeTab]);
+  }, [standardReportType, standardStartDate, standardEndDate, activeTab]);
 
-  // 2. Fetch Email Status & Logs
-  const fetchEmailStatus = async () => {
-    try {
-      setEmailLoading(true);
-      const res = await api.get('/reports/daily-email/status');
-      setEmailStatus(res);
-      if (res?.recipientEmail && !testRecipient) {
-        setTestRecipient(res.recipientEmail);
-      }
-    } catch (err) {
-      console.warn('Failed to load email status:', err.message);
-    } finally {
-      setEmailLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'EMAIL_REPORT') {
-      fetchEmailStatus();
-    }
-  }, [activeTab]);
-
-  // Handle Export Excel for standard report
   const handleExportExcel = async () => {
     try {
       setExporting(true);
       const params = new URLSearchParams();
-      params.append('type', reportType);
-      params.append('startDate', startDate);
-      params.append('endDate', endDate);
+      params.append('type', standardReportType);
+      params.append('startDate', standardStartDate);
+      params.append('endDate', standardEndDate);
       params.append('format', 'excel');
 
       const blob = await api.getBlob(`/reports?${params.toString()}`);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${reportType}_Report_${getLocalDateString()}.xlsx`;
+      a.download = `${standardReportType}_Report_${getLocalDateString()}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -127,15 +207,53 @@ export default function ReportsPage() {
     }
   };
 
-  // 3. Open Preview Modal
+  // =========================================================================
+  // API CALLS: EMAIL STATUS & LOGS
+  // =========================================================================
+  const fetchEmailStatus = async () => {
+    try {
+      setEmailLoading(true);
+      const res = await api.get('/reports/daily-email/status');
+      setEmailStatus(res);
+      if (res?.recipientEmail && !recipientEmail) {
+        setRecipientEmail(res.recipientEmail);
+      }
+    } catch (err) {
+      console.warn('Failed to load email reports status:', err.message);
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'EMAIL_REPORTS') {
+      fetchEmailStatus();
+    }
+  }, [activeTab]);
+
+  // =========================================================================
+  // ACTIONS: PREVIEW & SEND ON-DEMAND EMAIL REPORT
+  // =========================================================================
   const handleOpenPreview = async () => {
+    if (!dateRangeValidation.isValid) return;
+
     try {
       setPreviewLoading(true);
       setPreviewError('');
       setPreviewModalOpen(true);
-      const res = await api.get(`/reports/daily-email/preview?date=${testDate}`);
+
+      const params = new URLSearchParams();
+      params.append('type', selectedReportType);
+      params.append('startDate', reportStartDate);
+      params.append('endDate', reportEndDate);
+      params.append('date', reportStartDate);
+      if (selectedMonth) params.append('month', selectedMonth);
+
+      const res = await api.get(`/reports/preview?${params.toString()}`);
       setPreviewHtml(res.html || '');
       setPreviewData(res.data || null);
+      setPreviewTitle(res.title || 'Email Report Preview');
+      setPreviewPeriodText(res.periodText || `${reportStartDate} to ${reportEndDate}`);
     } catch (err) {
       console.error('Email report preview failed:', err);
       setPreviewError(err.message || 'Failed to generate email report preview');
@@ -144,28 +262,67 @@ export default function ReportsPage() {
     }
   };
 
-  // 4. Send Test Email
-  const handleSendTestEmail = async () => {
+  const handleSendEmailReport = async () => {
+    if (!dateRangeValidation.isValid) return;
+
     try {
       setSendingEmail(true);
       setEmailActionResult(null);
-      const res = await api.post('/reports/daily-email/test', {
-        date: testDate,
-        recipientEmail: testRecipient.trim()
-      });
+
+      const payload = {
+        type: selectedReportType,
+        startDate: reportStartDate,
+        endDate: reportEndDate,
+        date: reportStartDate,
+        month: selectedMonth,
+        recipientEmail: recipientEmail ? recipientEmail.trim() : undefined
+      };
+
+      const res = await api.post('/reports/send-email', payload);
       setEmailActionResult(res);
       fetchEmailStatus();
     } catch (err) {
       setEmailActionResult({
         success: false,
-        message: err.message || 'Failed to send test email'
+        message: err.message || 'Failed to send email report'
       });
     } finally {
       setSendingEmail(false);
     }
   };
 
-  const reportTypes = [
+  // Supported Report Types Directory
+  const reportTypeOptions = [
+    {
+      group: 'Core Operational Reports',
+      reports: [
+        { id: 'DAILY_DELIVERY', label: '🥛 Daily Delivery Operations Report', desc: 'Consolidated daily milk, curd, route/zone, payments & ledger breakdown' },
+        { id: 'MISSED_DELIVERIES', label: '⚠️ Missed & Incomplete Deliveries', desc: 'Audit list of missed, skipped, and incomplete deliveries with recorded reasons' }
+      ]
+    },
+    {
+      group: 'Financial & Executive Reports',
+      reports: [
+        { id: 'MONTHLY_BUSINESS', label: '📊 Monthly Business & Profit Report', desc: 'Comprehensive monthly sales, milk volume, collections, expenses & net profit' },
+        { id: 'COLLECTIONS', label: '💳 Payment Collections & Receipts', desc: 'Itemized receipts by cash, UPI, bank transfer, and reference numbers' },
+        { id: 'PENDING_PAYMENTS', label: '⏳ Pending Payments & Outstanding Dues', desc: 'Active customers with outstanding unpaid balances and phone numbers' },
+        { id: 'ADVANCE_BALANCES', label: '💰 Customer Advance Balances Held', desc: 'Active customers holding advance wallet credits' },
+        { id: 'EXPENSES', label: '📉 Business Expenses Report', desc: 'Operating expenses itemized by category (Rent, Salary, Petrol, Maintenance)' }
+      ]
+    },
+    {
+      group: 'Sales & Customer Analytics',
+      reports: [
+        { id: 'DAILY_SALES', label: '📈 Daily Sales & Revenue Breakdown', desc: 'Day-by-day order counts, delivery charges & billed product totals' },
+        { id: 'MONTHLY_SALES', label: '📅 Monthly Sales Summary', desc: 'Multi-month overview of completed deliveries and total revenue' },
+        { id: 'PRODUCT_SALES', label: '📦 Product-wise Sales & Volume', desc: 'Litres delivered, packet counts, and sales revenue per product variant' },
+        { id: 'CUSTOMER_SALES', label: '👥 Customer-wise Sales & Statements', desc: 'Order counts, billed totals, and advance/pending balances per customer' },
+        { id: 'HOTEL_BULK_SALES', label: '🏨 Hotel & Commercial Bulk Orders', desc: 'Commercial customer delivery quantities and revenue summaries' }
+      ]
+    }
+  ];
+
+  const standardReportTypes = [
     { id: 'DAILY_SALES', label: 'Daily Sales Report', icon: TrendingUp },
     { id: 'MONTHLY_SALES', label: 'Monthly Sales Summary', icon: Calendar },
     { id: 'PRODUCT_SALES', label: 'Product-wise Sales', icon: ShoppingBag },
@@ -176,7 +333,7 @@ export default function ReportsPage() {
     { id: 'EXPENSES', label: 'Expenses Report', icon: Wallet }
   ];
 
-  const rows = reportData?.data || [];
+  const standardRows = standardReportData?.data || [];
 
   return (
     <div className="page-wrapper">
@@ -192,17 +349,17 @@ export default function ReportsPage() {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {activeTab === 'STANDARD' ? (
             <>
-              <button onClick={fetchReport} className="btn btn-outline btn-sm">
+              <button onClick={fetchStandardReport} className="btn btn-outline btn-sm">
                 <RefreshCw size={16} /> Refresh
               </button>
-              <button onClick={handleExportExcel} className="btn btn-success btn-sm" disabled={exporting || rows.length === 0}>
+              <button onClick={handleExportExcel} className="btn btn-success btn-sm" disabled={exporting || standardRows.length === 0}>
                 <Download size={16} />
                 {exporting ? 'Generating Excel...' : 'Export Excel (.xlsx)'}
               </button>
             </>
           ) : (
             <button onClick={fetchEmailStatus} className="btn btn-outline btn-sm" disabled={emailLoading}>
-              <RefreshCw size={16} className={emailLoading ? 'spin' : ''} /> Refresh Logs
+              <RefreshCw size={16} className={emailLoading ? 'spin' : ''} /> Refresh Status & Logs
             </button>
           )}
         </div>
@@ -219,22 +376,23 @@ export default function ReportsPage() {
           Standard Audit Reports
         </button>
         <button
-          onClick={() => setActiveTab('EMAIL_REPORT')}
-          className={`btn btn-sm ${activeTab === 'EMAIL_REPORT' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveTab('EMAIL_REPORTS')}
+          className={`btn btn-sm ${activeTab === 'EMAIL_REPORTS' ? 'btn-primary' : 'btn-outline'}`}
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           <Mail size={16} />
-          Daily Email Reports (Resend + Vercel Cron)
+          Automated & On-Demand Email Reports
           {emailStatus?.isConfigured && (
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
           )}
         </button>
       </div>
 
-      {/* TAB 1: STANDARD AUDIT REPORTS */}
+      {/* =================================================================== */}
+      {/* TAB 1: STANDARD AUDIT REPORTS                                       */}
+      {/* =================================================================== */}
       {activeTab === 'STANDARD' && (
         <>
-          {/* Report Selection & Date Controls */}
           <div className="card" style={{ marginBottom: '20px', padding: '16px' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -242,16 +400,16 @@ export default function ReportsPage() {
                 <select
                   className="form-select"
                   style={{ width: 'auto', fontSize: '0.875rem', fontWeight: '600' }}
-                  value={reportType}
-                  onChange={(e) => setReportType(e.target.value)}
+                  value={standardReportType}
+                  onChange={(e) => setStandardReportType(e.target.value)}
                 >
-                  {reportTypes.map((t) => (
+                  {standardReportTypes.map((t) => (
                     <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
               </div>
 
-              {!['MONTHLY_SALES', 'PENDING_PAYMENTS', 'ADVANCE_BALANCES'].includes(reportType) && (
+              {!['MONTHLY_SALES', 'PENDING_PAYMENTS', 'ADVANCE_BALANCES'].includes(standardReportType) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontSize: '0.813rem', color: 'var(--text-secondary)' }}>From:</span>
@@ -259,8 +417,8 @@ export default function ReportsPage() {
                       type="date"
                       className="form-input"
                       style={{ width: 'auto', padding: '6px 12px' }}
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
+                      value={standardStartDate}
+                      onChange={(e) => setStandardStartDate(e.target.value)}
                     />
                   </div>
 
@@ -270,8 +428,8 @@ export default function ReportsPage() {
                       type="date"
                       className="form-input"
                       style={{ width: 'auto', padding: '6px 12px' }}
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
+                      value={standardEndDate}
+                      onChange={(e) => setStandardEndDate(e.target.value)}
                     />
                   </div>
                 </div>
@@ -279,12 +437,11 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* Report Results View */}
-          {loading ? (
+          {standardLoading ? (
             <div style={{ padding: '40px', textAlign: 'center' }}>Generating report from live records...</div>
-          ) : error ? (
-            <div className="card" style={{ color: 'var(--accent-red)', padding: '24px', textAlign: 'center' }}>{error}</div>
-          ) : rows.length === 0 ? (
+          ) : standardError ? (
+            <div className="card" style={{ color: 'var(--accent-red)', padding: '24px', textAlign: 'center' }}>{standardError}</div>
+          ) : standardRows.length === 0 ? (
             <EmptyState
               icon={FileBarChart}
               title="No data found for this report period"
@@ -292,12 +449,11 @@ export default function ReportsPage() {
             />
           ) : (
             <>
-              {/* Desktop Table */}
               <div className="table-container desktop-only">
                 <table className="custom-table">
                   <thead>
                     <tr>
-                      {Object.keys(rows[0]).map((key) => (
+                      {Object.keys(standardRows[0]).map((key) => (
                         <th key={key} style={{ textTransform: 'capitalize' }}>
                           {key.replace(/_/g, ' ')}
                         </th>
@@ -305,7 +461,7 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, idx) => (
+                    {standardRows.map((row, idx) => (
                       <tr key={idx}>
                         {Object.entries(row).map(([key, val], cellIdx) => (
                           <td key={cellIdx}>
@@ -320,9 +476,8 @@ export default function ReportsPage() {
                 </table>
               </div>
 
-              {/* Mobile View */}
               <div className="mobile-only">
-                {rows.map((row, idx) => {
+                {standardRows.map((row, idx) => {
                   const entries = Object.entries(row);
                   const [firstKey, firstVal] = entries[0] || ['', ''];
                   const remainingEntries = entries.slice(1);
@@ -375,144 +530,289 @@ export default function ReportsPage() {
         </>
       )}
 
-      {/* TAB 2: AUTOMATED DAILY EMAIL REPORT (RESEND + VERCEL CRON) */}
-      {activeTab === 'EMAIL_REPORT' && (
+      {/* =================================================================== */}
+      {/* TAB 2: AUTOMATED & ON-DEMAND EMAIL REPORTS                          */}
+      {/* =================================================================== */}
+      {activeTab === 'EMAIL_REPORTS' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          {/* Status & Configuration Overview Card */}
-          <div className="card" style={{ padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+          {/* Section 1: Compact Status & Automated Schedule Bar */}
+          <div className="card" style={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '14px' }}>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <Mail size={22} color="var(--primary)" />
-                  <h2 style={{ fontSize: '1.15rem', fontWeight: '700', margin: 0 }}>Automated Daily Delivery Email Reports</h2>
-                </div>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  Sends a consolidated daily delivery digest containing Milk (Litres), Curd (kg/L), Route/Zone summaries, incomplete deliveries, payments & customer balances.
-                </p>
+                <h2 style={{ fontSize: '1.05rem', fontWeight: '700', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Mail size={18} color="var(--primary)" />
+                  Automated Schedules & Email System Status
+                </h2>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Active Resend email infrastructure with Vercel Cron background automation
+                </span>
               </div>
 
               <div>
                 {emailStatus?.isConfigured ? (
-                  <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '0.8rem' }}>
-                    <CheckCircle2 size={14} /> Resend API Ready
+                  <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '0.78rem' }}>
+                    <CheckCircle2 size={13} /> Resend Ready
                   </span>
                 ) : (
-                  <span className="badge badge-warning" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '0.8rem' }}>
-                    <AlertTriangle size={14} /> Action Required: Set RESEND_API_KEY
+                  <span className="badge badge-warning" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '0.78rem' }}>
+                    <AlertTriangle size={13} /> Action Required: Set RESEND_API_KEY
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Config Specs Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '18px' }}>
-              <div style={{ background: 'var(--bg-tertiary, #f8fafc)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Configured Recipient</span>
-                <div style={{ fontWeight: '600', fontSize: '0.9rem', marginTop: '2px', wordBreak: 'break-all' }}>
+            {/* Compact 4-Spec Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              <div style={{ background: 'var(--bg-main, #f8fafc)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Configured Recipient</span>
+                <div style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '2px', wordBreak: 'break-all' }}>
                   {emailStatus?.recipientEmail || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>ADMIN_REPORT_EMAIL not set</span>}
                 </div>
               </div>
 
-              <div style={{ background: 'var(--bg-tertiary, #f8fafc)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Sender Address</span>
-                <div style={{ fontWeight: '600', fontSize: '0.9rem', marginTop: '2px', wordBreak: 'break-all' }}>
-                  {emailStatus?.senderEmail || 'Nandini Milk Parlour <onboarding@resend.dev>'}
+              <div style={{ background: 'var(--bg-main, #f8fafc)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Sender Address</span>
+                <div style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '2px', wordBreak: 'break-all' }}>
+                  {emailStatus?.senderEmail || 'onboarding@resend.dev'}
                 </div>
               </div>
 
-              <div style={{ background: 'var(--bg-tertiary, #f8fafc)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Scheduled Time</span>
-                <div style={{ fontWeight: '600', fontSize: '0.9rem', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Clock size={15} color="var(--primary)" />
-                  {emailStatus?.scheduleTimeIst || '10:00 AM IST (04:30 UTC)'}
+              <div style={{ background: 'var(--bg-main, #f8fafc)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Daily Automatic Schedule</span>
+                <div style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Clock size={14} color="var(--primary)" />
+                  10:00 AM IST (Daily)
                 </div>
               </div>
 
-              <div style={{ background: 'var(--bg-tertiary, #f8fafc)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Vercel Cron Path</span>
-                <div style={{ fontWeight: '600', fontSize: '0.82rem', marginTop: '2px', fontFamily: 'monospace' }}>
-                  {emailStatus?.cronPath || '/api/cron/daily-delivery-report'}
+              <div style={{ background: 'var(--bg-main, #f8fafc)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700' }}>Monthly Automatic Schedule</span>
+                <div style={{ fontWeight: '600', fontSize: '0.85rem', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Calendar size={14} color="var(--primary)" />
+                  1st of Month (IST)
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Important Resend Test Mode Note */}
-            <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', borderRadius: '8px', padding: '12px 16px', fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '18px' }}>
-              <div style={{ fontWeight: '700', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                <ShieldCheck size={16} /> Resend Sandbox & Custom Domain Guidance:
-              </div>
-              <ul style={{ margin: '4px 0 0 0', paddingLeft: '18px', lineHeight: '1.5' }}>
-                <li>
-                  <strong>Free Testing Mode:</strong> If using <code>onboarding@resend.dev</code> without a verified custom domain, Resend strictly allows sending test emails to the <strong>email address you used to register your Resend account</strong>.
-                </li>
-                <li>
-                  <strong>Production Business Email:</strong> To deliver reports directly to any external business email address, add and verify your custom domain in Resend Dashboard (<code>Domains</code> → Add DNS records).
-                </li>
-              </ul>
+          {/* Section 2: On-Demand Manual Report Generator & Preview */}
+          <div className="card" style={{ padding: '20px' }}>
+            <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: '700', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Send size={18} color="var(--primary)" />
+                On-Demand Email Report Generator
+              </h2>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>
+                Choose any business report, select the reporting period, preview the rendered HTML layout, or send directly to email.
+              </p>
             </div>
 
-            {/* Test Action Controls */}
-            <div style={{ background: 'var(--card-bg, #ffffff)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px' }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: '700', marginTop: 0, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Send size={16} /> Admin Test Action & Live HTML Preview
-              </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* Step A: Select Report Type */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  1. Select Report Type:
+                </label>
+                <select
+                  className="form-select"
+                  value={selectedReportType}
+                  onChange={(e) => setSelectedReportType(e.target.value)}
+                  style={{ width: '100%', maxWidth: '520px', fontWeight: '600', fontSize: '0.9rem' }}
+                >
+                  {reportTypeOptions.map((grp) => (
+                    <optgroup key={grp.group} label={grp.group}>
+                      {grp.reports.map((r) => (
+                        <option key={r.id} value={r.id}>{r.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
-                <div style={{ flex: '1 1 180px' }}>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    Business Date for Report:
-                  </label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={testDate}
-                    onChange={(e) => setTestDate(e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                </div>
+              {/* Step B: Select Reporting Period */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  2. Select Reporting Period:
+                </label>
 
-                <div style={{ flex: '2 1 260px' }}>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    Test Recipient Email (must be your Resend-registered email in test mode):
-                  </label>
-                  <input
-                    type="email"
-                    className="form-input"
-                    placeholder="e.g. your-resend-account@gmail.com"
-                    value={testRecipient}
-                    onChange={(e) => setTestRecipient(e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {/* Preset Quick Buttons */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
                   <button
-                    onClick={handleOpenPreview}
-                    className="btn btn-outline"
-                    disabled={previewLoading}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    type="button"
+                    onClick={() => { setPeriodMode('PRESET'); applyPreset('TODAY'); }}
+                    className={`btn btn-sm ${periodMode === 'PRESET' && activePreset === 'TODAY' ? 'btn-primary' : 'btn-outline'}`}
                   >
-                    <Eye size={16} />
-                    {previewLoading ? 'Loading Preview...' : 'Preview Email HTML'}
+                    Today
                   </button>
-
                   <button
-                    onClick={handleSendTestEmail}
-                    className="btn btn-primary"
-                    disabled={sendingEmail}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    type="button"
+                    onClick={() => { setPeriodMode('PRESET'); applyPreset('YESTERDAY'); }}
+                    className={`btn btn-sm ${periodMode === 'PRESET' && activePreset === 'YESTERDAY' ? 'btn-primary' : 'btn-outline'}`}
                   >
-                    <Send size={16} className={sendingEmail ? 'spin' : ''} />
-                    {sendingEmail ? 'Sending Test...' : 'Send Test Email Now'}
+                    Yesterday
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPeriodMode('PRESET'); applyPreset('CURRENT_MONTH'); }}
+                    className={`btn btn-sm ${periodMode === 'PRESET' && activePreset === 'CURRENT_MONTH' ? 'btn-primary' : 'btn-outline'}`}
+                  >
+                    Current Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPeriodMode('PRESET'); applyPreset('PREVIOUS_MONTH'); }}
+                    className={`btn btn-sm ${periodMode === 'PRESET' && activePreset === 'PREVIOUS_MONTH' ? 'btn-primary' : 'btn-outline'}`}
+                  >
+                    Previous Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode('SPECIFIC_DATE')}
+                    className={`btn btn-sm ${periodMode === 'SPECIFIC_DATE' ? 'btn-primary' : 'btn-outline'}`}
+                  >
+                    Specific Date
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode('MONTH')}
+                    className={`btn btn-sm ${periodMode === 'MONTH' ? 'btn-primary' : 'btn-outline'}`}
+                  >
+                    Monthly Date Range
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodMode('CUSTOM_RANGE')}
+                    className={`btn btn-sm ${periodMode === 'CUSTOM_RANGE' ? 'btn-primary' : 'btn-outline'}`}
+                  >
+                    Custom Date Range
                   </button>
                 </div>
+
+                {/* Conditional Date Pickers based on Period Mode */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+                  {periodMode === 'SPECIFIC_DATE' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Target Date:</span>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={reportStartDate}
+                        onChange={(e) => {
+                          setReportStartDate(e.target.value);
+                          setReportEndDate(e.target.value);
+                        }}
+                        style={{ width: 'auto', padding: '6px 12px' }}
+                      />
+                    </div>
+                  )}
+
+                  {periodMode === 'MONTH' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Select Month:</span>
+                      <input
+                        type="month"
+                        className="form-input"
+                        value={selectedMonth}
+                        onChange={(e) => handleMonthChange(e.target.value)}
+                        style={{ width: 'auto', padding: '6px 12px' }}
+                      />
+                    </div>
+                  )}
+
+                  {periodMode === 'CUSTOM_RANGE' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>From:</span>
+                        <input
+                          type="date"
+                          className="form-input"
+                          value={reportStartDate}
+                          onChange={(e) => setReportStartDate(e.target.value)}
+                          style={{ width: 'auto', padding: '6px 12px' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>To:</span>
+                        <input
+                          type="date"
+                          className="form-input"
+                          value={reportEndDate}
+                          onChange={(e) => setReportEndDate(e.target.value)}
+                          style={{ width: 'auto', padding: '6px 12px' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Active Period Confirmation Badge */}
+                  <div style={{
+                    fontSize: '0.8rem',
+                    background: dateRangeValidation.isValid ? 'var(--primary-light, #eff6ff)' : '#fef2f2',
+                    color: dateRangeValidation.isValid ? 'var(--primary-dark, #1e40af)' : '#b91c1c',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: `1px solid ${dateRangeValidation.isValid ? '#bfdbfe' : '#fecaca'}`,
+                    fontWeight: '600'
+                  }}>
+                    📅 Reporting Period: {formatDisplayDate(reportStartDate)} {reportStartDate !== reportEndDate ? `to ${formatDisplayDate(reportEndDate)}` : ''} (Asia/Kolkata)
+                  </div>
+                </div>
+
+                {!dateRangeValidation.isValid && (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--accent-red)', marginTop: '6px' }}>
+                    ⚠️ {dateRangeValidation.message}
+                  </div>
+                )}
+              </div>
+
+              {/* Step C: Recipient Email Input */}
+              <div style={{ maxWidth: '520px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  3. Recipient Email Address:
+                </label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="e.g. business-owner@gmail.com"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Defaults to configured recipient. In Resend test mode, delivery is permitted only to your registered account address.
+                </span>
+              </div>
+
+              {/* Action Buttons: Preview & Send Email */}
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  onClick={handleOpenPreview}
+                  className="btn btn-outline"
+                  disabled={previewLoading || !dateRangeValidation.isValid}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Eye size={16} />
+                  {previewLoading ? 'Compiling Preview...' : 'Preview Report'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSendEmailReport}
+                  className="btn btn-primary"
+                  disabled={sendingEmail || !dateRangeValidation.isValid || !emailStatus?.isConfigured}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Send size={16} className={sendingEmail ? 'spin' : ''} />
+                  {sendingEmail ? 'Sending Email Report...' : 'Send Email Report'}
+                </button>
               </div>
 
               {/* Action Result Notification Banner */}
               {emailActionResult && (
                 <div style={{
-                  marginTop: '16px',
                   padding: '12px 16px',
                   borderRadius: '8px',
                   fontSize: '0.85rem',
@@ -522,7 +822,7 @@ export default function ReportsPage() {
                 }}>
                   <div style={{ fontWeight: '700', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {emailActionResult.success ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                    {emailActionResult.success ? 'Email Sent Successfully' : 'Email Send Result'}
+                    {emailActionResult.success ? 'Email Report Sent Successfully' : 'Email Send Result'}
                   </div>
                   <div>{emailActionResult.message}</div>
                   {emailActionResult.messageId && (
@@ -535,13 +835,69 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* Email Delivery Audit Logs Table */}
+          {/* Section 3: Collapsed Advanced Settings & Diagnostics */}
+          <div className="card" style={{ padding: '0px', overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+              style={{
+                width: '100%',
+                padding: '14px 20px',
+                background: 'var(--bg-main, #f8fafc)',
+                border: 'none',
+                textAlign: 'left',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '0.875rem',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Sliders size={16} />
+                Advanced Settings & Diagnostics (Click to {advancedOpen ? 'collapse' : 'expand'})
+              </span>
+              {advancedOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </button>
+
+            {advancedOpen && (
+              <div style={{ padding: '18px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                  Diagnostics controls for Vercel Cron webhooks and manual overrides.
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+                  <div style={{ background: '#ffffff', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '12px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Daily Cron Endpoint</span>
+                    <div style={{ fontFamily: 'monospace', fontSize: '0.82rem', marginTop: '2px' }}>
+                      {emailStatus?.cronPath || '/api/cron/daily-delivery-report'}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '12px' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Monthly Cron Endpoint</span>
+                    <div style={{ fontFamily: 'monospace', fontSize: '0.82rem', marginTop: '2px' }}>
+                      {emailStatus?.monthlyCronPath || '/api/cron/monthly-business-report'}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Authentication: Protected by CRON_SECRET token via Authorization header or ?secret= parameter.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section 4: Email Delivery Audit Logs Table */}
           <div className="card" style={{ padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Recent Email Report Delivery Logs</h3>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Email Report Delivery History</h3>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Audit trail of automated Vercel Cron jobs and Admin manual test runs
+                  Complete audit trail of automated Vercel Cron runs and manual on-demand dispatches
                 </span>
               </div>
               <button onClick={fetchEmailStatus} className="btn btn-outline btn-sm" disabled={emailLoading}>
@@ -551,51 +907,72 @@ export default function ReportsPage() {
 
             {(!emailStatus?.recentLogs || emailStatus.recentLogs.length === 0) ? (
               <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                No email reports have been sent or logged yet. Send a test email above or wait for the scheduled morning cron.
+                No email reports have been recorded in audit history yet.
               </div>
             ) : (
               <div className="table-container">
                 <table className="custom-table">
                   <thead>
                     <tr>
-                      <th>Report Date</th>
-                      <th>Trigger</th>
+                      <th>Report Type</th>
+                      <th>Period Covered</th>
                       <th>Recipient</th>
+                      <th>Trigger</th>
                       <th>Status</th>
-                      <th>Message ID / Detail</th>
                       <th>Logged At (IST)</th>
+                      <th>Result / Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {emailStatus.recentLogs.map((log) => {
                       let statusBadge = 'badge-gray';
-                      if (log.status === 'SENT') statusBadge = 'badge-success';
-                      else if (log.status === 'FAILED') statusBadge = 'badge-danger';
-                      else if (log.status === 'SKIPPED_DUPLICATE') statusBadge = 'badge-warning';
+                      let statusText = log.status;
+                      if (log.status === 'SENT') {
+                        statusBadge = 'badge-success';
+                        statusText = 'Sent';
+                      } else if (log.status === 'FAILED') {
+                        statusBadge = 'badge-danger';
+                        statusText = 'Failed';
+                      } else if (log.status === 'SKIPPED_DUPLICATE') {
+                        statusBadge = 'badge-warning';
+                        statusText = 'Skipped (Duplicate)';
+                      }
 
                       return (
                         <tr key={log.id}>
-                          <td style={{ fontWeight: '600' }}>{log.report_date}</td>
+                          <td style={{ fontWeight: '600', fontSize: '0.82rem' }}>
+                            {log.report_type?.replace(/_/g, ' ') || 'Daily Delivery'}
+                          </td>
+                          <td style={{ fontSize: '0.82rem' }}>
+                            {log.report_date}
+                          </td>
+                          <td style={{ fontSize: '0.82rem' }}>
+                            {log.recipient_email}
+                          </td>
                           <td>
                             <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>
                               {log.trigger_type}
                             </span>
                           </td>
-                          <td style={{ fontSize: '0.82rem' }}>{log.recipient_email}</td>
                           <td>
-                            <span className={`badge ${statusBadge}`} style={{ fontSize: '0.75rem' }}>
-                              {log.status}
+                            <span className={`badge ${statusBadge}`} style={{ fontSize: '0.72rem' }}>
+                              {statusText}
                             </span>
-                          </td>
-                          <td style={{ fontSize: '0.78rem', maxWidth: '280px', wordBreak: 'break-all' }}>
-                            {log.resend_id ? (
-                              <span style={{ fontFamily: 'monospace', color: 'var(--primary)' }}>{log.resend_id}</span>
-                            ) : (
-                              <span style={{ color: 'var(--accent-red)' }}>{log.error_message || '-'}</span>
-                            )}
                           </td>
                           <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                             {log.created_at}
+                          </td>
+                          <td>
+                            <button
+                              onClick={() => {
+                                setSelectedLog(log);
+                                setLogDetailsModalOpen(true);
+                              }}
+                              className="btn btn-outline btn-sm"
+                              style={{ padding: '3px 8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <Info size={13} /> View Details
+                            </button>
                           </td>
                         </tr>
                       );
@@ -609,7 +986,9 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* Interactive Email HTML Preview Modal */}
+      {/* =================================================================== */}
+      {/* MODAL 1: REPORT HTML PREVIEW MODAL                                  */}
+      {/* =================================================================== */}
       {previewModalOpen && (
         <div style={{
           position: 'fixed',
@@ -629,7 +1008,7 @@ export default function ReportsPage() {
             background: 'var(--card-bg, #ffffff)',
             borderRadius: '12px',
             width: '100%',
-            maxWidth: '740px',
+            maxWidth: '760px',
             maxHeight: '92vh',
             display: 'flex',
             flexDirection: 'column',
@@ -648,10 +1027,10 @@ export default function ReportsPage() {
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Eye size={18} color="var(--primary)" />
-                  Email Report HTML Preview — {testDate}
+                  {previewTitle}
                 </h3>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                  Visual preview as rendered inside desktop & mobile email clients
+                  Period: {previewPeriodText} • Real-time preview as rendered in email clients
                 </span>
               </div>
               <button
@@ -663,30 +1042,12 @@ export default function ReportsPage() {
               </button>
             </div>
 
-            {/* Quick Metrics Bar if loaded */}
-            {previewData && (
-              <div style={{
-                display: 'flex',
-                gap: '12px',
-                padding: '10px 20px',
-                background: 'var(--bg-tertiary, #f1f5f9)',
-                borderBottom: '1px solid var(--border-color)',
-                fontSize: '0.78rem',
-                flexWrap: 'wrap'
-              }}>
-                <span>🥛 Milk: <strong>{previewData.milk?.totalLitres || 0} L</strong></span>
-                <span>🥣 Curd: <strong>{previewData.curd?.totalKgLitres || 0} kg/L</strong></span>
-                <span>👥 Customers: <strong>{previewData.overview?.customersServed || 0}</strong></span>
-                <span>💰 Payments: <strong>₹{previewData.payments?.totalReceived || 0}</strong></span>
-              </div>
-            )}
-
             {/* Modal Body: Responsive HTML Iframe */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px', background: '#e2e8f0' }}>
               {previewLoading ? (
                 <div style={{ padding: '60px', textAlign: 'center', color: '#475569' }}>
                   <RefreshCw size={24} className="spin" style={{ margin: '0 auto 12px auto', display: 'block' }} />
-                  Rendering live email preview...
+                  Compiling live email preview from database...
                 </div>
               ) : previewError ? (
                 <div style={{
@@ -697,39 +1058,27 @@ export default function ReportsPage() {
                   background: '#ffffff',
                   border: '1px solid #fecaca',
                   color: '#991b1b',
-                  textAlign: 'center',
-                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.08)'
+                  textAlign: 'center'
                 }}>
                   <AlertTriangle size={32} color="#dc2626" style={{ margin: '0 auto 10px auto', display: 'block' }} />
-                  <div style={{ fontWeight: '700', fontSize: '1rem', color: '#991b1b' }}>
-                    Failed to generate email report preview
-                  </div>
-                  <div style={{ fontSize: '0.85rem', marginTop: '6px', color: '#b91c1c' }}>
-                    {previewError}
-                  </div>
+                  <div style={{ fontWeight: '700', fontSize: '1rem' }}>Failed to generate email report preview</div>
+                  <div style={{ fontSize: '0.85rem', marginTop: '6px' }}>{previewError}</div>
                   <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    <button
-                      onClick={handleOpenPreview}
-                      className="btn btn-primary btn-sm"
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <RefreshCw size={14} /> Retry Preview
+                    <button onClick={handleOpenPreview} className="btn btn-primary btn-sm">
+                      <RefreshCw size={14} /> Retry
                     </button>
-                    <button
-                      onClick={() => setPreviewModalOpen(false)}
-                      className="btn btn-outline btn-sm"
-                    >
+                    <button onClick={() => setPreviewModalOpen(false)} className="btn btn-outline btn-sm">
                       Close
                     </button>
                   </div>
                 </div>
               ) : (
                 <iframe
-                  title="Daily Email Preview"
+                  title="Email Report Preview"
                   srcDoc={previewHtml}
                   style={{
                     width: '100%',
-                    height: '540px',
+                    height: '560px',
                     border: 'none',
                     borderRadius: '8px',
                     background: '#ffffff',
@@ -757,13 +1106,150 @@ export default function ReportsPage() {
               <button
                 onClick={() => {
                   setPreviewModalOpen(false);
-                  handleSendTestEmail();
+                  handleSendEmailReport();
                 }}
                 className="btn btn-primary btn-sm"
                 disabled={sendingEmail}
                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                <Send size={14} /> Send Email Now
+                <Send size={14} /> Send Email Report Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 2: LOG ENTRY FULL DETAILS MODAL                               */}
+      {/* =================================================================== */}
+      {logDetailsModalOpen && selectedLog && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1060,
+          padding: '16px'
+        }}>
+          <div style={{
+            background: 'var(--card-bg, #ffffff)',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '620px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              padding: '14px 20px',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--bg-secondary, #f8fafc)'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>
+                  Email Delivery Audit Record (#{selectedLog.id})
+                </h3>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Logged at {selectedLog.created_at}
+                </span>
+              </div>
+              <button
+                onClick={() => setLogDetailsModalOpen(false)}
+                className="btn btn-outline btn-sm"
+                style={{ padding: '4px 8px' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#64748b', fontWeight: '700' }}>Report Type</div>
+                  <div style={{ fontWeight: '600', fontSize: '0.88rem', marginTop: '2px' }}>{selectedLog.report_type}</div>
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#64748b', fontWeight: '700' }}>Period Covered</div>
+                  <div style={{ fontWeight: '600', fontSize: '0.88rem', marginTop: '2px' }}>{selectedLog.report_date}</div>
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#64748b', fontWeight: '700' }}>Trigger Type</div>
+                  <div style={{ fontWeight: '600', fontSize: '0.88rem', marginTop: '2px' }}>{selectedLog.trigger_type}</div>
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#64748b', fontWeight: '700' }}>Delivery Status</div>
+                  <div style={{ fontWeight: '600', fontSize: '0.88rem', marginTop: '2px' }}>{selectedLog.status}</div>
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#64748b', fontWeight: '700' }}>Recipient Email</div>
+                <div style={{ fontWeight: '600', fontSize: '0.88rem', marginTop: '2px' }}>{selectedLog.recipient_email}</div>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#64748b', fontWeight: '700', marginTop: '8px' }}>Sender Email</div>
+                <div style={{ fontWeight: '600', fontSize: '0.88rem', marginTop: '2px' }}>{selectedLog.sender_email}</div>
+              </div>
+
+              {selectedLog.resend_id && (
+                <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#166534', fontWeight: '700' }}>Resend Provider Message ID</div>
+                  <div style={{ fontFamily: 'monospace', fontWeight: '700', fontSize: '0.88rem', marginTop: '2px', color: '#15803d' }}>
+                    {selectedLog.resend_id}
+                  </div>
+                </div>
+              )}
+
+              {selectedLog.error_message && (
+                <div style={{ background: '#fef2f2', padding: '12px', borderRadius: '6px', border: '1px solid #fecaca' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#991b1b', fontWeight: '700' }}>Error Details / Status Message</div>
+                  <div style={{ fontSize: '0.85rem', marginTop: '4px', color: '#b91c1c', lineHeight: '1.4' }}>
+                    {selectedLog.error_message}
+                  </div>
+                </div>
+              )}
+
+              {selectedLog.report_summary_json && (
+                <div>
+                  <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: '#64748b', fontWeight: '700', marginBottom: '4px' }}>
+                    Report Summary Payload (JSON)
+                  </div>
+                  <pre style={{
+                    background: '#1e293b',
+                    color: '#f8fafc',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    overflowX: 'auto',
+                    margin: 0
+                  }}>
+                    {(() => {
+                      try {
+                        return JSON.stringify(JSON.parse(selectedLog.report_summary_json), null, 2);
+                      } catch (e) {
+                        return selectedLog.report_summary_json;
+                      }
+                    })()}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', background: 'var(--bg-secondary, #f8fafc)' }}>
+              <button onClick={() => setLogDetailsModalOpen(false)} className="btn btn-outline btn-sm">
+                Close
               </button>
             </div>
           </div>

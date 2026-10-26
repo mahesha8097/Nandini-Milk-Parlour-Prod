@@ -78,6 +78,80 @@ function formatCurrency(amount) {
 }
 
 /**
+ * Calculates previous calendar month start and end dates in Asia/Kolkata timezone.
+ */
+function getPreviousMonthRange(referenceDate = new Date()) {
+  const kolkataDateStr = getKolkataDateString(referenceDate);
+  const [yStr, mStr] = kolkataDateStr.split('-');
+  let year = parseInt(yStr, 10);
+  let month = parseInt(mStr, 10);
+
+  month -= 1;
+  if (month === 0) {
+    month = 12;
+    year -= 1;
+  }
+
+  const prevMonthKey = `${year}-${String(month).padStart(2, '0')}`;
+  const startDate = `${prevMonthKey}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const endDate = `${prevMonthKey}-${String(lastDay).padStart(2, '0')}`;
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const monthLabel = `${monthNames[month - 1]} ${year}`;
+
+  return {
+    monthKey: prevMonthKey,
+    monthLabel,
+    startDate,
+    endDate
+  };
+}
+
+/**
+ * Calculates calendar month start and end dates for a given YYYY-MM string.
+ */
+function getMonthRange(monthKey) {
+  if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) {
+    return getPreviousMonthRange();
+  }
+  const [yStr, mStr] = monthKey.split('-');
+  const year = parseInt(yStr, 10);
+  const month = parseInt(mStr, 10);
+  const startDate = `${monthKey}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const endDate = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const monthLabel = `${monthNames[month - 1]} ${year}`;
+
+  return {
+    monthKey,
+    monthLabel,
+    startDate,
+    endDate
+  };
+}
+
+/**
+ * Returns formatted generation timestamp in Asia/Kolkata timezone.
+ */
+function formatKolkataDateTime(date = new Date()) {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(date instanceof Date ? date : new Date(date));
+}
+
+
+/**
  * Generates all consolidated daily report metrics directly from existing database tables.
  */
 async function generateDailyReportData(targetDate, agentId = 1) {
@@ -867,7 +941,7 @@ async function sendDailyReportEmail({ targetDate, recipientEmail, triggerType = 
       const existing = await db.prepare(`
         SELECT id, created_at, resend_id 
         FROM email_report_logs 
-        WHERE report_date = ? AND report_type = 'DAILY_DELIVERY' AND status = 'SENT'
+        WHERE report_date = ? AND report_type = 'DAILY_DELIVERY' AND status = 'SENT' AND trigger_type = 'CRON'
         LIMIT 1
       `).get(reportDate);
 
@@ -1021,9 +1095,1391 @@ async function sendDailyReportEmail({ targetDate, recipientEmail, triggerType = 
 }
 
 /**
+ * Generates consolidated monthly business & operations report data.
+ */
+async function generateMonthlyBusinessReportData({ month, startDate, endDate, agentId = 1 } = {}) {
+  let period;
+  if (month) {
+    period = getMonthRange(month);
+  } else if (startDate && endDate) {
+    period = {
+      monthKey: startDate.slice(0, 7),
+      monthLabel: `${formatKolkataReadableDate(startDate)} to ${formatKolkataReadableDate(endDate)}`,
+      startDate,
+      endDate
+    };
+  } else {
+    period = getPreviousMonthRange();
+  }
+
+  const sDate = period.startDate;
+  const eDate = period.endDate;
+
+  // 1. Business Profile
+  let businessProfile = {
+    business_name: 'Nandini Milk Parlour',
+    phone: '',
+    email: '',
+    address: ''
+  };
+  try {
+    const bp = await db.prepare('SELECT business_name, phone, email, address, upi_phone FROM business_profile WHERE id = 1').get();
+    if (bp) businessProfile = { ...businessProfile, ...bp };
+  } catch (e) {}
+
+  // 2. Deliveries & Sales Totals
+  const salesQuery = `
+    SELECT 
+      COUNT(DISTINCT d.customer_id) as customers_served,
+      COUNT(d.id) as total_deliveries,
+      SUM(CASE WHEN d.status = 'DELIVERED' THEN 1 ELSE 0 END) as delivered_count,
+      SUM(CASE WHEN d.status = 'SKIPPED' THEN 1 ELSE 0 END) as skipped_count,
+      SUM(CASE WHEN d.status = 'MISSED' THEN 1 ELSE 0 END) as missed_count,
+      SUM(CASE WHEN d.status = 'PENDING' THEN 1 ELSE 0 END) as pending_count,
+      COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN d.total_product_amount ELSE 0 END), 0) as product_amount,
+      COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN d.delivery_charge_snapshot ELSE 0 END), 0) as delivery_charges,
+      COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN d.total_amount ELSE 0 END), 0) as total_revenue
+    FROM deliveries d
+    WHERE d.delivery_date >= ? AND d.delivery_date <= ? AND (d.agent_id = ? OR d.agent_id IS NULL)
+  `;
+  const sales = (await db.prepare(salesQuery).get(sDate, eDate, agentId)) || {};
+
+  // 3. Product Breakdown (Milk Litres vs Curd kg/L)
+  const productDeliveriesQuery = `
+    SELECT 
+      d.product_id,
+      d.product_name_snapshot,
+      d.category_snapshot,
+      d.variant_snapshot,
+      d.unit_volume_litres_snapshot,
+      p.category as current_category,
+      p.unit_volume_litres as current_volume,
+      p.variant_label as current_variant,
+      SUM(d.quantity) as total_quantity,
+      SUM(d.total_product_amount) as total_product_amount,
+      SUM(d.delivery_charge_snapshot) as total_delivery_charge,
+      SUM(d.total_amount) as total_amount
+    FROM deliveries d
+    LEFT JOIN products p ON d.product_id = p.id
+    WHERE d.delivery_date >= ? AND d.delivery_date <= ?
+      AND d.status = 'DELIVERED' 
+      AND (d.agent_id = ? OR d.agent_id IS NULL)
+    GROUP BY d.product_id, d.product_name_snapshot, d.category_snapshot, d.variant_snapshot, d.unit_volume_litres_snapshot, p.category, p.unit_volume_litres, p.variant_label
+    ORDER BY total_quantity DESC
+  `;
+  const rawProducts = await db.prepare(productDeliveriesQuery).all(sDate, eDate, agentId);
+
+  let totalMilkLitres = 0;
+  let totalMilkPackets = 0;
+  let totalCurdKgLitres = 0;
+  let totalCurdPackets = 0;
+  const milkProducts = [];
+  const curdProducts = [];
+  const otherProducts = [];
+
+  for (const item of rawProducts) {
+    const category = (item.category_snapshot || item.current_category || '').toLowerCase();
+    const name = (item.product_name_snapshot || '').toLowerCase();
+    const variant = item.variant_snapshot || item.current_variant || '';
+    const vol = parseUnitVolume(item.unit_volume_litres_snapshot || item.current_volume, variant, name);
+    const qty = Number(item.total_quantity) || 0;
+    const totalVol = qty * vol;
+
+    const entry = {
+      productId: item.product_id,
+      name: item.product_name_snapshot,
+      category: item.category_snapshot || item.current_category,
+      variant,
+      quantity: qty,
+      unitVolume: vol,
+      totalVolume: totalVol,
+      totalAmount: Number(item.total_amount) || 0
+    };
+
+    if (category === 'milk' || name.includes('milk')) {
+      milkProducts.push(entry);
+      totalMilkLitres += totalVol;
+      totalMilkPackets += qty;
+    } else if (category === 'curd' || name.includes('curd')) {
+      curdProducts.push(entry);
+      totalCurdKgLitres += totalVol;
+      totalCurdPackets += qty;
+    } else {
+      otherProducts.push(entry);
+    }
+  }
+
+  // 4. Collections in Period
+  const collectionsQuery = `
+    SELECT 
+      COALESCE(SUM(amount), 0) as total_collected,
+      COUNT(*) as receipt_count
+    FROM payments
+    WHERE payment_date >= ? AND payment_date <= ? AND (agent_id = ? OR agent_id IS NULL)
+  `;
+  const collections = (await db.prepare(collectionsQuery).get(sDate, eDate, agentId)) || { total_collected: 0, receipt_count: 0 };
+
+  const paymentMethodsQuery = `
+    SELECT payment_method, COALESCE(SUM(amount), 0) as method_total, COUNT(*) as count
+    FROM payments
+    WHERE payment_date >= ? AND payment_date <= ? AND (agent_id = ? OR agent_id IS NULL)
+    GROUP BY payment_method
+    ORDER BY method_total DESC
+  `;
+  const paymentMethods = await db.prepare(paymentMethodsQuery).all(sDate, eDate, agentId);
+
+  // 5. Business Expenses in Period
+  const expensesQuery = `
+    SELECT 
+      COALESCE(SUM(amount), 0) as total_expenses,
+      COUNT(*) as expense_count
+    FROM expenses
+    WHERE expense_date >= ? AND expense_date <= ? AND (agent_id = ? OR agent_id IS NULL)
+  `;
+  const expenses = (await db.prepare(expensesQuery).get(sDate, eDate, agentId)) || { total_expenses: 0, expense_count: 0 };
+
+  const expenseCategoriesQuery = `
+    SELECT category, COALESCE(SUM(amount), 0) as category_total, COUNT(*) as count
+    FROM expenses
+    WHERE expense_date >= ? AND expense_date <= ? AND (agent_id = ? OR agent_id IS NULL)
+    GROUP BY category
+    ORDER BY category_total DESC
+  `;
+  const expenseCategories = await db.prepare(expenseCategoriesQuery).all(sDate, eDate, agentId);
+
+  // 6. Hotel & Commercial Bulk Orders vs Household
+  const customerCategoryQuery = `
+    SELECT 
+      CASE 
+        WHEN UPPER(c.customer_category) IN ('HOTEL', 'RESTAURANT', 'TEA_STALL', 'SHOP', 'COMMERCIAL', 'BULK') THEN 'Commercial / Hotel'
+        ELSE 'Household / Apartment'
+      END as category_group,
+      COUNT(DISTINCT c.id) as customer_count,
+      SUM(d.quantity) as total_packets,
+      COALESCE(SUM(d.total_amount), 0) as total_revenue
+    FROM deliveries d
+    JOIN customers c ON d.customer_id = c.id
+    WHERE d.delivery_date >= ? AND d.delivery_date <= ? AND d.status = 'DELIVERED' AND (d.agent_id = ? OR d.agent_id IS NULL)
+    GROUP BY 
+      CASE 
+        WHEN UPPER(c.customer_category) IN ('HOTEL', 'RESTAURANT', 'TEA_STALL', 'SHOP', 'COMMERCIAL', 'BULK') THEN 'Commercial / Hotel'
+        ELSE 'Household / Apartment'
+      END
+  `;
+  const categoryBreakdown = await db.prepare(customerCategoryQuery).all(sDate, eDate, agentId);
+
+  // 7. Route Delivery Summaries
+  const routeSummaryQuery = `
+    SELECT 
+      COALESCE(r.name, c.route, 'Unassigned Route') as route_name,
+      COUNT(DISTINCT c.id) as customer_count,
+      SUM(d.quantity) as total_packets,
+      COALESCE(SUM(d.total_amount), 0) as total_revenue
+    FROM deliveries d
+    JOIN customers c ON d.customer_id = c.id
+    LEFT JOIN zones z ON c.zone_id = z.id
+    LEFT JOIN routes r ON z.route_id = r.id
+    WHERE d.delivery_date >= ? AND d.delivery_date <= ? AND d.status = 'DELIVERED' AND (d.agent_id = ? OR d.agent_id IS NULL)
+    GROUP BY COALESCE(r.name, c.route, 'Unassigned Route')
+    ORDER BY total_revenue DESC
+  `;
+  const routeSummaries = await db.prepare(routeSummaryQuery).all(sDate, eDate, agentId);
+
+  // 8. Outstanding Ledger Snapshot
+  const balancesQuery = `
+    SELECT 
+      COUNT(*) as total_active_customers,
+      COALESCE(SUM(pending_balance), 0) as total_pending_balance,
+      COALESCE(SUM(advance_balance), 0) as total_advance_balance,
+      COUNT(CASE WHEN pending_balance > 0 THEN 1 END) as customers_with_due,
+      COUNT(CASE WHEN advance_balance > 0 THEN 1 END) as customers_with_advance
+    FROM customers
+    WHERE status = 'ACTIVE' AND (agent_id = ? OR agent_id IS NULL)
+  `;
+  const customerBalances = (await db.prepare(balancesQuery).get(agentId)) || {};
+
+  const totalRev = Number(sales.total_revenue) || 0;
+  const totalExp = Number(expenses.total_expenses) || 0;
+  const netProfit = totalRev - totalExp;
+  const totalDeliveries = Number(sales.total_deliveries) || 0;
+  const deliveredCount = Number(sales.delivered_count) || 0;
+  const successRate = totalDeliveries > 0 ? Math.round((deliveredCount / totalDeliveries) * 100) : 100;
+
+  return {
+    period,
+    businessProfile,
+    summary: {
+      customersServed: Number(sales.customers_served) || 0,
+      totalDeliveries,
+      deliveredCount,
+      skippedCount: Number(sales.skipped_count) || 0,
+      missedCount: Number(sales.missed_count) || 0,
+      pendingCount: Number(sales.pending_count) || 0,
+      successRate,
+      productAmount: Number(sales.product_amount) || 0,
+      deliveryCharges: Number(sales.delivery_charges) || 0,
+      totalRevenue: totalRev,
+      totalCollections: Number(collections.total_collected) || 0,
+      receiptCount: Number(collections.receipt_count) || 0,
+      totalExpenses: totalExp,
+      expenseCount: Number(expenses.expense_count) || 0,
+      netProfit,
+      operatingMargin: totalRev > 0 ? Number(((netProfit / totalRev) * 100).toFixed(1)) : 0
+    },
+    milk: {
+      totalLitres: Number(totalMilkLitres.toFixed(2)),
+      totalPackets: totalMilkPackets,
+      products: milkProducts
+    },
+    curd: {
+      totalKgLitres: Number(totalCurdKgLitres.toFixed(2)),
+      totalPackets: totalCurdPackets,
+      products: curdProducts
+    },
+    otherProducts,
+    paymentMethods,
+    expenseCategories,
+    categoryBreakdown,
+    routeSummaries,
+    customerBalances: {
+      totalActiveCustomers: Number(customerBalances.total_active_customers) || 0,
+      totalPendingBalance: Number(customerBalances.total_pending_balance) || 0,
+      totalAdvanceBalance: Number(customerBalances.total_advance_balance) || 0,
+      customersWithDue: Number(customerBalances.customers_with_due) || 0,
+      customersWithAdvance: Number(customerBalances.customers_with_advance) || 0
+    }
+  };
+}
+
+/**
+ * Builds responsive HTML email template for Monthly Business Report.
+ */
+function buildMonthlyBusinessReportHtml(data) {
+  const {
+    period,
+    businessProfile,
+    summary,
+    milk,
+    curd,
+    otherProducts,
+    paymentMethods,
+    expenseCategories,
+    categoryBreakdown,
+    routeSummaries,
+    customerBalances
+  } = data;
+
+  const generatedAtIst = formatKolkataDateTime(new Date());
+
+  const renderRow = (label, value) => `
+    <tr>
+      <td style="padding: 8px 12px; font-size: 13px; color: #475569; border-bottom: 1px solid #f1f5f9;">${label}</td>
+      <td style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #0f172a; text-align: right; border-bottom: 1px solid #f1f5f9;">${value}</td>
+    </tr>
+  `;
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nandini Monthly Business Report — ${period.monthLabel}</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.5; }
+    table { border-collapse: collapse; width: 100%; }
+    @media only screen and (max-width: 620px) {
+      .container { width: 100% !important; margin: 0 !important; border-radius: 0 !important; }
+      .grid-cell { display: block !important; width: 100% !important; box-sizing: border-box !important; margin-bottom: 10px !important; }
+      .header-title { font-size: 20px !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 20px 10px; background-color: #f1f5f9;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" class="container" style="max-width: 660px; width: 100%; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08); border: 1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0054a6 0%, #002b5c 100%); padding: 26px 24px; text-align: center; color: #ffffff;">
+              <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #93c5fd; margin-bottom: 6px;">
+                MONTHLY BUSINESS & OPERATIONS REPORT
+              </div>
+              <h1 class="header-title" style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
+                ${businessProfile.business_name || 'Nandini Milk Parlour'}
+              </h1>
+              <div style="margin-top: 8px; font-size: 15px; color: #e0f2fe; font-weight: 600;">
+                📊 ${period.monthLabel}
+              </div>
+              <div style="margin-top: 3px; font-size: 12px; color: #bae6fd;">
+                Period: ${period.startDate} to ${period.endDate}
+              </div>
+              <div style="margin-top: 4px; font-size: 11px; color: #bfdbfe;">
+                Generated at ${generatedAtIst} (IST)
+              </div>
+            </td>
+          </tr>
+
+          <!-- Key Financial & Operational KPI Cards -->
+          <tr>
+            <td style="padding: 20px 20px 10px 20px;">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td class="grid-cell" width="50%" style="padding: 6px;">
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 16px;">
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #1d4ed8; letter-spacing: 0.5px;">💰 Total Sales Revenue</div>
+                      <div style="font-size: 22px; font-weight: 800; color: #1e3a8a; margin-top: 4px;">
+                        ${formatCurrency(summary.totalRevenue)}
+                      </div>
+                      <div style="font-size: 12px; color: #60a5fa; margin-top: 2px;">
+                        ${summary.deliveredCount} successful deliveries
+                      </div>
+                    </div>
+                  </td>
+                  <td class="grid-cell" width="50%" style="padding: 6px;">
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 16px;">
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #15803d; letter-spacing: 0.5px;">💳 Collections Received</div>
+                      <div style="font-size: 22px; font-weight: 800; color: #14532d; margin-top: 4px;">
+                        ${formatCurrency(summary.totalCollections)}
+                      </div>
+                      <div style="font-size: 12px; color: #4ade80; margin-top: 2px;">
+                        ${summary.receiptCount} receipts logged
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="grid-cell" width="50%" style="padding: 6px;">
+                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px;">
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">🥛 Milk Volume</div>
+                      <div style="font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 4px;">
+                        ${milk.totalLitres} <span style="font-size: 14px; font-weight: 600;">Litres</span>
+                      </div>
+                      <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
+                        ${milk.totalPackets} packets delivered
+                      </div>
+                    </div>
+                  </td>
+                  <td class="grid-cell" width="50%" style="padding: 6px;">
+                    <div style="background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; padding: 14px 16px;">
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #a16207; letter-spacing: 0.5px;">🥣 Curd Volume</div>
+                      <div style="font-size: 22px; font-weight: 800; color: #713f12; margin-top: 4px;">
+                        ${curd.totalKgLitres} <span style="font-size: 14px; font-weight: 600;">kg/L</span>
+                      </div>
+                      <div style="font-size: 12px; color: #ca8a04; margin-top: 2px;">
+                        ${curd.totalPackets} packets delivered
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="grid-cell" width="50%" style="padding: 6px;">
+                    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 14px 16px;">
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #c2410c; letter-spacing: 0.5px;">📉 Business Expenses</div>
+                      <div style="font-size: 22px; font-weight: 800; color: #9a3412; margin-top: 4px;">
+                        ${formatCurrency(summary.totalExpenses)}
+                      </div>
+                      <div style="font-size: 12px; color: #ea580c; margin-top: 2px;">
+                        ${summary.expenseCount} expense entries
+                      </div>
+                    </div>
+                  </td>
+                  <td class="grid-cell" width="50%" style="padding: 6px;">
+                    <div style="background: ${summary.netProfit >= 0 ? '#f0fdf4' : '#fef2f2'}; border: 1px solid ${summary.netProfit >= 0 ? '#86efac' : '#fca5a5'}; border-radius: 8px; padding: 14px 16px;">
+                      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: ${summary.netProfit >= 0 ? '#15803d' : '#b91c1c'}; letter-spacing: 0.5px;">📈 Net Operating Margin</div>
+                      <div style="font-size: 22px; font-weight: 800; color: ${summary.netProfit >= 0 ? '#14532d' : '#991b1b'}; margin-top: 4px;">
+                        ${formatCurrency(summary.netProfit)}
+                      </div>
+                      <div style="font-size: 12px; color: ${summary.netProfit >= 0 ? '#16a34a' : '#dc2626'}; margin-top: 2px;">
+                        ${summary.operatingMargin}% margin on sales
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- SECTION: Product Sales Breakdown -->
+          <tr>
+            <td style="padding: 14px 24px 8px 24px;">
+              <div style="font-size: 14px; font-weight: 700; color: #0f172a; border-left: 4px solid #0054a6; padding-left: 8px; margin-bottom: 10px;">
+                Monthly Product Sales Breakdown
+              </div>
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background: #ffffff;">
+                <thead>
+                  <tr style="background: #f8fafc; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700;">
+                    <th align="left" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Product</th>
+                    <th align="left" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Variant</th>
+                    <th align="right" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Packets</th>
+                    <th align="right" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Volume</th>
+                    <th align="right" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${[...milk.products, ...curd.products, ...otherProducts].map(p => `
+                    <tr>
+                      <td style="padding: 7px 10px; font-size: 12px; font-weight: 600; color: #1e293b; border-bottom: 1px solid #f1f5f9;">${p.name}</td>
+                      <td style="padding: 7px 10px; font-size: 11px; color: #64748b; border-bottom: 1px solid #f1f5f9;">${p.variant}</td>
+                      <td align="right" style="padding: 7px 10px; font-size: 12px; font-weight: 600; color: #0f172a; border-bottom: 1px solid #f1f5f9;">${p.quantity}</td>
+                      <td align="right" style="padding: 7px 10px; font-size: 12px; color: #1d4ed8; font-weight: 600; border-bottom: 1px solid #f1f5f9;">${p.totalVolume ? p.totalVolume.toFixed(1) + ' ' + (p.category === 'Curd' ? 'kg/L' : 'L') : '-'}</td>
+                      <td align="right" style="padding: 7px 10px; font-size: 12px; font-weight: 700; color: #0f172a; border-bottom: 1px solid #f1f5f9;">${formatCurrency(p.totalAmount)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+
+          <!-- SECTION: Commercial / Hotel vs Household -->
+          ${categoryBreakdown.length > 0 ? `
+          <tr>
+            <td style="padding: 14px 24px 8px 24px;">
+              <div style="font-size: 14px; font-weight: 700; color: #0f172a; border-left: 4px solid #0054a6; padding-left: 8px; margin-bottom: 10px;">
+                Customer Segment Performance (Hotel / Bulk vs Household)
+              </div>
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background: #ffffff;">
+                <thead>
+                  <tr style="background: #f8fafc; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700;">
+                    <th align="left" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Customer Segment</th>
+                    <th align="center" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Customers</th>
+                    <th align="right" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Packets Delivered</th>
+                    <th align="right" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0;">Segment Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${categoryBreakdown.map(c => `
+                    <tr>
+                      <td style="padding: 7px 10px; font-size: 12px; font-weight: 600; color: #1e293b; border-bottom: 1px solid #f1f5f9;">${c.category_group}</td>
+                      <td align="center" style="padding: 7px 10px; font-size: 12px; color: #475569; border-bottom: 1px solid #f1f5f9;">${c.customer_count}</td>
+                      <td align="right" style="padding: 7px 10px; font-size: 12px; font-weight: 600; color: #1d4ed8; border-bottom: 1px solid #f1f5f9;">${c.total_packets}</td>
+                      <td align="right" style="padding: 7px 10px; font-size: 12px; font-weight: 700; color: #0f172a; border-bottom: 1px solid #f1f5f9;">${formatCurrency(c.total_revenue)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          ` : ''}
+
+          <!-- SECTION: Collections & Expenses Breakdowns -->
+          <tr>
+            <td style="padding: 14px 24px 8px 24px;">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td class="grid-cell" width="50%" style="vertical-align: top; padding-right: 6px;">
+                    <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">Collections by Payment Method</div>
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background: #ffffff;">
+                      <tbody>
+                        ${paymentMethods.map(m => renderRow(m.payment_method, formatCurrency(m.method_total))).join('')}
+                        ${paymentMethods.length === 0 ? '<tr><td colspan="2" style="padding: 10px; font-size: 12px; color: #94a3b8; text-align: center;">No payments recorded</td></tr>' : ''}
+                      </tbody>
+                    </table>
+                  </td>
+                  <td class="grid-cell" width="50%" style="vertical-align: top; padding-left: 6px;">
+                    <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">Expenses by Category</div>
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background: #ffffff;">
+                      <tbody>
+                        ${expenseCategories.map(e => renderRow(e.category, formatCurrency(e.category_total))).join('')}
+                        ${expenseCategories.length === 0 ? '<tr><td colspan="2" style="padding: 10px; font-size: 12px; color: #94a3b8; text-align: center;">No expenses recorded</td></tr>' : ''}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- SECTION: Outstanding Ledger Balances -->
+          <tr>
+            <td style="padding: 14px 24px 20px 24px;">
+              <div style="font-size: 14px; font-weight: 700; color: #0f172a; border-left: 4px solid #10b981; padding-left: 8px; margin-bottom: 10px;">
+                Month-End Customer Balances & Ledger Summary
+              </div>
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; background: #ffffff;">
+                <tbody>
+                  ${renderRow('Total Monthly Deliveries Billed', formatCurrency(summary.totalRevenue))}
+                  ${renderRow('Total Payments Collected', `<span style="color: #16a34a; font-size: 14px;">${formatCurrency(summary.totalCollections)}</span>`)}
+                  ${renderRow('Total Business Expenses Incurred', formatCurrency(summary.totalExpenses))}
+                  ${renderRow('Net Monthly Operating Profit', `<span style="font-weight: 700; color: ${summary.netProfit >= 0 ? '#16a34a' : '#dc2626'}; font-size: 15px;">${formatCurrency(summary.netProfit)}</span>`)}
+                  ${renderRow('Current Customer Pending Due (Receivables)', `<span style="color: #dc2626; font-size: 14px;">${formatCurrency(customerBalances.totalPendingBalance)}</span> (${customerBalances.customersWithDue} customers)`)}
+                  ${renderRow('Current Customer Advance Held (Payables/Credits)', `<span style="color: #0284c7; font-size: 14px;">${formatCurrency(customerBalances.totalAdvanceBalance)}</span> (${customerBalances.customersWithAdvance} customers)`)}
+                  ${renderRow('Active Customers Base', `${customerBalances.totalActiveCustomers} Registered Active Customers`)}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+
+          <!-- System Footer -->
+          <tr>
+            <td style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 24px; text-align: center; color: #94a3b8; font-size: 12px;">
+              <div style="font-weight: 600; color: #64748b; margin-bottom: 4px;">
+                ${businessProfile.business_name || 'Nandini Milk Parlour'}
+              </div>
+              <div>
+                Automated Monthly Business Report • Vercel Cron • Resend SDK
+              </div>
+              <div style="margin-top: 6px; font-size: 11px; color: #cbd5e1;">
+                Timezone: Asia/Kolkata (IST) • Reporting Period: ${period.startDate} to ${period.endDate}
+              </div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+/**
+ * Sends automated monthly business report email via Resend.
+ */
+async function sendMonthlyBusinessReportEmail({ month, startDate, endDate, recipientEmail, triggerType = 'CRON', force = false, agentId = 1 } = {}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const toEmail = recipientEmail || process.env.ADMIN_REPORT_EMAIL;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'Nandini Milk Parlour <onboarding@resend.dev>';
+
+  // Generate data
+  const reportData = await generateMonthlyBusinessReportData({ month, startDate, endDate, agentId });
+  const htmlContent = buildMonthlyBusinessReportHtml(reportData);
+  const period = reportData.period;
+
+  const summary = {
+    monthKey: period.monthKey,
+    monthLabel: period.monthLabel,
+    startDate: period.startDate,
+    endDate: period.endDate,
+    totalRevenue: reportData.summary.totalRevenue,
+    milkLitres: reportData.milk.totalLitres,
+    curdKgLitres: reportData.curd.totalKgLitres,
+    totalCollections: reportData.summary.totalCollections,
+    totalExpenses: reportData.summary.totalExpenses,
+    netProfit: reportData.summary.netProfit
+  };
+
+  // Duplicate Check for automated CRON runs
+  if (triggerType === 'CRON' && !force) {
+    try {
+      const existing = await db.prepare(`
+        SELECT id, created_at, resend_id 
+        FROM email_report_logs 
+        WHERE report_date = ? AND report_type = 'MONTHLY_BUSINESS' AND status = 'SENT' AND trigger_type = 'CRON'
+        LIMIT 1
+      `).get(period.monthKey);
+
+      if (existing) {
+        await db.prepare(`
+          INSERT INTO email_report_logs (
+            report_date, report_type, recipient_email, sender_email,
+            status, error_message, report_summary_json, trigger_type, agent_id, created_at
+          ) VALUES (?, 'MONTHLY_BUSINESS', ?, ?, 'SKIPPED_DUPLICATE', 'Monthly business report already sent for this period', ?, 'CRON', ?, datetime('now', 'localtime'))
+        `).run(period.monthKey, toEmail || 'unconfigured', fromEmail, JSON.stringify(summary), agentId);
+
+        return {
+          success: true,
+          status: 'SKIPPED_DUPLICATE',
+          message: `Monthly business report for ${period.monthLabel} was already sent previously (Log ID #${existing.id}). Skipped duplicate cron send.`,
+          reportPeriod: period.monthKey,
+          existingLogId: existing.id
+        };
+      }
+    } catch (dupErr) {
+      console.warn('Monthly duplicate check warning:', dupErr.message);
+    }
+  }
+
+  // Check API key
+  if (!apiKey || apiKey.trim() === '' || apiKey.includes('your-resend-api-key')) {
+    const errorMsg = 'RESEND_API_KEY is missing or contains placeholder. Please set RESEND_API_KEY in server environment variables.';
+    try {
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, 'MONTHLY_BUSINESS', ?, ?, 'FAILED', ?, ?, ?, ?, datetime('now', 'localtime'))
+      `).run(period.monthKey, toEmail || 'unconfigured', fromEmail, errorMsg, JSON.stringify(summary), triggerType, agentId);
+    } catch (e) {}
+
+    return {
+      success: false,
+      status: 'API_KEY_MISSING',
+      message: errorMsg,
+      reportPeriod: period.monthKey,
+      summary,
+      htmlPreview: htmlContent
+    };
+  }
+
+  // Check Recipient
+  if (!toEmail || toEmail.trim() === '') {
+    const errorMsg = 'Recipient email is not configured. Set ADMIN_REPORT_EMAIL in environment variables or specify recipient in request.';
+    try {
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, 'MONTHLY_BUSINESS', 'MISSING', ?, 'FAILED', ?, ?, ?, ?, datetime('now', 'localtime'))
+      `).run(period.monthKey, fromEmail, errorMsg, JSON.stringify(summary), triggerType, agentId);
+    } catch (e) {}
+
+    return {
+      success: false,
+      status: 'RECIPIENT_MISSING',
+      message: errorMsg,
+      reportPeriod: period.monthKey,
+      summary,
+      htmlPreview: htmlContent
+    };
+  }
+
+  // Send via Resend
+  try {
+    const { Resend } = require('resend');
+    const resend = new Resend(apiKey);
+
+    const subject = `📊 Nandini Milk Parlour — Monthly Business Report (${period.monthLabel})`;
+    const response = await resend.emails.send({
+      from: fromEmail,
+      to: [toEmail.trim()],
+      subject,
+      html: htmlContent
+    });
+
+    if (response.error) {
+      const isDomainRestriction = response.error.message && (
+        response.error.message.includes('only send testing emails to your own email address') ||
+        response.error.message.includes('verify a domain')
+      );
+
+      const friendlyError = isDomainRestriction
+        ? `Resend Free Test Mode restriction: When using '${fromEmail}', Resend only allows sending to the email registered on your Resend account. To send to any other recipient, verify your domain in Resend Dashboard.`
+        : response.error.message;
+
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, 'MONTHLY_BUSINESS', ?, ?, 'FAILED', ?, ?, ?, ?, datetime('now', 'localtime'))
+      `).run(period.monthKey, toEmail, fromEmail, friendlyError, JSON.stringify(summary), triggerType, agentId);
+
+      return {
+        success: false,
+        status: isDomainRestriction ? 'DOMAIN_VERIFICATION_REQUIRED' : 'RESEND_API_ERROR',
+        message: friendlyError,
+        rawError: response.error,
+        reportPeriod: period.monthKey,
+        recipient: toEmail
+      };
+    }
+
+    const messageId = response.data?.id || 'unknown';
+
+    await db.prepare(`
+      INSERT INTO email_report_logs (
+        report_date, report_type, recipient_email, sender_email,
+        resend_id, status, report_summary_json, trigger_type, agent_id, created_at
+      ) VALUES (?, 'MONTHLY_BUSINESS', ?, ?, ?, 'SENT', ?, ?, ?, datetime('now', 'localtime'))
+    `).run(period.monthKey, toEmail, fromEmail, messageId, JSON.stringify(summary), triggerType, agentId);
+
+    return {
+      success: true,
+      status: 'SENT',
+      message: `Monthly business report for ${period.monthLabel} successfully sent to ${toEmail}.`,
+      messageId,
+      reportPeriod: period.monthKey,
+      recipient: toEmail,
+      sender: fromEmail,
+      summary
+    };
+  } catch (sendErr) {
+    console.error('Monthly email report send error:', sendErr);
+    try {
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, 'MONTHLY_BUSINESS', ?, ?, 'FAILED', ?, ?, ?, ?, datetime('now', 'localtime'))
+      `).run(period.monthKey, toEmail, fromEmail, sendErr.message, JSON.stringify(summary), triggerType, agentId);
+    } catch (e) {}
+
+    return {
+      success: false,
+      status: 'SEND_EXCEPTION',
+      message: sendErr.message || 'An unexpected error occurred while sending monthly report.',
+      reportPeriod: period.monthKey,
+      recipient: toEmail
+    };
+  }
+}
+
+/**
+ * Generates data for all standard/on-demand business report types.
+ */
+async function generateGenericReportData({ reportType, startDate, endDate, agentId = 1 }) {
+  const today = getKolkataDateString();
+  const sDate = startDate || `${today.slice(0, 7)}-01`;
+  const eDate = endDate || today;
+
+  if (sDate > eDate) {
+    throw new Error(`Invalid date range: Start date (${sDate}) cannot be after End date (${eDate}).`);
+  }
+
+  let businessProfile = {
+    business_name: 'Nandini Milk Parlour',
+    phone: '',
+    email: '',
+    address: ''
+  };
+  try {
+    const bp = await db.prepare('SELECT business_name, phone, email, address, upi_phone FROM business_profile WHERE id = 1').get();
+    if (bp) businessProfile = { ...businessProfile, ...bp };
+  } catch (e) {}
+
+  let title = 'Business Report';
+  let periodText = `${sDate} to ${eDate}`;
+  let data = [];
+  let totals = {};
+
+  switch (reportType) {
+    case 'DAILY_SALES':
+      title = 'Daily Sales & Revenue Report';
+      data = await db.prepare(`
+        SELECT delivery_date,
+               COUNT(*) as total_deliveries,
+               SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END) as completed_deliveries,
+               SUM(CASE WHEN status = 'DELIVERED' THEN total_product_amount ELSE 0 END) as product_amount,
+               SUM(CASE WHEN status = 'DELIVERED' THEN delivery_charge_snapshot ELSE 0 END) as delivery_charges,
+               SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as total_sales
+        FROM deliveries
+        WHERE delivery_date >= ? AND delivery_date <= ? AND (agent_id = ? OR agent_id IS NULL)
+        GROUP BY delivery_date
+        ORDER BY delivery_date DESC
+      `).all(sDate, eDate, agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalSales = (acc.totalSales || 0) + (Number(r.total_sales) || 0);
+        acc.totalDeliveries = (acc.totalDeliveries || 0) + (Number(r.total_deliveries) || 0);
+        acc.completedDeliveries = (acc.completedDeliveries || 0) + (Number(r.completed_deliveries) || 0);
+        return acc;
+      }, {});
+      break;
+
+    case 'MONTHLY_SALES':
+      title = 'Monthly Sales Summary';
+      periodText = 'All Logged Months';
+      data = await db.prepare(`
+        SELECT SUBSTR(delivery_date, 1, 7) as month,
+               COUNT(*) as total_deliveries,
+               SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END) as completed_deliveries,
+               SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as total_revenue
+        FROM deliveries
+        WHERE (agent_id = ? OR agent_id IS NULL)
+        GROUP BY SUBSTR(delivery_date, 1, 7)
+        ORDER BY month DESC
+      `).all(agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalRevenue = (acc.totalRevenue || 0) + (Number(r.total_revenue) || 0);
+        acc.totalDeliveries = (acc.totalDeliveries || 0) + (Number(r.total_deliveries) || 0);
+        return acc;
+      }, {});
+      break;
+
+    case 'PRODUCT_SALES':
+      title = 'Product-wise Sales & Volume Report';
+      data = await db.prepare(`
+        SELECT product_name_snapshot as product_name,
+               category_snapshot as category,
+               variant_snapshot as variant,
+               SUM(quantity) as total_quantity_delivered,
+               SUM(unit_volume_litres_snapshot * quantity) as total_litres,
+               SUM(total_product_amount) as product_sales,
+               SUM(delivery_charge_snapshot) as delivery_charges_collected,
+               SUM(total_amount) as total_revenue
+        FROM deliveries
+        WHERE delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED' AND (agent_id = ? OR agent_id IS NULL)
+        GROUP BY product_id, product_name_snapshot, category_snapshot, variant_snapshot
+        ORDER BY total_revenue DESC
+      `).all(sDate, eDate, agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalRevenue = (acc.totalRevenue || 0) + (Number(r.total_revenue) || 0);
+        acc.totalQuantity = (acc.totalQuantity || 0) + (Number(r.total_quantity_delivered) || 0);
+        acc.totalLitres = (acc.totalLitres || 0) + (Number(r.total_litres) || 0);
+        return acc;
+      }, {});
+      break;
+
+    case 'CUSTOMER_SALES':
+      title = 'Customer-wise Sales & Ledger Statements';
+      data = await db.prepare(`
+        SELECT c.name as customer_name,
+               c.phone as customer_phone,
+               c.customer_category,
+               c.billing_type,
+               c.route,
+               COUNT(d.id) as total_deliveries,
+               COALESCE(SUM(d.total_amount), 0) as total_bill_amount,
+               c.advance_balance,
+               c.pending_balance
+        FROM customers c
+        LEFT JOIN deliveries d ON c.id = d.customer_id AND d.delivery_date >= ? AND d.delivery_date <= ? AND d.status = 'DELIVERED' AND (d.agent_id = ? OR d.agent_id IS NULL)
+        WHERE (c.agent_id = ? OR c.agent_id IS NULL)
+        GROUP BY c.id, c.name, c.phone, c.customer_category, c.billing_type, c.route, c.advance_balance, c.pending_balance
+        ORDER BY total_bill_amount DESC
+      `).all(sDate, eDate, agentId, agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalBillAmount = (acc.totalBillAmount || 0) + (Number(r.total_bill_amount) || 0);
+        acc.totalPendingBalance = (acc.totalPendingBalance || 0) + (Number(r.pending_balance) || 0);
+        return acc;
+      }, {});
+      break;
+
+    case 'COLLECTIONS':
+      title = 'Payment Collections & Receipts Report';
+      data = await db.prepare(`
+        SELECT p.payment_date,
+               p.receipt_number,
+               c.name as customer_name,
+               c.phone as customer_phone,
+               p.payment_type,
+               p.payment_method,
+               p.reference_number,
+               p.amount
+        FROM payments p
+        JOIN customers c ON p.customer_id = c.id
+        WHERE p.payment_date >= ? AND p.payment_date <= ? AND (p.agent_id = ? OR p.agent_id IS NULL)
+        ORDER BY p.payment_date DESC
+      `).all(sDate, eDate, agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalCollected = (acc.totalCollected || 0) + (Number(r.amount) || 0);
+        return acc;
+      }, { receiptCount: data.length });
+      break;
+
+    case 'PENDING_PAYMENTS':
+      title = 'Pending Payments & Outstanding Dues Report';
+      periodText = 'Current Active Ledger Snapshot';
+      data = await db.prepare(`
+        SELECT c.id, c.name, c.phone, c.address, c.customer_category, c.billing_type, c.route,
+               c.pending_balance, c.advance_balance
+        FROM customers c
+        WHERE c.pending_balance > 0 AND c.status = 'ACTIVE' AND (c.agent_id = ? OR c.agent_id IS NULL)
+        ORDER BY c.pending_balance DESC
+      `).all(agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalPending = (acc.totalPending || 0) + (Number(r.pending_balance) || 0);
+        return acc;
+      }, { customerCount: data.length });
+      break;
+
+    case 'ADVANCE_BALANCES':
+      title = 'Customer Advance Balances Held Report';
+      periodText = 'Current Active Ledger Snapshot';
+      data = await db.prepare(`
+        SELECT c.id, c.name, c.phone, c.address, c.customer_category, c.billing_type, c.route,
+               c.advance_balance, c.pending_balance
+        FROM customers c
+        WHERE c.advance_balance > 0 AND c.status = 'ACTIVE' AND (c.agent_id = ? OR c.agent_id IS NULL)
+        ORDER BY c.advance_balance DESC
+      `).all(agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalAdvance = (acc.totalAdvance || 0) + (Number(r.advance_balance) || 0);
+        return acc;
+      }, { customerCount: data.length });
+      break;
+
+    case 'EXPENSES':
+      title = 'Business Expenses & Operational Costs Report';
+      data = await db.prepare(`
+        SELECT expense_date, category, amount, payment_method, recipient_name, description
+        FROM expenses
+        WHERE expense_date >= ? AND expense_date <= ? AND (agent_id = ? OR agent_id IS NULL)
+        ORDER BY expense_date DESC
+      `).all(sDate, eDate, agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalExpenses = (acc.totalExpenses || 0) + (Number(r.amount) || 0);
+        return acc;
+      }, { expenseCount: data.length });
+      break;
+
+    case 'HOTEL_BULK_SALES':
+      title = 'Hotel & Commercial Bulk Orders Report';
+      data = await db.prepare(`
+        SELECT c.name as customer_name,
+               c.phone as customer_phone,
+               c.customer_category,
+               c.route,
+               d.product_name_snapshot as product_name,
+               d.variant_snapshot as variant,
+               SUM(d.quantity) as total_quantity,
+               SUM(d.total_amount) as total_amount
+        FROM deliveries d
+        JOIN customers c ON d.customer_id = c.id
+        WHERE d.delivery_date >= ? AND d.delivery_date <= ? 
+          AND UPPER(c.customer_category) IN ('HOTEL', 'RESTAURANT', 'TEA_STALL', 'SHOP', 'COMMERCIAL', 'BULK')
+          AND d.status = 'DELIVERED'
+          AND (d.agent_id = ? OR d.agent_id IS NULL)
+        GROUP BY c.id, c.name, c.phone, c.customer_category, c.route, d.product_id, d.product_name_snapshot, d.variant_snapshot
+        ORDER BY total_amount DESC
+      `).all(sDate, eDate, agentId);
+
+      totals = data.reduce((acc, r) => {
+        acc.totalCommercialRevenue = (acc.totalCommercialRevenue || 0) + (Number(r.total_amount) || 0);
+        acc.totalCommercialPackets = (acc.totalCommercialPackets || 0) + (Number(r.total_quantity) || 0);
+        return acc;
+      }, {});
+      break;
+
+    case 'MISSED_DELIVERIES':
+      title = 'Missed & Incomplete Deliveries Report';
+      data = await db.prepare(`
+        SELECT d.delivery_date,
+               c.name as customer_name,
+               c.phone as customer_phone,
+               COALESCE(z.name, 'No Zone') as zone_name,
+               COALESCE(r.name, c.route, 'No Route') as route_name,
+               d.product_name_snapshot as product_name,
+               d.variant_snapshot as variant,
+               d.quantity,
+               d.status,
+               d.notes
+        FROM deliveries d
+        JOIN customers c ON d.customer_id = c.id
+        LEFT JOIN zones z ON c.zone_id = z.id
+        LEFT JOIN routes r ON z.route_id = r.id
+        WHERE d.delivery_date >= ? AND d.delivery_date <= ?
+          AND d.status IN ('MISSED', 'SKIPPED', 'PENDING')
+          AND (d.agent_id = ? OR d.agent_id IS NULL)
+        ORDER BY d.delivery_date DESC, d.status, c.name
+      `).all(sDate, eDate, agentId);
+
+      totals = data.reduce((acc, r) => {
+        if (r.status === 'MISSED') acc.missedCount = (acc.missedCount || 0) + 1;
+        if (r.status === 'SKIPPED') acc.skippedCount = (acc.skippedCount || 0) + 1;
+        if (r.status === 'PENDING') acc.pendingCount = (acc.pendingCount || 0) + 1;
+        return acc;
+      }, { totalIncomplete: data.length });
+      break;
+
+    default:
+      throw new Error(`Unsupported report type: "${reportType}". Genuine supported types: DAILY_DELIVERY, MONTHLY_BUSINESS, DAILY_SALES, MONTHLY_SALES, PRODUCT_SALES, CUSTOMER_SALES, COLLECTIONS, PENDING_PAYMENTS, ADVANCE_BALANCES, EXPENSES, HOTEL_BULK_SALES, MISSED_DELIVERIES.`);
+  }
+
+  return {
+    reportType,
+    title,
+    periodText,
+    startDate: sDate,
+    endDate: eDate,
+    businessProfile,
+    count: data.length,
+    totals,
+    data
+  };
+}
+
+/**
+ * Builds responsive HTML email template for standard/on-demand business reports.
+ */
+function buildGenericReportHtml(reportResult) {
+  const { title, periodText, data, totals, businessProfile, reportType } = reportResult;
+  const generatedAtIst = formatKolkataDateTime(new Date());
+
+  const rows = data || [];
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} — ${periodText}</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.5; }
+    table { border-collapse: collapse; width: 100%; }
+    @media only screen and (max-width: 620px) {
+      .container { width: 100% !important; margin: 0 !important; border-radius: 0 !important; }
+      .header-title { font-size: 20px !important; }
+      .data-table { display: block !important; overflow-x: auto !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 20px 10px; background-color: #f1f5f9;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+    <tr>
+      <td align="center">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" class="container" style="max-width: 680px; width: 100%; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08); border: 1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0054a6 0%, #002b5c 100%); padding: 24px 22px; text-align: center; color: #ffffff;">
+              <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #93c5fd; margin-bottom: 6px;">
+                BUSINESS AUDIT REPORT
+              </div>
+              <h1 class="header-title" style="margin: 0; font-size: 22px; font-weight: 800; color: #ffffff;">
+                ${title}
+              </h1>
+              <div style="margin-top: 6px; font-size: 13px; color: #e0f2fe; font-weight: 500;">
+                ${businessProfile.business_name || 'Nandini Milk Parlour'} • 📅 ${periodText}
+              </div>
+              <div style="margin-top: 4px; font-size: 11px; color: #bfdbfe;">
+                Generated at ${generatedAtIst} (IST)
+              </div>
+            </td>
+          </tr>
+
+          <!-- Summary Metric Badges -->
+          <tr>
+            <td style="padding: 16px 20px 8px 20px;">
+              <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 13px; color: #475569;">
+                  Total Records: <strong style="color: #0f172a;">${rows.length}</strong>
+                </div>
+                ${Object.entries(totals).slice(0, 3).map(([k, v]) => `
+                  <div style="font-size: 13px; color: #475569;">
+                    ${k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}: 
+                    <strong style="color: #0054a6;">
+                      ${typeof v === 'number' && (k.toLowerCase().includes('amount') || k.toLowerCase().includes('revenue') || k.toLowerCase().includes('sales') || k.toLowerCase().includes('collected') || k.toLowerCase().includes('pending') || k.toLowerCase().includes('advance') || k.toLowerCase().includes('expenses')) ? formatCurrency(v) : v}
+                    </strong>
+                  </div>
+                `).join('')}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Data Table -->
+          <tr>
+            <td style="padding: 12px 20px 20px 20px;">
+              ${rows.length === 0 ? `
+                <div style="padding: 30px; text-align: center; color: #64748b; font-size: 13px;">
+                  No records found for the selected reporting period.
+                </div>
+              ` : `
+                <div style="overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                  <table class="data-table" role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                      <tr style="background: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 700;">
+                        ${columns.map(col => `
+                          <th align="left" style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; white-space: nowrap;">
+                            ${col.replace(/_/g, ' ')}
+                          </th>
+                        `).join('')}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${rows.slice(0, 100).map((r, rIdx) => `
+                        <tr style="background: ${rIdx % 2 === 0 ? '#ffffff' : '#fbfcfd'};">
+                          ${columns.map(col => {
+                            const val = r[col];
+                            const isCurrency = typeof val === 'number' && (col.toLowerCase().includes('amount') || col.toLowerCase().includes('revenue') || col.toLowerCase().includes('sales') || col.toLowerCase().includes('balance') || col.toLowerCase().includes('charges') || col.toLowerCase().includes('price'));
+                            return `
+                              <td style="padding: 7px 10px; border-bottom: 1px solid #f1f5f9; color: ${isCurrency ? '#0f172a' : '#334155'}; font-weight: ${isCurrency ? '600' : 'normal'}; white-space: nowrap;">
+                                ${isCurrency ? formatCurrency(val) : (val ?? '-')}
+                              </td>
+                            `;
+                          }).join('')}
+                        </tr>
+                      `).join('')}
+                      ${rows.length > 100 ? `
+                        <tr>
+                          <td colspan="${columns.length}" style="padding: 8px 10px; font-size: 11px; text-align: center; background: #f8fafc; color: #64748b;">
+                            + ${rows.length - 100} additional records truncated in email view
+                          </td>
+                        </tr>
+                      ` : ''}
+                    </tbody>
+                  </table>
+                </div>
+              `}
+            </td>
+          </tr>
+
+          <!-- System Footer -->
+          <tr>
+            <td style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 18px 24px; text-align: center; color: #94a3b8; font-size: 12px;">
+              <div style="font-weight: 600; color: #64748b; margin-bottom: 2px;">
+                ${businessProfile.business_name || 'Nandini Milk Parlour'}
+              </div>
+              <div>
+                On-Demand Business Audit Report • Resend SDK
+              </div>
+              <div style="margin-top: 4px; font-size: 11px; color: #cbd5e1;">
+                Timezone: Asia/Kolkata (IST)
+              </div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+/**
+ * Sends any supported business report manually via Resend email.
+ */
+async function sendManualReportEmail({
+  reportType = 'DAILY_DELIVERY',
+  startDate,
+  endDate,
+  date,
+  month,
+  recipientEmail,
+  agentId = 1
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const toEmail = recipientEmail || process.env.ADMIN_REPORT_EMAIL;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'Nandini Milk Parlour <onboarding@resend.dev>';
+
+  let htmlContent = '';
+  let subject = '';
+  let periodText = '';
+  let summary = {};
+
+  if (reportType === 'DAILY_DELIVERY') {
+    const targetDate = date || startDate || getKolkataDateString();
+    periodText = targetDate;
+    const data = await generateDailyReportData(targetDate, agentId);
+    htmlContent = buildDailyReportHtml(data);
+    subject = `🥛 Nandini Milk Parlour — Daily Delivery Report (${targetDate})`;
+    summary = {
+      reportDate: targetDate,
+      customersServed: data.overview.customersServed,
+      milkLitres: data.milk.totalLitres,
+      curdKgLitres: data.curd.totalKgLitres,
+      paymentsReceived: data.payments.totalReceived
+    };
+  } else if (reportType === 'MONTHLY_BUSINESS') {
+    const data = await generateMonthlyBusinessReportData({ month, startDate, endDate, agentId });
+    periodText = data.period.monthKey;
+    htmlContent = buildMonthlyBusinessReportHtml(data);
+    subject = `📊 Nandini Milk Parlour — Monthly Business Report (${data.period.monthLabel})`;
+    summary = {
+      monthKey: data.period.monthKey,
+      totalRevenue: data.summary.totalRevenue,
+      milkLitres: data.milk.totalLitres,
+      curdKgLitres: data.curd.totalKgLitres,
+      totalCollections: data.summary.totalCollections,
+      netProfit: data.summary.netProfit
+    };
+  } else {
+    const data = await generateGenericReportData({ reportType, startDate, endDate, agentId });
+    periodText = data.periodText;
+    htmlContent = buildGenericReportHtml(data);
+    subject = `📄 Nandini Milk Parlour — ${data.title} (${data.periodText})`;
+    summary = {
+      reportType,
+      recordCount: data.count,
+      periodText: data.periodText,
+      totals: data.totals
+    };
+  }
+
+  // Check API Key
+  if (!apiKey || apiKey.trim() === '' || apiKey.includes('your-resend-api-key')) {
+    const errorMsg = 'RESEND_API_KEY is missing or contains placeholder. Please configure RESEND_API_KEY in server environment variables.';
+    try {
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, ?, ?, ?, 'FAILED', ?, ?, 'MANUAL', ?, datetime('now', 'localtime'))
+      `).run(periodText, reportType, toEmail || 'unconfigured', fromEmail, errorMsg, JSON.stringify(summary), agentId);
+    } catch (e) {}
+
+    return {
+      success: false,
+      status: 'API_KEY_MISSING',
+      message: errorMsg,
+      reportType,
+      periodText,
+      summary
+    };
+  }
+
+  // Check Recipient
+  if (!toEmail || toEmail.trim() === '') {
+    const errorMsg = 'Recipient email address is required. Please specify a recipient or configure ADMIN_REPORT_EMAIL.';
+    try {
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, ?, 'MISSING', ?, 'FAILED', ?, ?, 'MANUAL', ?, datetime('now', 'localtime'))
+      `).run(periodText, reportType, fromEmail, errorMsg, JSON.stringify(summary), agentId);
+    } catch (e) {}
+
+    return {
+      success: false,
+      status: 'RECIPIENT_MISSING',
+      message: errorMsg,
+      reportType,
+      periodText,
+      summary
+    };
+  }
+
+  // Send via Resend
+  try {
+    const { Resend } = require('resend');
+    const resend = new Resend(apiKey);
+
+    const response = await resend.emails.send({
+      from: fromEmail,
+      to: [toEmail.trim()],
+      subject,
+      html: htmlContent
+    });
+
+    if (response.error) {
+      const isDomainRestriction = response.error.message && (
+        response.error.message.includes('only send testing emails to your own email address') ||
+        response.error.message.includes('verify a domain')
+      );
+
+      const friendlyError = isDomainRestriction
+        ? `Resend Free Test Mode restriction: When sending from '${fromEmail}', Resend only allows sending to the email registered on your Resend account. To send to arbitrary recipients, verify your custom domain in Resend Dashboard.`
+        : response.error.message;
+
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, ?, ?, ?, 'FAILED', ?, ?, 'MANUAL', ?, datetime('now', 'localtime'))
+      `).run(periodText, reportType, toEmail, fromEmail, friendlyError, JSON.stringify(summary), agentId);
+
+      return {
+        success: false,
+        status: isDomainRestriction ? 'DOMAIN_VERIFICATION_REQUIRED' : 'RESEND_API_ERROR',
+        message: friendlyError,
+        rawError: response.error,
+        reportType,
+        periodText,
+        recipient: toEmail
+      };
+    }
+
+    const messageId = response.data?.id || 'unknown';
+
+    await db.prepare(`
+      INSERT INTO email_report_logs (
+        report_date, report_type, recipient_email, sender_email,
+        resend_id, status, report_summary_json, trigger_type, agent_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, 'SENT', ?, 'MANUAL', ?, datetime('now', 'localtime'))
+    `).run(periodText, reportType, toEmail, fromEmail, messageId, JSON.stringify(summary), agentId);
+
+    return {
+      success: true,
+      status: 'SENT',
+      message: `${reportType} report for ${periodText} successfully sent to ${toEmail}.`,
+      messageId,
+      reportType,
+      periodText,
+      recipient: toEmail,
+      sender: fromEmail,
+      summary
+    };
+  } catch (sendErr) {
+    console.error('Manual email report send error:', sendErr);
+    try {
+      await db.prepare(`
+        INSERT INTO email_report_logs (
+          report_date, report_type, recipient_email, sender_email,
+          status, error_message, report_summary_json, trigger_type, agent_id, created_at
+        ) VALUES (?, ?, ?, ?, 'FAILED', ?, ?, 'MANUAL', ?, datetime('now', 'localtime'))
+      `).run(periodText, reportType, toEmail, fromEmail, sendErr.message, JSON.stringify(summary), agentId);
+    } catch (e) {}
+
+    return {
+      success: false,
+      status: 'SEND_EXCEPTION',
+      message: sendErr.message || 'An unexpected error occurred while sending email.',
+      reportType,
+      periodText,
+      recipient: toEmail
+    };
+  }
+}
+
+/**
+ * Previews any supported report data and rendered HTML without sending email or logging audit entries.
+ * Strictly read-only guarantee.
+ */
+async function previewReport({
+  reportType = 'DAILY_DELIVERY',
+  startDate,
+  endDate,
+  date,
+  month,
+  agentId = 1
+}) {
+  if (reportType === 'DAILY_DELIVERY') {
+    const targetDate = date || startDate || getKolkataDateString();
+    const data = await generateDailyReportData(targetDate, agentId);
+    const html = buildDailyReportHtml(data);
+    return {
+      reportType,
+      title: 'Daily Operations & Delivery Report',
+      periodText: targetDate,
+      data,
+      html,
+      summary: {
+        customersServed: data.overview.customersServed,
+        milkLitres: data.milk.totalLitres,
+        curdKgLitres: data.curd.totalKgLitres,
+        paymentsReceived: data.payments.totalReceived,
+        totalRevenue: data.overview.totalDeliveryRevenue
+      }
+    };
+  }
+
+  if (reportType === 'MONTHLY_BUSINESS') {
+    const data = await generateMonthlyBusinessReportData({ month, startDate, endDate, agentId });
+    const html = buildMonthlyBusinessReportHtml(data);
+    return {
+      reportType,
+      title: `Monthly Business Report (${data.period.monthLabel})`,
+      periodText: data.period.monthKey,
+      data,
+      html,
+      summary: data.summary
+    };
+  }
+
+  const data = await generateGenericReportData({ reportType, startDate, endDate, agentId });
+  const html = buildGenericReportHtml(data);
+  return {
+    reportType,
+    title: data.title,
+    periodText: data.periodText,
+    data: data.data,
+    html,
+    summary: {
+      count: data.count,
+      totals: data.totals
+    }
+  };
+}
+
+/**
  * Retrieves recent email report audit logs.
  */
-async function getEmailReportLogs(limit = 15, agentId = 1) {
+async function getEmailReportLogs(limit = 20, agentId = 1) {
   try {
     return await db.prepare(`
       SELECT id, report_date, report_type, recipient_email, sender_email, resend_id,
@@ -1041,8 +2497,21 @@ async function getEmailReportLogs(limit = 15, agentId = 1) {
 
 module.exports = {
   getKolkataDateString,
+  getPreviousMonthRange,
+  getMonthRange,
+  formatKolkataDateTime,
+  formatKolkataReadableDate,
+  formatCurrency,
   generateDailyReportData,
   buildDailyReportHtml,
   sendDailyReportEmail,
+  generateMonthlyBusinessReportData,
+  buildMonthlyBusinessReportHtml,
+  sendMonthlyBusinessReportEmail,
+  generateGenericReportData,
+  buildGenericReportHtml,
+  sendManualReportEmail,
+  previewReport,
   getEmailReportLogs
 };
+
