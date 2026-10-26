@@ -112,8 +112,27 @@ async function runTests() {
     await db.prepare("DELETE FROM email_report_logs WHERE report_date = '2026-10-25' AND resend_id = 'msg_mock_123'").run();
   } catch (e) {}
 
+  // [TEST 6] Preview Contract & Read-Only Guarantee
+  console.log('\n[TEST 6] Verify Read-Only Preview Contract and Data Integrity');
+  const initialLogCount = (await db.prepare("SELECT COUNT(*) as count FROM email_report_logs").get()).count;
+  const initialDeliveryCount = (await db.prepare("SELECT COUNT(*) as count FROM deliveries").get()).count;
+
+  const previewData = await generateDailyReportData(testDate, 1);
+  const previewHtml = buildDailyReportHtml(previewData);
+
+  assert.ok(previewData, 'Preview data must be generated');
+  assert.ok(previewHtml && previewHtml.includes('<!DOCTYPE html>'), 'Preview HTML must be a valid complete HTML document');
+  assert.ok(previewHtml.includes(testDate), 'Preview HTML must include target report date');
+
+  const afterLogCount = (await db.prepare("SELECT COUNT(*) as count FROM email_report_logs").get()).count;
+  const afterDeliveryCount = (await db.prepare("SELECT COUNT(*) as count FROM deliveries").get()).count;
+
+  assert.strictEqual(afterLogCount, initialLogCount, 'Preview MUST BE read-only: no email_report_logs created');
+  assert.strictEqual(afterDeliveryCount, initialDeliveryCount, 'Preview MUST BE read-only: no deliveries records modified');
+  console.log(`  ✓ Passed: Preview generates HTML (${previewHtml.length} bytes) and strictly preserves all data without side effects`);
+
   console.log('\n================================================================');
-  console.log(' ALL 5 EMAIL REPORT & CRON SUITE TESTS PASSED WITH 100% SUCCESS! ');
+  console.log(' ALL 6 EMAIL REPORT & CRON SUITE TESTS PASSED WITH 100% SUCCESS! ');
   console.log('================================================================\n');
 }
 

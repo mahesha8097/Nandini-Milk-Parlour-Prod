@@ -111,9 +111,9 @@ async function generateDailyReportData(targetDate, agentId = 1) {
       COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN d.delivery_charge_snapshot ELSE 0 END), 0) as delivery_charges,
       COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN d.total_amount ELSE 0 END), 0) as total_delivery_revenue
     FROM deliveries d
-    WHERE d.delivery_date = ? AND (d.agent_id = ? OR ? IS NULL)
+    WHERE d.delivery_date = ? AND (d.agent_id = ? OR d.agent_id IS NULL)
   `;
-  const overview = (await db.prepare(overviewQuery).get(reportDate, agentId, agentId)) || {
+  const overview = (await db.prepare(overviewQuery).get(reportDate, agentId)) || {
     customers_served: 0,
     delivered_items_count: 0,
     skipped_count: 0,
@@ -144,11 +144,11 @@ async function generateDailyReportData(targetDate, agentId = 1) {
     LEFT JOIN products p ON d.product_id = p.id
     WHERE d.delivery_date = ? 
       AND d.status = 'DELIVERED' 
-      AND (d.agent_id = ? OR ? IS NULL)
-    GROUP BY d.product_id, d.product_name_snapshot, d.category_snapshot, d.variant_snapshot, d.unit_volume_litres_snapshot
+      AND (d.agent_id = ? OR d.agent_id IS NULL)
+    GROUP BY d.product_id, d.product_name_snapshot, d.category_snapshot, d.variant_snapshot, d.unit_volume_litres_snapshot, p.category, p.unit_volume_litres, p.variant_label
     ORDER BY total_quantity DESC
   `;
-  const rawProducts = await db.prepare(productDeliveriesQuery).all(reportDate, agentId, agentId);
+  const rawProducts = await db.prepare(productDeliveriesQuery).all(reportDate, agentId);
 
   let totalMilkLitres = 0;
   let totalMilkPackets = 0;
@@ -233,8 +233,8 @@ async function generateDailyReportData(targetDate, agentId = 1) {
     LEFT JOIN zones z ON c.zone_id = z.id
     LEFT JOIN routes r ON z.route_id = r.id
     LEFT JOIN products p ON d.product_id = p.id
-    WHERE d.delivery_date = ? AND (d.agent_id = ? OR ? IS NULL)
-  `).all(reportDate, agentId, agentId);
+    WHERE d.delivery_date = ? AND (d.agent_id = ? OR d.agent_id IS NULL)
+  `).all(reportDate, agentId);
 
   const routeMap = new Map();
   for (const row of rawRouteRows) {
@@ -298,8 +298,8 @@ async function generateDailyReportData(targetDate, agentId = 1) {
     LEFT JOIN zones z ON c.zone_id = z.id
     LEFT JOIN routes r ON z.route_id = r.id
     LEFT JOIN products p ON d.product_id = p.id
-    WHERE d.delivery_date = ? AND (d.agent_id = ? OR ? IS NULL)
-  `).all(reportDate, agentId, agentId);
+    WHERE d.delivery_date = ? AND (d.agent_id = ? OR d.agent_id IS NULL)
+  `).all(reportDate, agentId);
 
   const zoneMap = new Map();
   for (const row of rawZoneRows) {
@@ -363,10 +363,10 @@ async function generateDailyReportData(targetDate, agentId = 1) {
     LEFT JOIN zones z ON c.zone_id = z.id
     WHERE d.delivery_date = ? 
       AND d.status IN ('MISSED', 'SKIPPED', 'PENDING')
-      AND (d.agent_id = ? OR ? IS NULL)
+      AND (d.agent_id = ? OR d.agent_id IS NULL)
     ORDER BY d.status, c.name
   `;
-  const missedDeliveries = await db.prepare(missedDeliveriesQuery).all(reportDate, agentId, agentId);
+  const missedDeliveries = await db.prepare(missedDeliveriesQuery).all(reportDate, agentId);
 
   // 7. Extra Products & Daily Special Adjustments
   const extraRequirementsQuery = `
@@ -406,10 +406,10 @@ async function generateDailyReportData(targetDate, agentId = 1) {
       c.phone as customer_phone
     FROM payments p
     JOIN customers c ON p.customer_id = c.id
-    WHERE p.payment_date = ? AND (p.agent_id = ? OR ? IS NULL)
+    WHERE p.payment_date = ? AND (p.agent_id = ? OR p.agent_id IS NULL)
     ORDER BY p.id DESC
   `;
-  const paymentsToday = await db.prepare(paymentsQuery).all(reportDate, agentId, agentId);
+  const paymentsToday = await db.prepare(paymentsQuery).all(reportDate, agentId);
 
   let totalPaymentsReceived = 0;
   const paymentMethodsBreakdown = {};
@@ -429,9 +429,9 @@ async function generateDailyReportData(targetDate, agentId = 1) {
       COUNT(CASE WHEN pending_balance > 0 THEN 1 END) as customers_with_due,
       COUNT(CASE WHEN advance_balance > 0 THEN 1 END) as customers_with_advance
     FROM customers
-    WHERE status = 'ACTIVE' AND (agent_id = ? OR ? IS NULL)
+    WHERE status = 'ACTIVE' AND (agent_id = ? OR agent_id IS NULL)
   `;
-  const customerBalances = (await db.prepare(balancesQuery).get(agentId, agentId)) || {
+  const customerBalances = (await db.prepare(balancesQuery).get(agentId)) || {
     total_active_customers: 0,
     total_pending_balance: 0,
     total_advance_balance: 0,
@@ -1051,10 +1051,10 @@ async function getEmailReportLogs(limit = 15, agentId = 1) {
       SELECT id, report_date, report_type, recipient_email, sender_email, resend_id,
              status, error_message, report_summary_json, trigger_type, created_at
       FROM email_report_logs
-      WHERE (agent_id = ? OR ? IS NULL)
+      WHERE (agent_id = ? OR agent_id IS NULL)
       ORDER BY id DESC
       LIMIT ?
-    `).all(agentId, agentId, limit);
+    `).all(agentId, limit);
   } catch (err) {
     console.warn('Failed to fetch email_report_logs (table may not exist yet):', err.message);
     return [];

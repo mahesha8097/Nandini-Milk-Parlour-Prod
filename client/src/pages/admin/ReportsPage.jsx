@@ -50,6 +50,7 @@ export default function ReportsPage() {
   // Preview Modal state
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewData, setPreviewData] = useState(null);
 
@@ -130,13 +131,14 @@ export default function ReportsPage() {
   const handleOpenPreview = async () => {
     try {
       setPreviewLoading(true);
+      setPreviewError('');
       setPreviewModalOpen(true);
       const res = await api.get(`/reports/daily-email/preview?date=${testDate}`);
       setPreviewHtml(res.html || '');
       setPreviewData(res.data || null);
     } catch (err) {
-      alert(err.message || 'Failed to generate preview');
-      setPreviewModalOpen(false);
+      console.error('Email report preview failed:', err);
+      setPreviewError(err.message || 'Failed to generate email report preview');
     } finally {
       setPreviewLoading(false);
     }
@@ -683,7 +685,43 @@ export default function ReportsPage() {
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px', background: '#e2e8f0' }}>
               {previewLoading ? (
                 <div style={{ padding: '60px', textAlign: 'center', color: '#475569' }}>
+                  <RefreshCw size={24} className="spin" style={{ margin: '0 auto 12px auto', display: 'block' }} />
                   Rendering live email preview...
+                </div>
+              ) : previewError ? (
+                <div style={{
+                  padding: '30px 20px',
+                  margin: '20px auto',
+                  maxWidth: '520px',
+                  borderRadius: '10px',
+                  background: '#ffffff',
+                  border: '1px solid #fecaca',
+                  color: '#991b1b',
+                  textAlign: 'center',
+                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.08)'
+                }}>
+                  <AlertTriangle size={32} color="#dc2626" style={{ margin: '0 auto 10px auto', display: 'block' }} />
+                  <div style={{ fontWeight: '700', fontSize: '1rem', color: '#991b1b' }}>
+                    Failed to generate email report preview
+                  </div>
+                  <div style={{ fontSize: '0.85rem', marginTop: '6px', color: '#b91c1c' }}>
+                    {previewError}
+                  </div>
+                  <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                    <button
+                      onClick={handleOpenPreview}
+                      className="btn btn-primary btn-sm"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <RefreshCw size={14} /> Retry Preview
+                    </button>
+                    <button
+                      onClick={() => setPreviewModalOpen(false)}
+                      className="btn btn-outline btn-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <iframe

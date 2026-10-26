@@ -211,7 +211,14 @@ router.get('/daily-email/preview', requireAdmin, async (req, res) => {
     });
   } catch (err) {
     console.error('Failed to generate report preview:', err);
-    res.status(500).json({ error: 'Failed to generate email report preview' });
+    // Sanitize error message to prevent exposing connection strings or credentials
+    const safeMessage = err.message && !err.message.includes('://') && !err.message.toLowerCase().includes('password')
+      ? err.message
+      : 'An unexpected database error occurred while compiling the report preview.';
+    res.status(500).json({
+      error: 'Failed to generate email report preview',
+      message: safeMessage
+    });
   }
 });
 
