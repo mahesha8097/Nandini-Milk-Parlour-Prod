@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
@@ -14,7 +14,8 @@ import {
   Wallet,
   Edit2,
   Trash2,
-  X
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
@@ -58,6 +59,11 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
   });
   const [editFormError, setEditFormError] = useState('');
   const [editing, setEditing] = useState(false);
+
+  // Undo toast state
+  const [undoToast, setUndoToast] = useState(null); // { paymentId, receiptNumber, customerName, amount, timer, countdown }
+  const undoTimerRef = useRef(null);
+  const undoCountdownRef = useRef(null);
 
   const fetchPayments = async () => {
     try {
@@ -180,20 +186,72 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
   };
 
   const handleDeletePayment = async (p) => {
-    if (!window.confirm(`Are you sure you want to delete payment receipt ${p.receipt_number} of ₹${Number(p.amount || 0).toFixed(2)} for ${p.customer_name}? The customer's advance balance will be updated automatically.`)) {
-      return;
-    }
-
+    // Immediately soft-delete and update the UI — no confirm dialog
     try {
       setLoading(true);
-      await api.delete(`/payments/${p.id}`);
-      await Promise.all([fetchPayments(), fetchCustomers()]);
+      const result = await api.delete(`/payments/${p.id}`);
+      // Remove from list immediately
+      setPayments(prev => prev.filter(x => x.id !== p.id));
+
+      // Show undo toast with 10-second countdown
+      const UNDO_SECONDS = 10;
+      setUndoToast({
+        paymentId: result.paymentId || p.id,
+        receiptNumber: p.receipt_number,
+        customerName: p.customer_name,
+        amount: p.amount,
+        countdown: UNDO_SECONDS
+      });
+
+      // Countdown tick
+      undoCountdownRef.current = setInterval(() => {
+        setUndoToast(prev => {
+          if (!prev) return null;
+          if (prev.countdown <= 1) {
+            clearInterval(undoCountdownRef.current);
+            return null;
+          }
+          return { ...prev, countdown: prev.countdown - 1 };
+        });
+      }, 1000);
+
+      // After UNDO_SECONDS, permanently delete
+      undoTimerRef.current = setTimeout(async () => {
+        try {
+          await api.delete(`/payments/${result.paymentId || p.id}/permanent`);
+        } catch (e) {
+          console.error('Permanent delete failed:', e);
+        }
+      }, UNDO_SECONDS * 1000);
+
     } catch (err) {
       alert(err.message || 'Failed to delete payment');
     } finally {
       setLoading(false);
     }
   };
+
+  const handleUndoDelete = async () => {
+    if (!undoToast) return;
+    clearTimeout(undoTimerRef.current);
+    clearInterval(undoCountdownRef.current);
+    const toastCopy = { ...undoToast };
+    setUndoToast(null);
+    try {
+      await api.post(`/payments/${toastCopy.paymentId}/restore`);
+      await fetchPayments();
+    } catch (err) {
+      alert('Failed to restore payment: ' + (err.message || ''));
+    }
+  };
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      clearTimeout(undoTimerRef.current);
+      clearInterval(undoCountdownRef.current);
+    };
+  }, []);
 
   const filteredPayments = useMemo(() => {
     return payments.filter(p => {
@@ -222,6 +280,44 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
 
   return (
     <div className="page-wrapper">
+      {/* Undo Toast */}
+      {undoToast && (
+        <div style={{
+          position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)',
+          background: '#1e293b', color: '#f1f5f9', borderRadius: '14px',
+          padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '14px',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.35)', zIndex: 9999,
+          minWidth: '340px', maxWidth: '520px', animation: 'slideUp 0.3s ease'
+        }}>
+          <Trash2 size={18} color="#f87171" />
+          <div style={{ flex: 1, fontSize: '0.875rem' }}>
+            <span style={{ fontWeight: '700' }}>{undoToast.receiptNumber}</span>
+            {' '}deleted — <span style={{ color: '#94a3b8' }}>₹{Number(undoToast.amount).toFixed(2)} ({undoToast.customerName})</span>
+          </div>
+          <button
+            onClick={handleUndoDelete}
+            style={{
+              background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '8px',
+              padding: '7px 16px', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap'
+            }}
+          >
+            <RotateCcw size={14} /> Undo ({undoToast.countdown}s)
+          </button>
+          <button
+            onClick={() => {
+              clearTimeout(undoTimerRef.current);
+              clearInterval(undoCountdownRef.current);
+              api.delete(`/payments/${undoToast.paymentId}/permanent`).catch(() => {});
+              setUndoToast(null);
+            }}
+            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+            title="Dismiss"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
       <div className="page-header">
         <div>
           <h1 className="page-title">

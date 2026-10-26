@@ -5,7 +5,9 @@ const { requireAdmin, verifyToken } = require('../middleware/auth');
 const { 
   recordPaymentTransaction,
   updatePaymentTransaction,
-  deletePaymentTransaction
+  deletePaymentTransaction,
+  restorePaymentTransaction,
+  permanentlyDeletePayment
 } = require('../services/billingService');
 
 // Get all payments (Admin only)
@@ -19,7 +21,7 @@ router.get('/', requireAdmin, async (req, res) => {
       FROM payments p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN users u ON p.recorded_by_user_id = u.id
-      WHERE (p.agent_id = ? OR c.agent_id = ?)
+      WHERE (p.agent_id = ? OR c.agent_id = ?) AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
     `;
     const agentId = req.agentId || 1;
     const params = [agentId, agentId];
@@ -134,7 +136,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// Delete / Void an existing payment (Admin only)
+// Delete / Void an existing payment (Admin only) — soft delete with undo support
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const result = await deletePaymentTransaction(req.params.id, req.agentId || 1);
@@ -142,6 +144,28 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('Delete payment error:', err);
     res.status(400).json({ error: err.message || 'Failed to delete payment' });
+  }
+});
+
+// Restore a soft-deleted payment (Admin only)
+router.post('/:id/restore', requireAdmin, async (req, res) => {
+  try {
+    const result = await restorePaymentTransaction(req.params.id);
+    res.json(result);
+  } catch (err) {
+    console.error('Restore payment error:', err);
+    res.status(400).json({ error: err.message || 'Failed to restore payment' });
+  }
+});
+
+// Permanently hard-delete a soft-deleted payment after undo window expires (Admin only)
+router.delete('/:id/permanent', requireAdmin, async (req, res) => {
+  try {
+    const result = await permanentlyDeletePayment(req.params.id);
+    res.json(result);
+  } catch (err) {
+    console.error('Permanent delete error:', err);
+    res.status(400).json({ error: err.message || 'Failed to permanently delete payment' });
   }
 });
 

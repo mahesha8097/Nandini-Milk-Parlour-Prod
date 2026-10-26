@@ -1314,7 +1314,8 @@ async function updatePaymentTransaction(paymentId, {
 }
 
 /**
- * Deletes / voids an existing payment transaction and reverts customer balance.
+ * Soft-deletes / voids an existing payment transaction and reverts customer balance.
+ * The payment record is marked as deleted but NOT physically removed so it can be restored.
  */
 async function deletePaymentTransaction(paymentId, agentId = null) {
   const payment = await db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId);
@@ -1359,7 +1360,7 @@ async function deletePaymentTransaction(paymentId, agentId = null) {
       }
     }
 
-    // Delete customer_ledger entry for this payment
+    // Soft-delete the ledger entry (mark instead of delete so it can be restored)
     const ledgerRef = `PAY-${paymentId}`;
     await db.prepare(`
       DELETE FROM customer_ledger 
@@ -1367,10 +1368,87 @@ async function deletePaymentTransaction(paymentId, agentId = null) {
     `).run(customer.id, ledgerRef);
   }
 
-  // Delete payment record
-  await db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
+  // Soft-delete: mark payment as deleted but keep the record for potential undo
+  await db.prepare(`
+    UPDATE payments SET is_deleted = 1, deleted_at = datetime('now', 'localtime') WHERE id = ?
+  `).run(paymentId);
 
-  return { success: true, message: `Payment ${payment.receipt_number} voided and removed successfully` };
+  return { success: true, message: `Payment ${payment.receipt_number} voided successfully`, paymentId };
+}
+
+/**
+ * Restores a previously soft-deleted payment and re-applies customer balance changes.
+ */
+async function restorePaymentTransaction(paymentId) {
+  const payment = await db.prepare('SELECT * FROM payments WHERE id = ? AND is_deleted = 1').get(paymentId);
+  if (!payment) {
+    throw new Error('Payment not found or not deleted');
+  }
+
+  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(payment.customer_id);
+  if (customer) {
+    const pAmt = parseFloat(payment.amount) || 0;
+    let currentAdvance = customer.advance_balance || 0;
+    let currentPending = customer.pending_balance || 0;
+
+    // Re-apply the payment effect
+    if (payment.payment_type === 'ADVANCE_PAYMENT') {
+      currentAdvance = parseFloat((currentAdvance + pAmt).toFixed(2));
+    } else {
+      currentPending = Math.max(0, parseFloat((currentPending - pAmt).toFixed(2)));
+    }
+
+    await db.prepare(`
+      UPDATE customers 
+      SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(currentAdvance, currentPending, customer.id);
+
+    // Restore the linked bill's paid_amount and status
+    if (payment.bill_id) {
+      const bill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(payment.bill_id);
+      if (bill) {
+        const newPaid = parseFloat((bill.paid_amount + pAmt).toFixed(2));
+        const newStatus = newPaid >= bill.net_payable ? 'PAID' : 'PARTIALLY_PAID';
+        await db.prepare(`
+          UPDATE bills
+          SET paid_amount = ?, status = ?, updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(newPaid, newStatus, bill.id);
+      }
+    }
+
+    // Re-insert ledger entry
+    await db.prepare(`
+      INSERT INTO customer_ledger (
+        customer_id, transaction_date, transaction_type, reference_id,
+        debit, credit, advance_balance_after, pending_balance_after, description, created_at
+      ) VALUES (?, ?, 'PAYMENT_RECEIVED', ?, 0, ?, ?, ?, ?, datetime('now', 'localtime'))
+    `).run(
+      customer.id,
+      payment.payment_date,
+      `PAY-${paymentId}`,
+      pAmt,
+      currentAdvance,
+      currentPending,
+      `Payment restored: ${payment.receipt_number} via ${payment.payment_method}`
+    );
+  }
+
+  // Restore payment record
+  await db.prepare(`
+    UPDATE payments SET is_deleted = 0, deleted_at = NULL WHERE id = ?
+  `).run(paymentId);
+
+  return { success: true, message: `Payment ${payment.receipt_number} restored successfully` };
+}
+
+/**
+ * Permanently hard-deletes a soft-deleted payment record (called after undo window expires).
+ */
+async function permanentlyDeletePayment(paymentId) {
+  await db.prepare('DELETE FROM payments WHERE id = ? AND is_deleted = 1').run(paymentId);
+  return { success: true };
 }
 
 module.exports = {
@@ -1388,6 +1466,8 @@ module.exports = {
   recalculateSingleBill,
   recordPaymentTransaction,
   updatePaymentTransaction,
-  deletePaymentTransaction
+  deletePaymentTransaction,
+  restorePaymentTransaction,
+  permanentlyDeletePayment
 };
 
