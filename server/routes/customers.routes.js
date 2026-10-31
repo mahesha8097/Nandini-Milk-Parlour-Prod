@@ -154,6 +154,52 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
+// Get customer dues, advance balance, and unpaid bills breakdown (for Payment dashboard & billing)
+router.get('/:id/dues', verifyToken, async (req, res) => {
+  try {
+    const customerId = parseInt(req.params.id, 10);
+    const agentId = req.agentId || 1;
+
+    const customer = await db.prepare(`
+      SELECT id, name, phone, flat_no, customer_category, billing_type, pending_balance, advance_balance
+      FROM customers
+      WHERE id = ? AND COALESCE(agent_id, 1) = ?
+    `).get(customerId, agentId);
+
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const { calculateCustomerPendingDues } = require('../services/billingService');
+    const duesInfo = await calculateCustomerPendingDues(customerId);
+
+    // Also get all non-cancelled bills to provide complete context
+    const bills = await db.prepare(`
+      SELECT id, bill_number, billing_month, billing_type, bill_date, due_date,
+             start_date, end_date, gross_amount, previous_due, advance_adjusted,
+             net_payable, paid_amount, status
+      FROM bills
+      WHERE customer_id = ? AND status != 'CANCELLED'
+      ORDER BY bill_date DESC, id DESC
+    `).all(customerId);
+
+    res.json({
+      customer,
+      pending_balance: customer.pending_balance,
+      advance_balance: customer.advance_balance,
+      total_unpaid_bills: duesInfo.totalUnpaid,
+      unpaid_bills: duesInfo.unpaidBillsList.map(b => ({
+        ...b,
+        remaining_due: Math.max(0, parseFloat((Number(b.net_payable || 0) - Number(b.paid_amount || 0)).toFixed(2)))
+      })),
+      all_bills: bills
+    });
+  } catch (err) {
+    console.error('Fetch customer dues error:', err);
+    res.status(500).json({ error: 'Failed to fetch customer dues' });
+  }
+});
+
 // Get single customer profile with comprehensive details
 router.get('/:id', verifyToken, async (req, res) => {
   try {

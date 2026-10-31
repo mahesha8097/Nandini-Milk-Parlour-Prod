@@ -33,6 +33,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
   const [isModalOpen, setIsModalOpen] = useState(initialOpenAdd);
   const [formData, setFormData] = useState({
     customer_id: '',
+    bill_id: null,
     payment_type: 'ADVANCE_PAYMENT',
     amount: '',
     payment_date: getLocalDateString(),
@@ -40,6 +41,8 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     reference_number: '',
     notes: ''
   });
+  const [selectedCustomerDues, setSelectedCustomerDues] = useState(null);
+  const [loadingDues, setLoadingDues] = useState(false);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -92,9 +95,42 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     fetchCustomers();
   }, []);
 
+  const handleCustomerChange = async (id) => {
+    setFormData((prev) => ({ ...prev, customer_id: id, bill_id: null }));
+    if (!id) {
+      setSelectedCustomerDues(null);
+      return;
+    }
+
+    try {
+      setLoadingDues(true);
+      const res = await api.get(`/customers/${id}/dues`);
+      setSelectedCustomerDues(res);
+
+      // Intelligently default payment type and amount
+      if (res && res.pending_balance > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          payment_type: 'POSTPAID_BILL_PAYMENT',
+          amount: prev.amount || String(res.pending_balance)
+        }));
+      } else {
+        setFormData((prev) => ({
+          ...prev,
+          payment_type: 'ADVANCE_PAYMENT'
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to load customer dues:', err);
+    } finally {
+      setLoadingDues(false);
+    }
+  };
+
   const handleOpenAdd = () => {
     setFormData({
       customer_id: '',
+      bill_id: null,
       payment_type: 'ADVANCE_PAYMENT',
       amount: '',
       payment_date: getLocalDateString(),
@@ -102,6 +138,8 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
       reference_number: '',
       notes: ''
     });
+    setSelectedCustomerDues(null);
+    setLoadingDues(false);
     setFormError('');
     setIsModalOpen(true);
   };
@@ -143,8 +181,12 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     try {
       setSaving(true);
       setFormError('');
-      await api.post('/payments', formData);
+      await api.post('/payments', {
+        ...formData,
+        bill_id: formData.bill_id || null
+      });
       setIsModalOpen(false);
+      setSelectedCustomerDues(null);
       await Promise.all([fetchPayments(), fetchCustomers()]);
     } catch (err) {
       setFormError(err.message || 'Failed to record payment.');
@@ -586,11 +628,182 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
             <CustomerSearchSelect
               customers={customers}
               value={formData.customer_id}
-              onChange={(id) => setFormData((prev) => ({ ...prev, customer_id: id }))}
+              onChange={(id) => handleCustomerChange(id)}
               placeholder="Search customer by name, phone, flat..."
               required
             />
           </div>
+
+          {/* Customer Live Dues & Active Bills Section */}
+          {formData.customer_id && (
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '12px 14px',
+              marginBottom: '16px'
+            }}>
+              {loadingDues ? (
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <RefreshCw size={14} className="spin" /> Loading customer dues & balance...
+                </div>
+              ) : selectedCustomerDues ? (
+                <div>
+                  {/* Customer Header info */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '4px' }}>
+                    <div>
+                      <span style={{ fontWeight: '700', color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                        {selectedCustomerDues.customer?.name}
+                      </span>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                        ({selectedCustomerDues.customer?.phone})
+                      </span>
+                    </div>
+                    <span className="badge badge-info" style={{ fontSize: '0.72rem' }}>
+                      Plan: {selectedCustomerDues.customer?.billing_type}
+                    </span>
+                  </div>
+
+                  {/* Dues & Advance Balance Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+                    {/* Pending Dues Box */}
+                    <div style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      background: selectedCustomerDues.pending_balance > 0 ? '#fef2f2' : '#f0fdf4',
+                      border: `1px solid ${selectedCustomerDues.pending_balance > 0 ? '#fecaca' : '#bbf7d0'}`
+                    }}>
+                      <div style={{ fontSize: '0.7rem', color: selectedCustomerDues.pending_balance > 0 ? '#991b1b' : '#166534', fontWeight: '700', textTransform: 'uppercase' }}>
+                        Pending Dues
+                      </div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: '800', color: selectedCustomerDues.pending_balance > 0 ? '#dc2626' : '#16a34a' }}>
+                        ₹{Number(selectedCustomerDues.pending_balance || 0).toFixed(2)}
+                      </div>
+                      {selectedCustomerDues.pending_balance <= 0 && (
+                        <div style={{ fontSize: '0.7rem', color: '#16a34a', marginTop: '2px' }}>✓ All previous bills paid</div>
+                      )}
+                    </div>
+
+                    {/* Advance Balance Box */}
+                    <div style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      background: selectedCustomerDues.advance_balance > 0 ? '#eff6ff' : '#f8fafc',
+                      border: `1px solid ${selectedCustomerDues.advance_balance > 0 ? '#bfdbfe' : '#e2e8f0'}`
+                    }}>
+                      <div style={{ fontSize: '0.7rem', color: selectedCustomerDues.advance_balance > 0 ? '#1e40af' : '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>
+                        Advance Balance
+                      </div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: '800', color: selectedCustomerDues.advance_balance > 0 ? '#2563eb' : '#64748b' }}>
+                        ₹{Number(selectedCustomerDues.advance_balance || 0).toFixed(2)}
+                      </div>
+                      {selectedCustomerDues.advance_balance > 0 && (
+                        <div style={{ fontSize: '0.7rem', color: '#2563eb', marginTop: '2px' }}>Available for future bills</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick Settlement Buttons if pending dues > 0 */}
+                  {selectedCustomerDues.pending_balance > 0 && (
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-xs"
+                        style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#dc2626', fontWeight: '700' }}
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            amount: String(selectedCustomerDues.pending_balance),
+                            payment_type: 'POSTPAID_BILL_PAYMENT',
+                            bill_id: null
+                          }));
+                        }}
+                      >
+                        ⚡ Settle Full Due (₹{Number(selectedCustomerDues.pending_balance).toFixed(2)})
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-xs"
+                        style={{ background: '#fff', borderColor: '#cbd5e1', color: 'var(--text-primary)' }}
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            amount: (selectedCustomerDues.pending_balance / 2).toFixed(2),
+                            payment_type: 'POSTPAID_BILL_PAYMENT',
+                            bill_id: null
+                          }));
+                        }}
+                      >
+                        Pay 50% (₹{(selectedCustomerDues.pending_balance / 2).toFixed(2)})
+                      </button>
+                    </div>
+                  )}
+
+                  {/* List of Unpaid / Pending Bills */}
+                  {selectedCustomerDues.unpaid_bills && selectedCustomerDues.unpaid_bills.length > 0 && (
+                    <div style={{ marginTop: '8px' }}>
+                      <div style={{ fontSize: '0.74rem', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Unpaid / Active Bills ({selectedCustomerDues.unpaid_bills.length}):
+                      </div>
+                      <div style={{ maxHeight: '140px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '6px', background: 'white' }}>
+                        <table style={{ width: '100%', fontSize: '0.74rem', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', color: '#475569' }}>
+                              <th style={{ padding: '5px 6px', textAlign: 'left' }}>Bill #</th>
+                              <th style={{ padding: '5px 6px', textAlign: 'left' }}>Period</th>
+                              <th style={{ padding: '5px 6px', textAlign: 'right' }}>Total</th>
+                              <th style={{ padding: '5px 6px', textAlign: 'right' }}>Paid</th>
+                              <th style={{ padding: '5px 6px', textAlign: 'right', color: '#dc2626' }}>Remaining Due</th>
+                              <th style={{ padding: '5px 6px', textAlign: 'center' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedCustomerDues.unpaid_bills.map((b) => (
+                              <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '5px 6px', fontWeight: '600' }}>{b.bill_number}</td>
+                                <td style={{ padding: '5px 6px', color: '#64748b' }}>
+                                  {b.billing_month || `${b.start_date} to ${b.end_date}`}
+                                </td>
+                                <td style={{ padding: '5px 6px', textAlign: 'right' }}>₹{Number(b.net_payable).toFixed(2)}</td>
+                                <td style={{ padding: '5px 6px', textAlign: 'right', color: '#16a34a' }}>₹{Number(b.paid_amount || 0).toFixed(2)}</td>
+                                <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: '700', color: '#dc2626' }}>
+                                  ₹{Number(b.remaining_due).toFixed(2)}
+                                </td>
+                                <td style={{ padding: '5px 6px', textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-xs"
+                                    style={{
+                                      padding: '2px 6px',
+                                      fontSize: '0.68rem',
+                                      background: formData.bill_id === b.id ? '#15803d' : '#f1f5f9',
+                                      color: formData.bill_id === b.id ? 'white' : '#0f172a',
+                                      border: '1px solid #cbd5e1'
+                                    }}
+                                    onClick={() => {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        amount: String(b.remaining_due),
+                                        bill_id: b.id,
+                                        payment_type: 'POSTPAID_BILL_PAYMENT'
+                                      }));
+                                    }}
+                                  >
+                                    {formData.bill_id === b.id ? 'Selected' : 'Pay This'}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
 
           <div className="form-row">
             <div className="form-group">
@@ -618,6 +831,67 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
               />
             </div>
           </div>
+
+          {/* Dynamic Live Payment Impact Breakdown */}
+          {formData.customer_id && formData.amount && parseFloat(formData.amount) > 0 && selectedCustomerDues && (
+            <div style={{
+              background: '#f8fafc',
+              border: '1px dashed #cbd5e1',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              marginBottom: '14px',
+              fontSize: '0.78rem'
+            }}>
+              <div style={{ fontWeight: '800', color: '#0f172a', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>💡 Payment Settlement Preview:</span>
+              </div>
+              {(() => {
+                const payAmt = parseFloat(formData.amount) || 0;
+                const dues = Number(selectedCustomerDues.pending_balance || 0);
+                const reducesDues = Math.min(payAmt, dues);
+                const remainingDues = Math.max(0, parseFloat((dues - payAmt).toFixed(2)));
+                const surplusToAdvance = Math.max(0, parseFloat((payAmt - dues).toFixed(2)));
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', color: '#334155' }}>
+                    {dues > 0 ? (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Reduces previous bill(s) by:</span>
+                          <strong style={{ color: '#16a34a' }}>- ₹{reducesDues.toFixed(2)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Remaining pending due after this payment:</span>
+                          <strong style={{ color: remainingDues > 0 ? '#dc2626' : '#16a34a' }}>
+                            ₹{remainingDues.toFixed(2)}
+                          </strong>
+                        </div>
+                        {remainingDues > 0 ? (
+                          <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '2px' }}>
+                            ↳ ₹{remainingDues.toFixed(2)} unpaid due will continue to the next bill as Previous Due.
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.72rem', color: '#15803d', marginTop: '2px', fontWeight: '700' }}>
+                            ✓ Previous bill(s) fully settled! Next bill will calculate freshly from ₹0 dues.
+                          </div>
+                        )}
+                        {surplusToAdvance > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#2563eb', borderTop: '1px solid #e2e8f0', paddingTop: '4px', marginTop: '2px' }}>
+                            <span>Surplus credited to Advance Balance:</span>
+                            <strong>+ ₹{surplusToAdvance.toFixed(2)}</strong>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ color: '#15803d', fontWeight: '600' }}>
+                        ✓ Customer has no pending dues. Full <strong>₹{payAmt.toFixed(2)}</strong> will be credited to Advance Balance for future milk!
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           <div className="form-row">
             <div className="form-group">

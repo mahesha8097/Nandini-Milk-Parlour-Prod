@@ -102,6 +102,59 @@ async function upsertBillLedgerEntry({
   }
 }
 
+/**
+ * Calculates the exact remaining unpaid dues from prior bills for a customer.
+ * - If prior bills are fully paid (paid_amount >= net_payable), remaining dues = 0.
+ * - If no pending dues exist, returns 0 so new bills calculate freshly without carryover!
+ * - If pending dues exist, returns the exact remaining unpaid balance to carry forward.
+ */
+async function calculateCustomerPendingDues(customerId, { excludeBillId = null, upToBillDate = null } = {}) {
+  let query = `
+    SELECT id, bill_number, billing_month, bill_date, start_date, end_date, gross_amount,
+           advance_adjusted, net_payable, paid_amount, status
+    FROM bills
+    WHERE customer_id = ? AND status != 'CANCELLED'
+  `;
+  const params = [customerId];
+
+  if (excludeBillId) {
+    query += ` AND id != ?`;
+    params.push(excludeBillId);
+  }
+
+  if (upToBillDate) {
+    query += ` AND (bill_date < ? OR (bill_date = ? AND id < ?))`;
+    params.push(upToBillDate, upToBillDate, excludeBillId || 99999999);
+  }
+
+  query += ` ORDER BY bill_date ASC, id ASC`;
+
+  const priorBills = await db.prepare(query).all(...params);
+
+  let totalUnpaid = 0;
+  const unpaidBillsList = [];
+
+  for (const b of priorBills) {
+    const net = Number(b.net_payable || 0);
+    const paid = Number(b.paid_amount || 0);
+    const unpaid = Math.max(0, parseFloat((net - paid).toFixed(2)));
+    if (unpaid > 0) {
+      totalUnpaid += unpaid;
+      unpaidBillsList.push({
+        ...b,
+        unpaid_amount: unpaid
+      });
+    }
+  }
+
+  totalUnpaid = parseFloat(totalUnpaid.toFixed(2));
+  return {
+    totalUnpaid,
+    unpaidBillsList,
+    allPriorBills: priorBills
+  };
+}
+
 function parseCustomDays(customDays) {
   if (!customDays) return null;
   if (Array.isArray(customDays)) {
@@ -297,7 +350,14 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   // Determine advance adjustment with fresh customer balances
   const freshCustomer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer.id);
   let currentAdvance = freshCustomer ? freshCustomer.advance_balance : (customer.advance_balance || 0);
-  let currentPending = freshCustomer ? freshCustomer.pending_balance : (customer.pending_balance || 0);
+
+  // Calculate prior pending dues: if no pending dues, previous_due = 0!
+  const billDate = `${billingMonth}-01`;
+  const duesInfo = await calculateCustomerPendingDues(customer.id, {
+    excludeBillId: existing ? existing.id : null,
+    upToBillDate: billDate
+  });
+  const previousDue = duesInfo.totalUnpaid;
 
   // If regenerating existing bill, restore previous balances before reapplying
   if (existing && forceRegenerate) {
@@ -307,14 +367,8 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       prevCashPaid = 0;
     }
 
-    const prevNetPayable = Number(existing.net_payable || 0);
-    const prevUnpaidPending = Math.max(0, prevNetPayable - prevCashPaid);
-
     // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
     currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
-
-    // Restore pending balance: subtract only the portion that was unpaid and sitting in pending_balance
-    currentPending = Math.max(0, parseFloat((currentPending - prevUnpaidPending).toFixed(2)));
   }
 
   let advanceToAdjust = 0;
@@ -337,7 +391,6 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   }
 
   const billNumber = existing ? existing.bill_number : await generateBillNumber(billingMonth);
-  const billDate = `${billingMonth}-01`;
   const dueDate = `${billingMonth}-05`;
 
   let billId = existing ? existing.id : null;
@@ -354,7 +407,7 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       WHERE id = ?
     `).run(
       daysInMonth, totalProductSubtotal, totalDeliveryCharges, grossAmount,
-      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
       JSON.stringify(activeBreakdowns), notesText,
       existing.id
     );
@@ -377,7 +430,7 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     const info = await insertStmt.run(
       billNumber, customer.id, billingMonth, billDate, dueDate,
       daysInMonth, totalProductSubtotal, totalDeliveryCharges, grossAmount,
-      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
       JSON.stringify(activeBreakdowns), notesText,
       customer.agent_id || 1
     );
@@ -386,7 +439,7 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
 
   // Update Customer Advance & Pending Balances
   const newAdvance = parseFloat((currentAdvance - advanceToAdjust).toFixed(2));
-  const newPending = parseFloat((currentPending + netPayable).toFixed(2));
+  const newPending = parseFloat((previousDue + netPayable).toFixed(2));
 
   await db.prepare(`
     UPDATE customers
@@ -427,12 +480,26 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
     return existing;
   }
 
-  // Fetch actual delivered records for this customer in billingMonth
+  // Fetch actual delivered records for this customer in billingMonth,
+  // excluding any dates that are already billed in other active bills
+  const existingBillId = existing ? existing.id : null;
   const deliveries = await db.prepare(`
-    SELECT * FROM deliveries
-    WHERE customer_id = ? AND delivery_date LIKE ? AND status = 'DELIVERED'
-    ORDER BY delivery_date ASC
-  `).all(customer.id, `${billingMonth}%`);
+    SELECT d.* FROM deliveries d
+    WHERE d.customer_id = ? 
+      AND d.delivery_date LIKE ? 
+      AND d.status = 'DELIVERED'
+      AND NOT EXISTS (
+        SELECT 1 FROM bills b
+        WHERE b.customer_id = d.customer_id
+          AND b.status != 'CANCELLED'
+          AND (? IS NULL OR b.id != ?)
+          AND b.start_date IS NOT NULL 
+          AND b.end_date IS NOT NULL
+          AND d.delivery_date >= b.start_date 
+          AND d.delivery_date <= b.end_date
+      )
+    ORDER BY d.delivery_date ASC
+  `).all(customer.id, `${billingMonth}%`, existingBillId, existingBillId);
 
   if (!deliveries || deliveries.length === 0) {
     return null; // No deliveries to bill
@@ -487,7 +554,19 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
   // Determine advance adjustment with fresh balances
   const freshCustomer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer.id);
   let currentAdvance = freshCustomer ? freshCustomer.advance_balance : (customer.advance_balance || 0);
-  let currentPending = freshCustomer ? freshCustomer.pending_balance : (customer.pending_balance || 0);
+
+  const daysInMonth = getDaysInMonth(billingMonth);
+  const todayStr = getLocalDateString();
+  const isCurrentMonth = todayStr.startsWith(billingMonth);
+  const billDate = isCurrentMonth ? todayStr : `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
+  const dueDate = billDate;
+
+  // Calculate prior pending dues: if no pending dues, previous_due = 0!
+  const duesInfo = await calculateCustomerPendingDues(customer.id, {
+    excludeBillId: existing ? existing.id : null,
+    upToBillDate: `${billingMonth}-01`
+  });
+  const previousDue = duesInfo.totalUnpaid;
 
   // If regenerating existing bill, restore previous balances before reapplying
   if (existing && forceRegenerate) {
@@ -497,14 +576,8 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
       prevCashPaid = 0;
     }
 
-    const prevNetPayable = Number(existing.net_payable || 0);
-    const prevUnpaidPending = Math.max(0, prevNetPayable - prevCashPaid);
-
     // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
     currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
-
-    // Restore pending balance: subtract only the portion that was unpaid and sitting in pending_balance
-    currentPending = Math.max(0, parseFloat((currentPending - prevUnpaidPending).toFixed(2)));
   }
 
   let advanceToAdjust = 0;
@@ -527,11 +600,6 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
   }
 
   const billNumber = existing ? existing.bill_number : await generateBillNumber(billingMonth);
-  const daysInMonth = getDaysInMonth(billingMonth);
-  const todayStr = getLocalDateString();
-  const isCurrentMonth = todayStr.startsWith(billingMonth);
-  const billDate = isCurrentMonth ? todayStr : `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
-  const dueDate = billDate;
 
   const delStartDate = deliveries.length > 0 ? deliveries[0].delivery_date : `${billingMonth}-01`;
   const delEndDate = deliveries.length > 0 ? deliveries[deliveries.length - 1].delivery_date : billDate;
@@ -550,7 +618,7 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
       WHERE id = ?
     `).run(
       deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
-      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
       JSON.stringify(groupedItems), `Delivered Milk Bill (${delStartDate} to ${delEndDate}, ${deliveries.length} items, Deducted from Advance: ₹${advanceToAdjust})`,
       billDate, dueDate, delStartDate, delEndDate,
       existing.id
@@ -575,7 +643,7 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
       billNumber, customer.id, billingMonth, billingType, billDate, dueDate,
       delStartDate, delEndDate,
       deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
-      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
       JSON.stringify(groupedItems), `Delivered Milk Bill (${delStartDate} to ${delEndDate}, ${deliveries.length} items, Deducted from Advance: ₹${advanceToAdjust})`,
       customer.agent_id || 1
     );
@@ -584,12 +652,13 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
 
   // Update customer balances: Advance is MINUSED by delivered amount!
   const newAdvance = parseFloat((currentAdvance - advanceToAdjust).toFixed(2));
-  const newPending = parseFloat((currentPending + netPayable).toFixed(2));
+  const newPending = parseFloat((previousDue + netPayable).toFixed(2));
 
   await db.prepare(`
     UPDATE customers
     SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
     WHERE id = ?
+
   `).run(newAdvance, newPending, customer.id);
 
   // Record or update in Customer Ledger (idempotent - no duplicate entries)
@@ -658,12 +727,26 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
     return existing;
   }
 
-  // Fetch actual delivered records between startDate and endDate
+  // Fetch actual delivered records between startDate and endDate,
+  // excluding any dates that are already billed in other active bills
+  const existingBillId = existing ? existing.id : null;
   const deliveries = await db.prepare(`
-    SELECT * FROM deliveries
-    WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED'
-    ORDER BY delivery_date ASC
-  `).all(customer.id, startDate, endDate);
+    SELECT d.* FROM deliveries d
+    WHERE d.customer_id = ? 
+      AND d.delivery_date >= ? AND d.delivery_date <= ? 
+      AND d.status = 'DELIVERED'
+      AND NOT EXISTS (
+        SELECT 1 FROM bills b
+        WHERE b.customer_id = d.customer_id
+          AND b.status != 'CANCELLED'
+          AND (? IS NULL OR b.id != ?)
+          AND b.start_date IS NOT NULL 
+          AND b.end_date IS NOT NULL
+          AND d.delivery_date >= b.start_date 
+          AND d.delivery_date <= b.end_date
+      )
+    ORDER BY d.delivery_date ASC
+  `).all(customer.id, startDate, endDate, existingBillId, existingBillId);
 
   if (!deliveries || deliveries.length === 0) {
     return null; // No deliveries to bill
@@ -718,7 +801,13 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
   // Determine advance adjustment with fresh balances
   const freshCustomer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer.id);
   let currentAdvance = freshCustomer ? freshCustomer.advance_balance : (customer.advance_balance || 0);
-  let currentPending = freshCustomer ? freshCustomer.pending_balance : (customer.pending_balance || 0);
+
+  // Calculate prior pending dues up to startDate: if no pending dues, previous_due = 0!
+  const duesInfo = await calculateCustomerPendingDues(customer.id, {
+    excludeBillId: existing ? existing.id : null,
+    upToBillDate: startDate
+  });
+  const previousDue = duesInfo.totalUnpaid;
 
   // If regenerating existing bill, restore previous balances before reapplying
   if (existing && forceRegenerate) {
@@ -728,11 +817,8 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
       prevCashPaid = 0;
     }
 
-    const prevNetPayable = Number(existing.net_payable || 0);
-    const prevUnpaidPending = Math.max(0, prevNetPayable - prevCashPaid);
-
+    // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
     currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
-    currentPending = Math.max(0, parseFloat((currentPending - prevUnpaidPending).toFixed(2)));
   }
 
   let advanceToAdjust = 0;
@@ -770,7 +856,7 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
       WHERE id = ?
     `).run(
       deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
-      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
       JSON.stringify(groupedItems), `Weekly Delivered Milk Bill (${startDate} to ${endDate})`,
       startDate, endDate,
       existing.id
@@ -795,7 +881,7 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
       billNumber, customer.id, billingMonthStr, billDate, dueDate,
       startDate, endDate,
       deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
-      currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
+      previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
       JSON.stringify(groupedItems), `Weekly Delivered Milk Bill (${startDate} to ${endDate})`,
       customer.agent_id || 1
     );
@@ -804,12 +890,13 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
 
   // Update customer balances: Advance is minused and pending updated
   const newAdvance = parseFloat((currentAdvance - advanceToAdjust).toFixed(2));
-  const newPending = parseFloat((currentPending + netPayable).toFixed(2));
+  const newPending = parseFloat((previousDue + netPayable).toFixed(2));
 
   await db.prepare(`
     UPDATE customers
     SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
     WHERE id = ?
+
   `).run(newAdvance, newPending, customer.id);
 
   // Record in Customer Ledger
@@ -1001,6 +1088,10 @@ async function recalculateSingleBill(billId, billingBasis = 'AUTO') {
     throw new Error('Customer not found');
   }
 
+  if (bill.billing_type === 'WEEKLY' && bill.start_date && bill.end_date) {
+    return await generateWeeklyBillForCustomer(customer, bill.start_date, bill.end_date, true);
+  }
+
   let effBasis = billingBasis;
   if (effBasis === 'AUTO') {
     if (bill.notes?.includes('Delivered Milk') || (bill.total_deliveries_count > 0 && bill.total_deliveries_count < 28)) {
@@ -1070,10 +1161,9 @@ async function recordPaymentTransaction({
   const paymentId = pResult.lastInsertRowid;
 
   let remainingPayment = numAmount;
-  let currentPending = customer.pending_balance || 0;
   let currentAdvance = customer.advance_balance || 0;
 
-  // If a specific bill was selected, settle it first
+  // 1. If a specific bill was selected, settle it first
   if (billId) {
     const bill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
     if (bill) {
@@ -1088,48 +1178,79 @@ async function recordPaymentTransaction({
         WHERE id = ?
       `).run(newBillPaid, newBillStatus, billId);
 
-      remainingPayment -= settleAmount;
-      currentPending = Math.max(0, parseFloat((currentPending - settleAmount).toFixed(2)));
+      remainingPayment = parseFloat((remainingPayment - settleAmount).toFixed(2));
     }
-  } else if (currentPending > 0) {
-    // Settle general pending balance first
-    const settlePending = Math.min(currentPending, remainingPayment);
-    currentPending = parseFloat((currentPending - settlePending).toFixed(2));
-    remainingPayment -= settlePending;
+  }
 
-    // Also update any pending bills for this customer in chronological order
-    let billsToSettle = await db.prepare(`
+  // 2. Settle remaining unpaid bills in chronological order (oldest first)
+  // This reduces prior bills ("make previous bill less")
+  if (remainingPayment > 0) {
+    const pendingBills = await db.prepare(`
       SELECT * FROM bills 
-      WHERE customer_id = ? AND status IN ('PENDING', 'PARTIALLY_PAID', 'GENERATED')
-      ORDER BY bill_date ASC
+      WHERE customer_id = ? AND status != 'CANCELLED' AND (net_payable - paid_amount) > 0
+      ORDER BY bill_date ASC, id ASC
     `).all(customerId);
 
-    let pRem = settlePending;
-    for (const b of billsToSettle) {
-      if (pRem <= 0) break;
+    for (const b of pendingBills) {
+      if (remainingPayment <= 0) break;
+      if (billId && b.id === parseInt(billId)) continue; // already settled above
+
       const bUnpaid = Math.max(0, b.net_payable - b.paid_amount);
-      const applyToB = Math.min(bUnpaid, pRem);
+      const applyToB = Math.min(bUnpaid, remainingPayment);
       const bNewPaid = parseFloat((b.paid_amount + applyToB).toFixed(2));
       const bNewStatus = bNewPaid >= b.net_payable ? 'PAID' : 'PARTIALLY_PAID';
 
       await db.prepare(`
-        UPDATE bills SET paid_amount = ?, status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?
+        UPDATE bills
+        SET paid_amount = ?, status = ?, updated_at = datetime('now', 'localtime')
+        WHERE id = ?
       `).run(bNewPaid, bNewStatus, b.id);
-      pRem -= applyToB;
+
+      remainingPayment = parseFloat((remainingPayment - applyToB).toFixed(2));
     }
   }
 
-  // Any remaining payment goes directly to advance_balance!
+  // 3. Any excess payment after all unpaid bills are cleared is credited directly to advance_balance!
   if (remainingPayment > 0) {
     currentAdvance = parseFloat((currentAdvance + remainingPayment).toFixed(2));
   }
+
+  // 4. Synchronize subsequent bills' previous_due to reflect reduced or cleared dues:
+  const allCustomerBills = await db.prepare(`
+    SELECT id, bill_date, net_payable, paid_amount
+    FROM bills
+    WHERE customer_id = ? AND status != 'CANCELLED'
+    ORDER BY bill_date ASC, id ASC
+  `).all(customerId);
+
+  for (let i = 0; i < allCustomerBills.length; i++) {
+    const currentB = allCustomerBills[i];
+    let earlierUnpaidSum = 0;
+    for (let j = 0; j < i; j++) {
+      const priorB = allCustomerBills[j];
+      const unpaid = Math.max(0, priorB.net_payable - priorB.paid_amount);
+      earlierUnpaidSum += unpaid;
+    }
+    earlierUnpaidSum = parseFloat(earlierUnpaidSum.toFixed(2));
+
+    await db.prepare(`
+      UPDATE bills SET previous_due = ? WHERE id = ?
+    `).run(earlierUnpaidSum, currentB.id);
+  }
+
+  // 5. Total customer pending balance is the exact sum of remaining unpaid amounts across all active bills
+  let totalPendingNow = 0;
+  for (const b of allCustomerBills) {
+    totalPendingNow += Math.max(0, b.net_payable - b.paid_amount);
+  }
+  totalPendingNow = parseFloat(totalPendingNow.toFixed(2));
 
   // Update customer balances
   await db.prepare(`
     UPDATE customers
     SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
     WHERE id = ?
-  `).run(currentAdvance, currentPending, customerId);
+  `).run(currentAdvance, totalPendingNow, customerId);
 
   // Ledger Entry
   await db.prepare(`
@@ -1143,7 +1264,7 @@ async function recordPaymentTransaction({
     `PAY-${paymentId}`,
     numAmount,
     currentAdvance,
-    currentPending,
+    totalPendingNow,
     `Payment received via ${paymentMethod} (Receipt: ${receiptNumber}, Ref: ${referenceNumber || 'N/A'})`
   );
 
@@ -1534,6 +1655,7 @@ module.exports = {
   calculateAdvanceProjectionForMonth,
   runMonthlyBillGeneration,
   recalculateSingleBill,
+  calculateCustomerPendingDues,
   recordPaymentTransaction,
   updatePaymentTransaction,
   deletePaymentTransaction,

@@ -289,6 +289,10 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
       baseMsg += `*Amount Received:* ₹${totalReceived.toFixed(2)}\n`;
     }
     baseMsg += `*Net Payable:* ₹${netPayable.toFixed(2)}\n`;
+    if (previousDue > 0) {
+      baseMsg += `*Previous Due:* ₹${previousDue.toFixed(2)}\n`;
+      baseMsg += `*Total Amount Due:* ₹${(netPayable + previousDue).toFixed(2)}\n`;
+    }
     if (remainingAdvance > 0) {
       baseMsg += `*Remaining Advance Balance:* ₹${remainingAdvance.toFixed(2)}\n`;
     }
