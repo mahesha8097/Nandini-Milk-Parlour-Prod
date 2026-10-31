@@ -69,6 +69,8 @@ export default function MonthlyBillGeneratePage() {
   const [capturing, setCapturing] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [whatsappDirectUrl, setWhatsappDirectUrl] = useState('');
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
+  const [copiedBlob, setCopiedBlob] = useState(null);
 
   // Calculate days in month whenever selectedMonth changes
   useEffect(() => {
@@ -885,46 +887,7 @@ export default function MonthlyBillGeneratePage() {
       return;
     }
 
-    const itemsSummary = calculatedItems.map(it =>
-      `• ${it.productName} (${it.variantLabel}) × ${it.quantity}/day for ${it.itemDays} days (${it.totalQty} total @ ₹${it.effectiveUnitPrice.toFixed(2)}) = ₹${it.lineTotal.toFixed(2)}`
-    ).join('\n');
-
-    let msg = `*NANDINI MILK PARLOUR — ADVANCE MONTHLY BILL*\n`;
-    msg += `*Invoice No:* ${invoiceNumber}\n`;
-    msg += `*Month:* ${selectedMonth}\n`;
-    msg += `*Customer:* ${selectedCustomer.name}\n`;
-    msg += `*Schedule:* ${scheduledMilkDaysCount} Milk Days Scheduled`;
-    if (noMilkDaysCount > 0) {
-      msg += ` (${noMilkDaysCount} Days: No Milk Required)`;
-    }
-    msg += `\n\n*Products & Schedule:* \n${itemsSummary}\n\n`;
-    if (advanceAdjusted > 0) {
-      msg += `*Total Bill:* ₹${grossTotalBill.toFixed(2)}\n`;
-      msg += `*Deducted from Advance:* ₹${advanceAdjusted.toFixed(2)}\n`;
-      msg += `*NET AMOUNT TO PAY:* ₹${netPayable.toFixed(2)}${netPayable === 0 ? ' (Paid from Advance Deposit ✓)' : ''}\n`;
-      if (remainingAdvance > 0) {
-        msg += `*Remaining Advance Balance:* ₹${remainingAdvance.toFixed(2)}\n`;
-      }
-      msg += `\n`;
-    } else {
-      msg += `*TOTAL AMOUNT TO PAY:* ₹${grossTotalBill.toFixed(2)}\n\n`;
-    }
-    msg += `*Payment Details:*\n`;
-    msg += `*Gpay / PhonePe / Paytm:* ${businessProfile.upi_phone || '7022754524'}\n`;
-    if (businessProfile.upi_id) {
-      msg += `*UPI ID:* ${businessProfile.upi_id}\n`;
-    }
-
-    const hostOrigin = (window.location.origin && !window.location.origin.includes('localhost'))
-      ? window.location.origin
-      : 'https://nandini-milk-parlour-prod.vercel.app';
-    const statementUrl = `${hostOrigin}/#orders?c=${selectedCustomer.id}&m=${selectedMonth}`;
-    msg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
-    msg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
-
     const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(msg)}`;
-    setWhatsappDirectUrl(whatsappUrl);
 
     // Synchronously pre-open blank tab within the user click gesture to avoid browser popup blockers on desktop
     let whatsappTab = null;
@@ -952,11 +915,49 @@ export default function MonthlyBillGeneratePage() {
     }
 
     const invoiceElement = document.getElementById('printable-invoice-content');
+
+    const hostOrigin = (window.location.origin && !window.location.origin.includes('localhost'))
+      ? window.location.origin
+      : 'https://nandini-milk-parlour-prod.vercel.app';
+    const statementUrl = `${hostOrigin}/#orders?c=${selectedCustomer.id}&m=${selectedMonth}`;
+
+    const itemsSummary = calculatedItems.map(it =>
+      `• ${it.productName} (${it.variantLabel}) × ${it.quantity}/day for ${it.itemDays} days (${it.totalQty} total @ ₹${it.effectiveUnitPrice.toFixed(2)}) = ₹${it.lineTotal.toFixed(2)}`
+    ).join('\n');
+
+    let baseMsg = `*NANDINI MILK PARLOUR — ADVANCE MONTHLY BILL*\n`;
+    baseMsg += `*Invoice No:* ${invoiceNumber}\n`;
+    baseMsg += `*Month:* ${selectedMonth}\n`;
+    baseMsg += `*Customer:* ${selectedCustomer.name}\n`;
+    baseMsg += `*Schedule:* ${scheduledMilkDaysCount} Milk Days Scheduled`;
+    if (noMilkDaysCount > 0) {
+      baseMsg += ` (${noMilkDaysCount} Days: No Milk Required)`;
+    }
+    baseMsg += `\n\n*Products & Schedule:* \n${itemsSummary}\n\n`;
+    if (advanceAdjusted > 0) {
+      baseMsg += `*Total Bill:* ₹${grossTotalBill.toFixed(2)}\n`;
+      baseMsg += `*Deducted from Advance:* ₹${advanceAdjusted.toFixed(2)}\n`;
+      baseMsg += `*NET AMOUNT TO PAY:* ₹${netPayable.toFixed(2)}${netPayable === 0 ? ' (Paid from Advance Deposit ✓)' : ''}\n`;
+      if (remainingAdvance > 0) {
+        baseMsg += `*Remaining Advance Balance:* ₹${remainingAdvance.toFixed(2)}\n`;
+      }
+      baseMsg += `\n`;
+    } else {
+      baseMsg += `*TOTAL AMOUNT TO PAY:* ₹${grossTotalBill.toFixed(2)}\n\n`;
+    }
+    baseMsg += `*Payment Details:*\n`;
+    baseMsg += `*Gpay / PhonePe / Paytm:* ${businessProfile.upi_phone || '7022754524'}\n`;
+    if (businessProfile.upi_id) {
+      baseMsg += `*UPI ID:* ${businessProfile.upi_id}\n`;
+    }
+    baseMsg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
+
     if (!invoiceElement) {
+      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg + '\nThank you for choosing Nandini Milk Parlour! 🙏')}`;
       if (whatsappTab && !whatsappTab.closed) {
-        whatsappTab.location.href = whatsappUrl;
+        whatsappTab.location.href = fallbackUrl;
       } else {
-        window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
+        window.open(fallbackUrl, '_blank') || (window.location.href = fallbackUrl);
       }
       return;
     }
@@ -968,12 +969,10 @@ export default function MonthlyBillGeneratePage() {
     try {
       setCapturing(true);
 
-      // Ensure any scrollable parent is reset so canvas captures from top-left (0,0) without offset
       const scrollParent = invoiceElement.closest('.invoice-scroll-container') || invoiceElement.closest('.invoice-preview-wrapper');
       const prevScrollLeft = scrollParent ? scrollParent.scrollLeft : 0;
       if (scrollParent) scrollParent.scrollLeft = 0;
 
-      // Temporarily lock element to desktop standard 800px width for capture
       prevWidth = invoiceElement.style.width;
       prevMinWidth = invoiceElement.style.minWidth;
       prevMaxWidth = invoiceElement.style.maxWidth;
@@ -1008,56 +1007,78 @@ export default function MonthlyBillGeneratePage() {
         }
       });
 
-      // Restore on-screen responsive layout immediately
       invoiceElement.style.width = prevWidth;
       invoiceElement.style.minWidth = prevMinWidth;
       invoiceElement.style.maxWidth = prevMaxWidth;
       if (scrollParent) scrollParent.scrollLeft = prevScrollLeft;
 
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (!blob) {
-        if (whatsappTab && !whatsappTab.closed) {
-          whatsappTab.location.href = whatsappUrl;
-        } else {
-          window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
+      const fileName = `Invoice_${invoiceNumber}.png`;
+      const file = blob ? new File([blob], fileName, { type: 'image/png' }) : null;
+
+      // Upload picture to cloud storage for a direct high-resolution picture link in WhatsApp
+      let cloudImageUrl = null;
+      if (blob) {
+        try {
+          const formData = new FormData();
+          formData.append('invoice', blob, fileName);
+          const uploadRes = await api.post('/bills/upload-invoice-image', formData);
+          if (uploadRes && uploadRes.fileUrl) {
+            cloudImageUrl = uploadRes.fileUrl.startsWith('http')
+              ? uploadRes.fileUrl
+              : `${hostOrigin}${uploadRes.fileUrl}`;
+          }
+        } catch (uploadErr) {
+          console.warn('Invoice image cloud upload note:', uploadErr);
         }
-        return;
       }
 
-      const fileName = `Invoice_${invoiceNumber}.png`;
-      const file = new File([blob], fileName, { type: 'image/png' });
+      let fullMsg = baseMsg;
+      if (cloudImageUrl) {
+        fullMsg += `\n📸 *View / Download Invoice Picture:* \n${cloudImageUrl}\n`;
+      }
+      fullMsg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
 
-      // 1. Mobile / Web Share API with File
+      const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(fullMsg)}`;
+      setWhatsappDirectUrl(whatsappUrl);
+
+      // 1. Mobile Flow: Native Web Share API with File
       if (isMobile) {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
               title: `Invoice ${invoiceNumber}`,
-              text: msg,
+              text: `Nandini Milk Parlour — Invoice ${invoiceNumber}\nCustomer: ${selectedCustomer.name}\nNet Payable: ₹${netPayable.toFixed(2)}${cloudImageUrl ? '\n\n📸 Invoice Picture: ' + cloudImageUrl : ''}`,
               files: [file]
             });
             return;
           } catch (shareErr) {
-            console.log('Native share canceled or fallback:', shareErr);
+            if (shareErr.name !== 'AbortError') {
+              console.log('Native share fallback:', shareErr);
+            } else {
+              return;
+            }
           }
         }
-        // Direct redirect on mobile to WhatsApp app
         window.location.href = whatsappUrl;
         return;
       }
 
       // 2. Desktop Flow:
-      // Try to copy Image to Clipboard
+      // Copy image to clipboard for instantaneous Ctrl+V into WhatsApp Web chat
       let clipboardCopied = false;
-      try {
-        if (navigator.clipboard && navigator.clipboard.write) {
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': blob })
-          ]);
-          clipboardCopied = true;
+      if (blob) {
+        setCopiedBlob(blob);
+        try {
+          if (navigator.clipboard && navigator.clipboard.write) {
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]);
+            clipboardCopied = true;
+          }
+        } catch (clipErr) {
+          console.log('Clipboard copy note:', clipErr);
         }
-      } catch (clipErr) {
-        console.log('Clipboard write note (document not focused):', clipErr);
       }
 
       // Redirect pre-opened WhatsApp window
@@ -1083,26 +1104,12 @@ export default function MonthlyBillGeneratePage() {
         }
       }
 
-      // Download file backup (slight delay so it doesn't interrupt navigation)
-      setTimeout(() => {
-        try {
-          const downloadUrl = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = downloadUrl;
-          a.download = fileName;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
-        } catch (dErr) {
-          console.warn('Download error:', dErr);
-        }
-      }, 350);
-
+      // Show Desktop WhatsApp guidance modal & toast (NO automatic file download!)
+      setWhatsappModalOpen(true);
       setToastMsg(
         clipboardCopied
-          ? '📸 Invoice picture copied to clipboard & downloaded! In WhatsApp, press Ctrl+V to paste the invoice picture.'
-          : '📸 Invoice picture downloaded! Redirecting to WhatsApp customer chat...'
+          ? '📸 Invoice picture copied to clipboard & WhatsApp opened! Press Ctrl + V in chat to paste the picture.'
+          : '💬 Opening WhatsApp customer chat with invoice link & details.'
       );
       setTimeout(() => setToastMsg(''), 10000);
     } catch (err) {
@@ -1112,10 +1119,11 @@ export default function MonthlyBillGeneratePage() {
         invoiceElement.style.maxWidth = prevMaxWidth;
       }
       console.error('Invoice capture error:', err);
+      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg + '\nThank you for choosing Nandini Milk Parlour! 🙏')}`;
       if (whatsappTab && !whatsappTab.closed) {
-        whatsappTab.location.href = whatsappUrl;
+        whatsappTab.location.href = fallbackUrl;
       } else {
-        window.open(whatsappUrl, '_blank') || (window.location.href = whatsappUrl);
+        window.open(fallbackUrl, '_blank') || (window.location.href = fallbackUrl);
       }
       setToastMsg('Redirecting to WhatsApp with invoice details.');
       setTimeout(() => setToastMsg(''), 6000);
@@ -1842,6 +1850,103 @@ export default function MonthlyBillGeneratePage() {
               onClick={() => handleSaveCalendarSelection(false)}
             >
               <Check size={14} /> Apply to This Product
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* WhatsApp Guidance Modal */}
+      <Modal
+        isOpen={whatsappModalOpen}
+        onClose={() => setWhatsappModalOpen(false)}
+        title="💬 WhatsApp Invoice Sent & Ready"
+        maxWidth="480px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', color: '#1e293b' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            background: '#ecfdf5',
+            border: '1px solid #a7f3d0',
+            padding: '12px 14px',
+            borderRadius: '8px'
+          }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '50%',
+              background: '#10b981',
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: '800',
+              flexShrink: 0
+            }}>
+              ✓
+            </div>
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '0.92rem', color: '#065f46' }}>
+                Invoice Picture Copied & Link Attached!
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#047857' }}>
+                WhatsApp customer chat has been opened in your browser.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.84rem', lineHeight: '1.5' }}>
+            <div style={{ fontWeight: '700', color: '#0f172a', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              💡 How to send the picture directly in WhatsApp Web:
+            </div>
+            <ol style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <li>Go to the opened <strong>WhatsApp Web tab</strong>.</li>
+              <li>Click inside the message input box.</li>
+              <li>Press <strong>Ctrl + V</strong> (or Right-Click → <em>Paste</em>).</li>
+              <li>The high-definition invoice picture will attach immediately — hit Send! 🚀</li>
+            </ol>
+            <div style={{ marginTop: '10px', fontSize: '0.78rem', color: '#64748b' }}>
+              ℹ️ A direct cloud view link is also included in the message so the customer can view the invoice online at any time.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+            {copiedBlob && (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.write([
+                      new ClipboardItem({ 'image/png': copiedBlob })
+                    ]);
+                    setToastMsg('📋 Invoice picture copied to clipboard again!');
+                  } catch (e) {
+                    alert('Could not copy to clipboard. Please use Download Picture.');
+                  }
+                }}
+              >
+                📋 Copy Picture Again
+              </button>
+            )}
+            {whatsappDirectUrl && (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ borderColor: '#22c55e', color: '#16a34a' }}
+                onClick={() => window.open(whatsappDirectUrl, '_blank')}
+              >
+                💬 Open WhatsApp Chat
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => setWhatsappModalOpen(false)}
+            >
+              Done
             </button>
           </div>
         </div>

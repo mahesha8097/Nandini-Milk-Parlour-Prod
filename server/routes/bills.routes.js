@@ -408,5 +408,30 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   }
 });
 
+const multer = require('multer');
+const storageService = require('../services/storageService');
+const invoiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+// Upload invoice image for WhatsApp sharing & cloud link preview (Admin only)
+router.post('/upload-invoice-image', requireAdmin, invoiceUpload.single('invoice'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No invoice image file provided' });
+    }
+    const result = await storageService.uploadFile(req.file, 'invoices');
+    res.json({
+      success: true,
+      fileUrl: result.fileUrl,
+      filename: result.filename
+    });
+  } catch (err) {
+    console.error('Invoice image upload error:', err);
+    res.status(500).json({ error: 'Failed to upload invoice image' });
+  }
+});
+
 module.exports = router;
 
