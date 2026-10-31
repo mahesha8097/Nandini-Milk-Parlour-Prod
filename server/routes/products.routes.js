@@ -248,6 +248,20 @@ router.put('/:id', requireAdmin, async (req, res) => {
       productId
     );
 
+    // If selling price changed, automatically synchronize any upcoming PENDING deliveries (tomorrow onwards)
+    if (price !== existing.selling_price) {
+      await db.prepare(`
+        UPDATE deliveries
+        SET unit_price_snapshot = ?,
+            total_product_amount = (? * quantity),
+            total_amount = ((? * quantity) + delivery_charge_snapshot),
+            updated_at = datetime('now', 'localtime')
+        WHERE product_id = ?
+          AND status = 'PENDING'
+          AND delivery_date > date('now', 'localtime')
+      `).run(price, price, price, productId);
+    }
+
     const updated = await db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
 
     // Audit log
