@@ -28,6 +28,7 @@ export default function CustomerSubscriptionsManager({
   subscriptions = [],
   products = [],
   onRefresh,
+  onOpenMonthlyBill,
   readOnly = false
 }) {
   const todayStr = getLocalDateString();
@@ -41,6 +42,7 @@ export default function CustomerSubscriptionsManager({
     product_id: '',
     quantity: 1,
     frequency: 'DAILY',
+    custom_days: '',
     start_date: currentMonthFirstDay,
     end_date: '',
     is_active: 1
@@ -62,6 +64,7 @@ export default function CustomerSubscriptionsManager({
       product_id: sub.product_id,
       quantity: sub.quantity || 1,
       frequency: sub.frequency || 'DAILY',
+      custom_days: sub.custom_days || '',
       start_date: sub.start_date || currentMonthFirstDay,
       end_date: sub.end_date || '',
       is_active: sub.is_active !== undefined ? (sub.is_active ? 1 : 0) : 1
@@ -79,6 +82,7 @@ export default function CustomerSubscriptionsManager({
       product_id: defaultPid,
       quantity: 1,
       frequency: 'DAILY',
+      custom_days: '',
       start_date: currentMonthFirstDay,
       end_date: '',
       is_active: 1
@@ -114,6 +118,7 @@ export default function CustomerSubscriptionsManager({
           product_id: parseInt(subForm.product_id, 10),
           quantity: qty,
           frequency: subForm.frequency,
+          custom_days: subForm.frequency === 'CUSTOM' ? subForm.custom_days : null,
           start_date: subForm.start_date,
           end_date: subForm.end_date || null
         });
@@ -124,6 +129,7 @@ export default function CustomerSubscriptionsManager({
           product_id: parseInt(subForm.product_id, 10),
           quantity: qty,
           frequency: subForm.frequency,
+          custom_days: subForm.frequency === 'CUSTOM' ? subForm.custom_days : null,
           start_date: subForm.start_date,
           end_date: subForm.end_date || null,
           is_active: subForm.is_active
@@ -211,30 +217,99 @@ export default function CustomerSubscriptionsManager({
           </p>
         </div>
 
-        {!readOnly && (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {onOpenMonthlyBill && (
+            <button
+              type="button"
+              onClick={() => onOpenMonthlyBill(customerId)}
+              style={{
+                background: '#0054a6',
+                color: 'white',
+                border: 'none',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 6px rgba(0, 84, 166, 0.25)'
+              }}
+              title="Generate Monthly Bill & Advance Invoice with Calendar & WhatsApp Share"
+            >
+              <Calendar size={15} />
+              <span>Generate Monthly Bill</span>
+            </button>
+          )}
+
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              style={{
+                background: '#16a34a',
+                color: 'white',
+                border: 'none',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 6px rgba(22, 163, 74, 0.2)'
+              }}
+            >
+              <PlusCircle size={15} />
+              <span>Add Subscription</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {onOpenMonthlyBill && subscriptions.length > 0 && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(0, 84, 166, 0.05) 0%, rgba(16, 185, 129, 0.08) 100%)',
+          border: '1.5px solid #93c5fd',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>🧾 Ready to Calculate & Generate Bill for {customerName}?</span>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px' }}>
+              Includes interactive delivery calendar (select Tue/Thu/Sat), advance calculation, 1-sheet print, and WhatsApp sharing!
+            </div>
+          </div>
           <button
             type="button"
-            onClick={handleOpenAdd}
+            onClick={() => onOpenMonthlyBill(customerId)}
+            className="btn btn-sm"
             style={{
-              background: '#16a34a',
+              background: '#0054a6',
               color: 'white',
-              border: 'none',
-              padding: '7px 14px',
-              borderRadius: '8px',
-              fontSize: '0.82rem',
               fontWeight: 800,
-              cursor: 'pointer',
+              padding: '6px 14px',
+              border: 'none',
+              borderRadius: '6px',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: '0 2px 6px rgba(22, 163, 74, 0.2)'
+              cursor: 'pointer'
             }}
           >
-            <PlusCircle size={15} />
-            <span>Add Subscription</span>
+            <Calendar size={14} /> Open Bill Generator
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Product Subscription Cards List */}
       {subscriptions.length === 0 ? (
@@ -287,9 +362,13 @@ export default function CustomerSubscriptionsManager({
             // Format frequency label
             let freqLabel = '1 qty every day';
             if (sub.frequency === 'ALTERNATE_DAYS') {
-              freqLabel = `${sub.quantity} qty every 2 days`;
+              freqLabel = `${sub.quantity} qty every 2 days (Alternate)`;
             } else if (sub.frequency === 'CUSTOM') {
-              freqLabel = `${sub.quantity} qty on custom schedule`;
+              if (sub.custom_days) {
+                freqLabel = `${sub.quantity} qty on ${sub.custom_days.replace(/,/g, ', ')}`;
+              } else {
+                freqLabel = `${sub.quantity} qty on custom schedule`;
+              }
             } else {
               freqLabel = `${sub.quantity} qty every day`;
             }
@@ -842,7 +921,14 @@ export default function CustomerSubscriptionsManager({
               <select
                 className="form-input"
                 value={subForm.frequency}
-                onChange={(e) => setSubForm((prev) => ({ ...prev, frequency: e.target.value }))}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSubForm((prev) => ({
+                    ...prev,
+                    frequency: val,
+                    custom_days: val === 'CUSTOM' && !prev.custom_days ? 'TUE,THU,SAT' : prev.custom_days
+                  }));
+                }}
                 style={{
                   fontWeight: 700,
                   fontSize: '0.92rem',
@@ -852,11 +938,144 @@ export default function CustomerSubscriptionsManager({
                   border: '1.5px solid #cbd5e1'
                 }}
               >
-                <option value="DAILY">Every day</option>
+                <option value="DAILY">Every day (Daily)</option>
                 <option value="ALTERNATE_DAYS">Alternate days (Every 2 days)</option>
-                <option value="CUSTOM">Custom schedule</option>
+                <option value="CUSTOM">Custom days (e.g. Tue, Thu, Sat)</option>
               </select>
             </div>
+
+            {/* Custom Day of Week Selector */}
+            {subForm.frequency === 'CUSTOM' && (
+              <div style={{
+                background: '#f0fdf4',
+                border: '1.5px solid #86efac',
+                borderRadius: '12px',
+                padding: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 800, color: '#166534' }}>
+                    Select Days of Week for Milk Delivery:
+                  </label>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#047857', background: '#dcfce7', padding: '2px 8px', borderRadius: '4px' }}>
+                    {subForm.custom_days ? subForm.custom_days.replace(/,/g, ', ') : 'None selected'}
+                  </span>
+                </div>
+
+                {/* Quick Presets */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setSubForm(prev => ({ ...prev, custom_days: 'TUE,THU,SAT' }))}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      background: '#dcfce7',
+                      border: '1px solid #16a34a',
+                      color: '#15803d',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🥛 Tue, Thu, Sat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubForm(prev => ({ ...prev, custom_days: 'MON,WED,FRI' }))}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      background: '#eff6ff',
+                      border: '1px solid #3b82f6',
+                      color: '#1d4ed8',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🥛 Mon, Wed, Fri
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubForm(prev => ({ ...prev, custom_days: 'MON,TUE,WED,THU,FRI,SAT' }))}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      color: '#334155',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Mon – Sat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubForm(prev => ({ ...prev, custom_days: 'SAT,SUN' }))}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      color: '#334155',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Weekends
+                  </button>
+                </div>
+
+                {/* Day of Week Toggle Chips */}
+                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '2px' }}>
+                  {[
+                    { id: 'SUN', label: 'Sun' },
+                    { id: 'MON', label: 'Mon' },
+                    { id: 'TUE', label: 'Tue' },
+                    { id: 'WED', label: 'Wed' },
+                    { id: 'THU', label: 'Thu' },
+                    { id: 'FRI', label: 'Fri' },
+                    { id: 'SAT', label: 'Sat' }
+                  ].map(d => {
+                    const activeDays = (subForm.custom_days || '').split(',').map(s => s.trim().toUpperCase());
+                    const isSelected = activeDays.includes(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => {
+                          let nextDays;
+                          if (isSelected) {
+                            nextDays = activeDays.filter(x => x !== d.id);
+                          } else {
+                            nextDays = [...activeDays.filter(Boolean), d.id];
+                          }
+                          setSubForm(prev => ({ ...prev, custom_days: nextDays.join(',') }));
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          border: isSelected ? '1.5px solid #059669' : '1px solid #cbd5e1',
+                          background: isSelected ? '#10b981' : '#ffffff',
+                          color: isSelected ? '#ffffff' : '#334155'
+                        }}
+                      >
+                        {isSelected ? '✓ ' : ''}{d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Start Date */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

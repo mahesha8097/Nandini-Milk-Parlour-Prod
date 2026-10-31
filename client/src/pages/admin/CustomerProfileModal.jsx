@@ -5,6 +5,7 @@ import EmptyState from '../../components/common/EmptyState';
 import BillInvoiceModal from './BillInvoiceModal';
 import ProductPacketImage from '../../components/ProductPacketImage';
 import CustomerSubscriptionsManager from '../../components/subscription/CustomerSubscriptionsManager';
+import MonthlyBillGeneratePage from './MonthlyBillGeneratePage';
 import {
   User,
   Phone,
@@ -75,6 +76,7 @@ export default function CustomerProfileModal({
   const [selectedBillId, setSelectedBillId] = useState(null);
   const [billLoading, setBillLoading] = useState(false);
   const [billSuccessMsg, setBillSuccessMsg] = useState('');
+  const [showBillGeneratorModal, setShowBillGeneratorModal] = useState(false);
 
   // Coupon Book Management in Profile
   const [showIssueBook, setShowIssueBook] = useState(false);
@@ -417,6 +419,23 @@ export default function CustomerProfileModal({
           }}>
             <button
               type="button"
+              onClick={() => setShowBillGeneratorModal(true)}
+              className="btn btn-primary btn-sm"
+              style={{
+                fontSize: '0.8rem',
+                fontWeight: '800',
+                background: 'linear-gradient(135deg, #1e40af, #2563eb)',
+                borderColor: '#1d4ed8',
+                color: '#ffffff',
+                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)'
+              }}
+              title="Open monthly delivery calendar bill generator with day-of-week selection, combined delivery charges, and WhatsApp sharing"
+            >
+              <Receipt size={14} /> 🧾 Generate Monthly Bill (Calendar)
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('subscriptions')}
               className={`btn btn-sm ${activeTab === 'subscriptions' ? 'btn-primary' : 'btn-outline'}`}
               style={{ fontSize: '0.8rem', fontWeight: '700' }}
@@ -532,6 +551,7 @@ export default function CustomerProfileModal({
                 customerName={customer.name}
                 subscriptions={profile.subscriptions || []}
                 products={products}
+                onOpenMonthlyBill={() => setShowBillGeneratorModal(true)}
                 onRefresh={async () => {
                   await fetchCustomerProfile();
                   onRefreshList?.();
@@ -969,10 +989,25 @@ export default function CustomerProfileModal({
                 <h4 style={{ fontSize: '0.9rem', margin: 0 }}>Monthly Invoices & Bills</h4>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button
-                    onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')}
+                    type="button"
+                    onClick={() => setShowBillGeneratorModal(true)}
                     className="btn btn-primary btn-sm"
+                    style={{
+                      background: 'linear-gradient(135deg, #1e40af, #2563eb)',
+                      borderColor: '#1d4ed8',
+                      fontWeight: '800',
+                      boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)'
+                    }}
+                    title="Interactive calendar bill generator with custom days, WhatsApp & 1-Sheet print"
+                  >
+                    <Receipt size={14} />
+                    🧾 Interactive Calendar Bill Generator
+                  </button>
+                  <button
+                    onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')}
+                    className="btn btn-outline btn-sm"
                     disabled={billLoading}
-                    style={{ background: '#16a34a', borderColor: '#15803d', fontWeight: '800' }}
+                    style={{ color: '#16a34a', borderColor: '#bbf7d0', fontWeight: '700' }}
                     title="Generate bill based on milk actually DELIVERED till today and deduct from advance"
                   >
                     <Truck size={14} />
@@ -1002,8 +1037,16 @@ export default function CustomerProfileModal({
                   title="No monthly bills generated"
                   description="Click 'Bill Delivered Milk (Till Today)' to calculate delivered milk against customer advance, or 'Full Month Advance Bill' for scheduled days."
                   action={
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')} className="btn btn-primary btn-sm" disabled={billLoading} style={{ background: '#16a34a', borderColor: '#15803d' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowBillGeneratorModal(true)}
+                        className="btn btn-primary btn-sm"
+                        style={{ background: 'linear-gradient(135deg, #1e40af, #2563eb)', borderColor: '#1d4ed8', fontWeight: '800' }}
+                      >
+                        <Receipt size={14} /> 🧾 Interactive Calendar Bill Generator
+                      </button>
+                      <button onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')} className="btn btn-outline btn-sm" disabled={billLoading} style={{ color: '#16a34a', borderColor: '#bbf7d0' }}>
                         <Truck size={14} /> Bill Delivered Milk (Till Today)
                       </button>
                       <button onClick={() => handleGenerateOrRecalculateBill(null, 'SUBSCRIPTION')} className="btn btn-outline btn-sm" disabled={billLoading}>
@@ -1271,6 +1314,30 @@ export default function CustomerProfileModal({
               onClose={() => setSelectedBillId(null)}
               onRecalculate={fetchCustomerProfile}
             />
+          )}
+
+          {/* Interactive Monthly Bill Generator Modal */}
+          {showBillGeneratorModal && (
+            <Modal
+              isOpen={showBillGeneratorModal}
+              onClose={() => {
+                setShowBillGeneratorModal(false);
+                fetchCustomerProfile();
+                onRefreshList?.();
+              }}
+              title={`🧾 Monthly Bill Generator — ${customer.name || 'Customer'}`}
+              maxWidth="1100px"
+            >
+              <MonthlyBillGeneratePage
+                initialCustomerId={customerId}
+                onClose={() => {
+                  setShowBillGeneratorModal(false);
+                  fetchCustomerProfile();
+                  onRefreshList?.();
+                }}
+                isModal={true}
+              />
+            </Modal>
           )}
         </div>
       )}

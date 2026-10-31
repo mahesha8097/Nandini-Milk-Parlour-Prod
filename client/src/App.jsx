@@ -203,7 +203,7 @@ function MainApplication() {
       case 'bills':
         return <BillsPage />;
       case 'monthly-bill-generate':
-        return <MonthlyBillGeneratePage />;
+        return <MonthlyBillGeneratePage initialCustomerId={navParams.customerId} onNavigate={handleNavigate} />;
       case 'coupons':
         return <CouponsPage onNavigate={handleNavigate} initialCustomerId={navParams.customerId} />;
       case 'payments':

@@ -25,11 +25,51 @@ import {
 import Modal from '../../components/common/Modal';
 import { getLocalDateString } from '../../utils/dateUtils';
 
-export default function MonthlyBillGeneratePage() {
+export const DAYS_OF_WEEK = [
+  { index: 0, label: 'Sun', short: 'S', fullName: 'Sunday' },
+  { index: 1, label: 'Mon', short: 'M', fullName: 'Monday' },
+  { index: 2, label: 'Tue', short: 'T', fullName: 'Tuesday' },
+  { index: 3, label: 'Wed', short: 'W', fullName: 'Wednesday' },
+  { index: 4, label: 'Thu', short: 'T', fullName: 'Thursday' },
+  { index: 5, label: 'Fri', short: 'F', fullName: 'Friday' },
+  { index: 6, label: 'Sat', short: 'S', fullName: 'Saturday' }
+];
+
+export const parseCustomDays = (customDays) => {
+  if (!customDays) return null;
+  if (Array.isArray(customDays)) {
+    return customDays.map(Number).filter(n => !isNaN(n));
+  }
+  if (typeof customDays === 'string') {
+    try {
+      const parsed = JSON.parse(customDays);
+      if (Array.isArray(parsed)) return parsed.map(Number).filter(n => !isNaN(n));
+    } catch (e) {}
+
+    const parts = customDays.split(',').map(s => s.trim().toUpperCase());
+    const dayMap = {
+      'SUN': 0, 'SUNDAY': 0, '0': 0,
+      'MON': 1, 'MONDAY': 1, '1': 1,
+      'TUE': 2, 'TUESDAY': 2, '2': 2,
+      'WED': 3, 'WEDNESDAY': 3, '3': 3,
+      'THU': 4, 'THURSDAY': 4, '4': 4,
+      'FRI': 5, 'FRIDAY': 5, '5': 5,
+      'SAT': 6, 'SATURDAY': 6, '6': 6
+    };
+    const indices = [];
+    parts.forEach(p => {
+      if (dayMap[p] !== undefined) indices.push(dayMap[p]);
+    });
+    return indices.length > 0 ? indices : null;
+  }
+  return null;
+};
+
+export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, onNavigate, isModal = false }) {
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
   const [businessProfile, setBusinessProfile] = useState({});
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState(initialCustomerId ? String(initialCustomerId) : '');
   const [selectedMonth, setSelectedMonth] = useState(() => getLocalDateString().slice(0, 7)); // YYYY-MM
   const [defaultMonthDays, setDefaultMonthDays] = useState(31);
   const [items, setItems] = useState([]); // Array of { productId, productName, variantLabel, unitVolumeLitres, unitPrice, quantity, days, startDate, endDate, selectedDays }
@@ -86,6 +126,16 @@ export default function MonthlyBillGeneratePage() {
     loadInitialData();
   }, []);
 
+  // Sync if initialCustomerId prop updates
+  useEffect(() => {
+    if (initialCustomerId && customers.length > 0) {
+      const match = customers.find(c => String(c.id) === String(initialCustomerId));
+      if (match && String(match.id) !== String(selectedCustomerId)) {
+        handleSelectCustomer(match.id, customers, products);
+      }
+    }
+  }, [initialCustomerId, customers]);
+
   const getDaysArray = (count, start = 1) => {
     const arr = [];
     for (let i = start; i <= count; i++) {
@@ -108,7 +158,11 @@ export default function MonthlyBillGeneratePage() {
       setBusinessProfile(profileRes || {});
 
       if (custRes && custRes.length > 0) {
-        handleSelectCustomer(custRes[0].id, custRes, prodRes || []);
+        const targetCust = initialCustomerId
+          ? custRes.find(c => String(c.id) === String(initialCustomerId))
+          : custRes[0];
+        const targetId = targetCust ? targetCust.id : custRes[0].id;
+        handleSelectCustomer(targetId, custRes, prodRes || []);
       }
     } catch (err) {
       console.error('Failed to load customers or products:', err);
@@ -182,12 +236,28 @@ export default function MonthlyBillGeneratePage() {
       endDay = parseInt(endDate.split('-')[2], 10);
     }
 
+    // 4. Support custom_days (e.g. Tuesday, Thursday, Saturday) or Alternate Days
+    const customDows = (sub?.frequency === 'CUSTOM' || sub?.custom_days)
+      ? parseCustomDays(sub.custom_days)
+      : null;
+
     const selectedDays = [];
     if (startDay <= endDay && startDay <= totalDaysInMonth && endDay >= 1) {
       const actualStart = Math.max(1, startDay);
       const actualEnd = Math.min(totalDaysInMonth, endDay);
       for (let d = actualStart; d <= actualEnd; d++) {
-        selectedDays.push(d);
+        if (customDows && customDows.length > 0) {
+          const dow = new Date(year, month - 1, d).getDay();
+          if (customDows.includes(dow)) {
+            selectedDays.push(d);
+          }
+        } else if (sub?.frequency === 'ALTERNATE_DAYS') {
+          if ((d - actualStart) % 2 === 0) {
+            selectedDays.push(d);
+          }
+        } else {
+          selectedDays.push(d);
+        }
       }
     }
 
@@ -467,9 +537,65 @@ export default function MonthlyBillGeneratePage() {
       const evenDays = [];
       for (let d = 2; d <= totalDays; d += 2) evenDays.push(d);
       setTempSelectedDays(evenDays);
+    } else if (presetType === 'TTS') {
+      // Tuesday (2), Thursday (4), Saturday (6)
+      const ttsDays = [];
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        if (dow === 2 || dow === 4 || dow === 6) ttsDays.push(d);
+      }
+      setTempSelectedDays(ttsDays);
+    } else if (presetType === 'MWF') {
+      // Monday (1), Wednesday (3), Friday (5)
+      const mwfDays = [];
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        if (dow === 1 || dow === 3 || dow === 5) mwfDays.push(d);
+      }
+      setTempSelectedDays(mwfDays);
+    } else if (presetType === 'MON_TO_SAT') {
+      const msDays = [];
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        if (dow >= 1 && dow <= 6) msDays.push(d);
+      }
+      setTempSelectedDays(msDays);
+    } else if (presetType === 'WEEKDAYS') {
+      const wdDays = [];
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        if (dow >= 1 && dow <= 5) wdDays.push(d);
+      }
+      setTempSelectedDays(wdDays);
+    } else if (presetType === 'WEEKENDS') {
+      const weDays = [];
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        if (dow === 0 || dow === 6) weDays.push(d);
+      }
+      setTempSelectedDays(weDays);
     } else if (presetType === 'CLEAR') {
       setTempSelectedDays([]);
     }
+  };
+
+  const toggleTempDayOfWeek = (dowIndex) => {
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const totalDays = new Date(year, month, 0).getDate();
+    const targetDays = [];
+    for (let d = 1; d <= totalDays; d++) {
+      if (new Date(year, month - 1, d).getDay() === dowIndex) {
+        targetDays.push(d);
+      }
+    }
+    const currentSet = new Set(tempSelectedDays);
+    const allPresent = targetDays.every(d => currentSet.has(d));
+    if (allPresent) {
+      targetDays.forEach(d => currentSet.delete(d));
+    } else {
+      targetDays.forEach(d => currentSet.add(d));
+    }
+    setTempSelectedDays(Array.from(currentSet).sort((a, b) => a - b));
   };
 
   const handleSaveCalendarSelection = (applyToAll = false) => {
@@ -719,10 +845,92 @@ export default function MonthlyBillGeneratePage() {
     });
   };
 
+  // Active Day of Week calculation for the inline calendar
+  const activeDowStatus = useMemo(() => {
+    const relevantItems = calendarTargetProduct === 'ALL'
+      ? items
+      : (items[parseInt(calendarTargetProduct, 10)] ? [items[parseInt(calendarTargetProduct, 10)]] : []);
+
+    if (relevantItems.length === 0) return {};
+
+    const [y, m] = (selectedMonth || '2026-10').split('-').map(Number);
+    const totalDays = defaultMonthDays;
+    const status = {};
+
+    for (let dow = 0; dow <= 6; dow++) {
+      const monthDaysForDow = [];
+      for (let d = 1; d <= totalDays; d++) {
+        if (new Date(y, m - 1, d).getDay() === dow) {
+          monthDaysForDow.push(d);
+        }
+      }
+
+      if (monthDaysForDow.length === 0) {
+        status[dow] = false;
+        continue;
+      }
+
+      // Check if ALL monthDaysForDow are present in every relevant item's selectedDays
+      const allIncluded = relevantItems.every(it => {
+        const set = new Set(it.selectedDays || []);
+        return monthDaysForDow.every(d => set.has(d));
+      });
+
+      status[dow] = allIncluded;
+    }
+
+    return status;
+  }, [items, calendarTargetProduct, selectedMonth, defaultMonthDays]);
+
+  // Handler to toggle an individual Day of Week (0=Sun, 1=Mon, ..., 6=Sat) across the month
+  const handleToggleDayOfWeek = (dowIndex) => {
+    const [y, m] = (selectedMonth || '2026-10').split('-').map(Number);
+    const totalDays = defaultMonthDays;
+    const pad = (n) => String(n).padStart(2, '0');
+
+    const monthDaysForDow = [];
+    for (let d = 1; d <= totalDays; d++) {
+      if (new Date(y, m - 1, d).getDay() === dowIndex) {
+        monthDaysForDow.push(d);
+      }
+    }
+
+    const isCurrentlyActive = Boolean(activeDowStatus[dowIndex]);
+
+    setItems(prevItems => {
+      const targetIndices = calendarTargetProduct === 'ALL'
+        ? prevItems.map((_, i) => i)
+        : [parseInt(calendarTargetProduct, 10)];
+
+      return prevItems.map((item, idx) => {
+        if (!targetIndices.includes(idx)) return item;
+        const currentSet = new Set(item.selectedDays || []);
+
+        if (isCurrentlyActive) {
+          // Remove this weekday from selection
+          monthDaysForDow.forEach(d => currentSet.delete(d));
+        } else {
+          // Add this weekday to selection
+          monthDaysForDow.forEach(d => currentSet.add(d));
+        }
+
+        const updated = Array.from(currentSet).sort((a, b) => a - b);
+        return {
+          ...item,
+          days: updated.length,
+          startDate: updated.length > 0 ? `${selectedMonth}-${pad(updated[0])}` : null,
+          endDate: updated.length > 0 ? `${selectedMonth}-${pad(updated[updated.length - 1])}` : null,
+          selectedDays: updated
+        };
+      });
+    });
+  };
+
   // Handler for Calendar Presets
   const handleApplyCalendarPreset = (presetType) => {
     const pad = (n) => String(n).padStart(2, '0');
     const totalDays = defaultMonthDays;
+    const [y, m] = (selectedMonth || '2026-10').split('-').map(Number);
     let targetDays = [];
 
     if (presetType === 'FULL') {
@@ -731,11 +939,34 @@ export default function MonthlyBillGeneratePage() {
       for (let d = 1; d <= totalDays; d += 2) targetDays.push(d);
     } else if (presetType === 'EVEN') {
       for (let d = 2; d <= totalDays; d += 2) targetDays.push(d);
-    } else if (presetType === 'WEEKDAYS') {
-      const [y, m] = selectedMonth.split('-').map(Number);
+    } else if (presetType === 'TTS') {
+      // Tuesday (2), Thursday (4), Saturday (6)
       for (let d = 1; d <= totalDays; d++) {
-        const dayOfWeek = new Date(y, m - 1, d).getDay();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) targetDays.push(d);
+        const dow = new Date(y, m - 1, d).getDay();
+        if (dow === 2 || dow === 4 || dow === 6) targetDays.push(d);
+      }
+    } else if (presetType === 'MWF') {
+      // Monday (1), Wednesday (3), Friday (5)
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(y, m - 1, d).getDay();
+        if (dow === 1 || dow === 3 || dow === 5) targetDays.push(d);
+      }
+    } else if (presetType === 'MON_TO_SAT') {
+      // Monday to Saturday
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(y, m - 1, d).getDay();
+        if (dow >= 1 && dow <= 6) targetDays.push(d);
+      }
+    } else if (presetType === 'WEEKDAYS') {
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(y, m - 1, d).getDay();
+        if (dow >= 1 && dow <= 5) targetDays.push(d);
+      }
+    } else if (presetType === 'WEEKENDS') {
+      // Saturday (6) and Sunday (0)
+      for (let d = 1; d <= totalDays; d++) {
+        const dow = new Date(y, m - 1, d).getDay();
+        if (dow === 0 || dow === 6) targetDays.push(d);
       }
     } else if (presetType === 'CLEAR') {
       targetDays = [];
@@ -1273,7 +1504,36 @@ export default function MonthlyBillGeneratePage() {
   const activeItem = activeItemIndex !== null ? items[activeItemIndex] : null;
 
   return (
-    <div className="page-wrapper">
+    <div className="page-wrapper" style={isModal ? { padding: '10px 0', maxWidth: '100%' } : {}}>
+      {/* Optional Modal Return / Close Header */}
+      {onClose && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '14px',
+          padding: '10px 16px',
+          background: '#f8fafc',
+          borderRadius: '8px',
+          border: '1.5px solid #cbd5e1'
+        }}>
+          <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>🧾 Monthly Bill Generator — {selectedCustomer?.name || 'Customer'}</span>
+            <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: '700', background: '#dcfce7', padding: '2px 8px', borderRadius: '4px' }}>
+              Direct From Customer Edit
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn btn-outline btn-sm"
+            style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 10px' }}
+          >
+            <X size={15} /> Close & Return to Customer
+          </button>
+        </div>
+      )}
+
       {/* Top Customer / Requirement Control Bar */}
       <div className="card" style={{ marginBottom: '20px', padding: '16px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1.6fr) minmax(180px, 1fr) minmax(120px, 0.8fr) auto', gap: '14px', alignItems: 'flex-start' }}>
@@ -1714,6 +1974,46 @@ export default function MonthlyBillGeneratePage() {
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.72rem', padding: '3px 8px', background: '#ecfdf5', borderColor: '#10b981', color: '#047857', fontWeight: '800' }}
+                onClick={() => setPresetDays('TTS')}
+              >
+                🥛 Tue, Thu, Sat
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.72rem', padding: '3px 8px', background: '#eff6ff', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: '800' }}
+                onClick={() => setPresetDays('MWF')}
+              >
+                🥛 Mon, Wed, Fri
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+                onClick={() => setPresetDays('MON_TO_SAT')}
+              >
+                Mon – Sat
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+                onClick={() => setPresetDays('WEEKDAYS')}
+              >
+                Weekdays
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+                onClick={() => setPresetDays('WEEKENDS')}
+              >
+                Weekends
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
                 style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                 onClick={() => setPresetDays('FULL')}
               >
@@ -1741,7 +2041,7 @@ export default function MonthlyBillGeneratePage() {
                 style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                 onClick={() => setPresetDays('ODD')}
               >
-                Alternate (Odd)
+                Alt (Odd)
               </button>
               <button
                 type="button"
@@ -1749,7 +2049,7 @@ export default function MonthlyBillGeneratePage() {
                 style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                 onClick={() => setPresetDays('EVEN')}
               >
-                Alternate (Even)
+                Alt (Even)
               </button>
               <button
                 type="button"
@@ -1759,6 +2059,43 @@ export default function MonthlyBillGeneratePage() {
               >
                 Clear All
               </button>
+            </div>
+          </div>
+
+          {/* Day of Week Toggle in Modal */}
+          <div style={{ background: '#f1f5f9', padding: '8px 12px', borderRadius: '6px' }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '4px' }}>
+              Select by Day of Week:
+            </span>
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {DAYS_OF_WEEK.map((dow) => {
+                const [y, m] = (selectedMonth || '2026-10').split('-').map(Number);
+                const totalDays = defaultMonthDays;
+                const dowsInMonth = [];
+                for (let d = 1; d <= totalDays; d++) {
+                  if (new Date(y, m - 1, d).getDay() === dow.index) dowsInMonth.push(d);
+                }
+                const isActive = dowsInMonth.length > 0 && dowsInMonth.every(d => tempSelectedDays.includes(d));
+                return (
+                  <button
+                    key={dow.index}
+                    type="button"
+                    onClick={() => toggleTempDayOfWeek(dow.index)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      fontSize: '0.72rem',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      border: isActive ? '1.5px solid #059669' : '1px solid #cbd5e1',
+                      background: isActive ? '#10b981' : '#ffffff',
+                      color: isActive ? '#ffffff' : '#334155'
+                    }}
+                  >
+                    {isActive ? '✓ ' : ''}{dow.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -2119,7 +2456,52 @@ export default function MonthlyBillGeneratePage() {
 
           {/* Quick Presets */}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.72rem', fontWeight: '800', color: 'var(--text-secondary)' }}>Quick Presets:</span>
+            <span style={{ fontSize: '0.72rem', fontWeight: '800', color: 'var(--text-secondary)' }}>Quick Patterns:</span>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 9px', background: '#ecfdf5', borderColor: '#10b981', color: '#047857', fontWeight: '800' }}
+              onClick={() => handleApplyCalendarPreset('TTS')}
+              title="Automatically mark all Tuesdays, Thursdays, Saturdays of the month"
+            >
+              🥛 Tue, Thu, Sat (TTS)
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 9px', background: '#eff6ff', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: '800' }}
+              onClick={() => handleApplyCalendarPreset('MWF')}
+              title="Automatically mark all Mondays, Wednesdays, Fridays of the month"
+            >
+              🥛 Mon, Wed, Fri (MWF)
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px', fontWeight: '700' }}
+              onClick={() => handleApplyCalendarPreset('MON_TO_SAT')}
+              title="Mark Monday through Saturday (6 Days/week)"
+            >
+              Mon – Sat
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px', fontWeight: '700' }}
+              onClick={() => handleApplyCalendarPreset('WEEKDAYS')}
+              title="Mark Monday to Friday only"
+            >
+              Weekdays (M-F)
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px', fontWeight: '700' }}
+              onClick={() => handleApplyCalendarPreset('WEEKENDS')}
+              title="Mark Saturday and Sunday only"
+            >
+              Weekends (Sat+Sun)
+            </button>
             <button
               type="button"
               className="btn btn-outline btn-sm"
@@ -2136,7 +2518,7 @@ export default function MonthlyBillGeneratePage() {
               onClick={() => handleApplyCalendarPreset('ODD')}
               title="Mark alternate days (1, 3, 5, 7...)"
             >
-              Alternate (Odd)
+              Alt (Odd)
             </button>
             <button
               type="button"
@@ -2145,26 +2527,68 @@ export default function MonthlyBillGeneratePage() {
               onClick={() => handleApplyCalendarPreset('EVEN')}
               title="Mark alternate days (2, 4, 6, 8...)"
             >
-              Alternate (Even)
+              Alt (Even)
             </button>
             <button
               type="button"
               className="btn btn-outline btn-sm"
-              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
-              onClick={() => handleApplyCalendarPreset('WEEKDAYS')}
-              title="Mark Monday to Friday only"
-            >
-              Weekdays
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              style={{ fontSize: '0.72rem', padding: '3px 8px', color: '#dc2626', borderColor: '#fecaca' }}
+              style={{ fontSize: '0.72rem', padding: '3px 8px', color: '#dc2626', borderColor: '#fecaca', fontWeight: '700' }}
               onClick={() => handleApplyCalendarPreset('CLEAR')}
               title="Mark all days as No Milk Required"
             >
               All No Milk
             </button>
+          </div>
+        </div>
+
+        {/* Dedicated Day-of-Week Selection Bar */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          flexWrap: 'wrap',
+          padding: '8px 12px',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          marginBottom: '14px'
+        }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#334155', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            🗓️ Select by Days of Week:
+          </span>
+          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+            {DAYS_OF_WEEK.map((dow) => {
+              const isActive = Boolean(activeDowStatus[dow.index]);
+              return (
+                <button
+                  key={dow.index}
+                  type="button"
+                  onClick={() => handleToggleDayOfWeek(dow.index)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    border: isActive ? '1.5px solid #059669' : '1px solid #cbd5e1',
+                    background: isActive ? '#10b981' : '#ffffff',
+                    color: isActive ? '#ffffff' : '#475569',
+                    boxShadow: isActive ? '0 2px 4px rgba(16,185,129,0.25)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title={`Click to automatically toggle all ${dow.fullName}s in this month`}
+                >
+                  <span>{isActive ? '✓' : ''}</span>
+                  <span>{dow.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ marginLeft: 'auto', fontStyle: 'italic', fontSize: '0.72rem', color: '#64748b' }}>
+            💡 Click any day of the week (e.g. Tue, Thu, Sat) to automatically select all those days across the month.
           </div>
         </div>
 
