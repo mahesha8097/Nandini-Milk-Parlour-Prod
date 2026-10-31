@@ -528,14 +528,76 @@ async function runWeeklyAndCouponTests() {
 
   console.log('[TEST 14] Coupon Delivery Charge Rule (1 coupon = ₹1.50, 2 coupons = ₹3.00, regular = ₹2.00) verified! ✓');
 
+  // [TEST 15] Leftover Physical Coupons (Pre-App, ₹0 Price)
+  const leftoverCustRes = await db.prepare(`
+    INSERT INTO customers (
+      name, phone, address, customer_category, billing_type,
+      advance_balance, pending_balance, coupon_balance, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      'Leftover Physical Coupon Customer', '9888877778', 'Flat 101, Test Enclave', 'HOUSE', 'COUPON',
+      0.0, 0.0, 0, 1,
+      datetime('now', 'localtime'), datetime('now', 'localtime')
+    )
+  `).run();
+  const leftoverCustId = leftoverCustRes.lastInsertRowid;
+
+  // Issue 15 leftover physical coupons with price = 0
+  const leftoverBook = await issueCouponBook({
+    customerId: leftoverCustId,
+    totalCoupons: 15,
+    isLeftover: true,
+    pricePaid: 0,
+    notes: 'Existing physical coupons held prior to app creation'
+  });
+
+  assert.strictEqual(leftoverBook.book.price_paid, 0, 'Leftover coupon book price must be ₹0.00');
+  assert.strictEqual(leftoverBook.book.remaining_coupons, 15, 'Leftover book must have 15 remaining coupons');
+
+  const leftoverCustAfterIssue = await db.prepare('SELECT * FROM customers WHERE id = ?').get(leftoverCustId);
+  assert.strictEqual(leftoverCustAfterIssue.coupon_balance, 15, 'Customer coupon balance must be 15');
+
+  // Verify NO payments or customer_ledger entries were created (zero financial distortion)
+  const paymentCount = await db.prepare('SELECT COUNT(*) as cnt FROM payments WHERE customer_id = ?').get(leftoverCustId);
+  assert.strictEqual(paymentCount.cnt, 0, 'No payment record should be created for leftover coupons (₹0)');
+
+  const ledgerCount = await db.prepare('SELECT COUNT(*) as cnt FROM customer_ledger WHERE customer_id = ?').get(leftoverCustId);
+  assert.strictEqual(ledgerCount.cnt, 0, 'No ledger entry should be created for leftover coupons (₹0)');
+
+  // Verify normal delivery deduction works with leftover coupons (deliver 2 packets)
+  const leftoverDelivery = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, product_id, quantity, status, delivery_date,
+      unit_price_snapshot, delivery_charge_snapshot, total_product_amount, total_amount,
+      category_snapshot, product_name_snapshot, variant_snapshot, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      ?, ?, 2, 'DELIVERED', '2026-10-31',
+      24.0, 3.0, 48.0, 51.0,
+      'Milk', 'Toned Milk', '500 ml', 1,
+      datetime('now'), datetime('now')
+    )
+  `).run(leftoverCustId, prodA.id);
+
+  await syncCouponsForDelivery(leftoverDelivery.lastInsertRowid);
+
+  const leftoverCustAfterDelivery = await db.prepare('SELECT * FROM customers WHERE id = ?').get(leftoverCustId);
+  assert.strictEqual(leftoverCustAfterDelivery.coupon_balance, 13, 'Customer balance should deduct 2 coupons (15 -> 13)');
+
+  const leftoverBookAfterDelivery = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(leftoverBook.book.id);
+  assert.strictEqual(leftoverBookAfterDelivery.remaining_coupons, 13, 'Book remaining coupons should be 13');
+  assert.strictEqual(leftoverBookAfterDelivery.used_coupons, 2, 'Book used coupons should be 2');
+
+  console.log('[TEST 15] Leftover Physical Coupons (Pre-App, ₹0 Price, No Payment Receipt, Normal Delivery Deduction 15 -> 13) verified! ✓');
+
   // Clean test data
-  await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
-  await db.prepare('DELETE FROM coupon_transactions WHERE customer_id IN (?, ?)').run(customerId, multiCustId);
-  await db.prepare('DELETE FROM coupon_books WHERE customer_id IN (?, ?)').run(customerId, multiCustId);
-  await db.prepare('DELETE FROM deliveries WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
-  await db.prepare('DELETE FROM payments WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
-  await db.prepare('DELETE FROM customer_ledger WHERE customer_id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
-  await db.prepare('DELETE FROM customers WHERE id IN (?, ?, ?)').run(customerId, weeklyCustId, multiCustId);
+  await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?, ?, ?)').run(customerId, weeklyCustId, multiCustId, leftoverCustId);
+  await db.prepare('DELETE FROM coupon_transactions WHERE customer_id IN (?, ?, ?)').run(customerId, multiCustId, leftoverCustId);
+  await db.prepare('DELETE FROM coupon_books WHERE customer_id IN (?, ?, ?)').run(customerId, multiCustId, leftoverCustId);
+  await db.prepare('DELETE FROM deliveries WHERE customer_id IN (?, ?, ?, ?)').run(customerId, weeklyCustId, multiCustId, leftoverCustId);
+  await db.prepare('DELETE FROM payments WHERE customer_id IN (?, ?, ?, ?)').run(customerId, weeklyCustId, multiCustId, leftoverCustId);
+  await db.prepare('DELETE FROM customer_ledger WHERE customer_id IN (?, ?, ?, ?)').run(customerId, weeklyCustId, multiCustId, leftoverCustId);
+  await db.prepare('DELETE FROM customers WHERE id IN (?, ?, ?, ?)').run(customerId, weeklyCustId, multiCustId, leftoverCustId);
   await db.prepare('DELETE FROM products WHERE id = ?').run(curdProdId);
 
   console.log('\n================================================================');

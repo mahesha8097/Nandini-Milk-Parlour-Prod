@@ -86,7 +86,8 @@ export default function CustomerProfileModal({
     price_paid: '',
     payment_method: 'CASH',
     issue_date: getLocalDateString(),
-    notes: ''
+    notes: '',
+    is_leftover: false
   });
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState('');
@@ -100,10 +101,11 @@ export default function CustomerProfileModal({
         customer_id: customerId,
         book_number: couponForm.book_number.trim() || undefined,
         total_coupons: parseInt(couponForm.total_coupons, 10),
-        price_paid: parseFloat(couponForm.price_paid || 0),
-        payment_method: couponForm.payment_method,
+        price_paid: couponForm.is_leftover ? 0 : parseFloat(couponForm.price_paid || 0),
+        payment_method: couponForm.is_leftover ? 'PRE_APP_PHYSICAL' : couponForm.payment_method,
         issue_date: couponForm.issue_date,
-        notes: couponForm.notes
+        notes: couponForm.notes,
+        is_leftover: couponForm.is_leftover
       });
       setShowIssueBook(false);
       setCouponForm({
@@ -112,7 +114,8 @@ export default function CustomerProfileModal({
         price_paid: '',
         payment_method: 'CASH',
         issue_date: getLocalDateString(),
-        notes: ''
+        notes: '',
+        is_leftover: false
       });
       await fetchCustomerProfile();
       onRefreshList?.();
@@ -637,27 +640,109 @@ export default function CustomerProfileModal({
               </div>
 
               {/* Action Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <h4 style={{ fontSize: '0.92rem', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Ticket size={16} color="#d97706" />
                   Coupon Books Given to Customer
                 </h4>
-                <button
-                  type="button"
-                  onClick={() => setShowIssueBook(!showIssueBook)}
-                  className="btn btn-primary btn-sm"
-                  style={{ background: '#d97706', borderColor: '#b45309' }}
-                >
-                  <PlusCircle size={14} /> {showIssueBook ? 'Close Form' : '+ Issue New Coupon Book'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCouponForm({
+                        book_number: `PHYSICAL-${customerId}-${Math.floor(100 + Math.random() * 900)}`,
+                        total_coupons: 15,
+                        price_paid: '0',
+                        payment_method: 'CASH',
+                        issue_date: getLocalDateString(),
+                        notes: 'Existing physical coupons held prior to app onboarding',
+                        is_leftover: true
+                      });
+                      setShowIssueBook(true);
+                    }}
+                    className="btn btn-secondary btn-sm"
+                    style={{ background: '#0284c7', borderColor: '#0369a1', color: '#fff', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Record physical coupons customer held prior to creating app (₹0 price, normal delivery deduction)"
+                  >
+                    <Ticket size={14} /> Record Leftover (₹0)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (showIssueBook && !couponForm.is_leftover) {
+                        setShowIssueBook(false);
+                      } else {
+                        setCouponForm({
+                          book_number: '',
+                          total_coupons: 30,
+                          price_paid: '',
+                          payment_method: 'CASH',
+                          issue_date: getLocalDateString(),
+                          notes: '',
+                          is_leftover: false
+                        });
+                        setShowIssueBook(true);
+                      }
+                    }}
+                    className="btn btn-primary btn-sm"
+                    style={{ background: '#d97706', borderColor: '#b45309', fontSize: '0.8rem' }}
+                  >
+                    <PlusCircle size={14} /> {showIssueBook && !couponForm.is_leftover ? 'Close Form' : '+ Issue New Coupon Book'}
+                  </button>
+                </div>
               </div>
 
               {/* Issue New Coupon Book Form */}
               {showIssueBook && (
-                <div className="card" style={{ padding: '16px', background: '#fffbeb', border: '1px solid #fde68a' }}>
-                  <h4 style={{ fontSize: '0.9rem', color: '#92400e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <PlusCircle size={16} /> Issue New Coupon Book (Advance Payment)
-                  </h4>
+                <div className="card" style={{ padding: '16px', background: couponForm.is_leftover ? '#f0fdf4' : '#fffbeb', border: couponForm.is_leftover ? '1px solid #86efac' : '1px solid #fde68a' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <h4 style={{ fontSize: '0.9rem', color: couponForm.is_leftover ? '#14532d' : '#92400e', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Ticket size={16} />
+                      {couponForm.is_leftover ? 'Record Leftover Physical Coupons (Held Before App)' : 'Issue New Coupon Book (Advance Payment)'}
+                    </h4>
+
+                    {/* Mode Toggle */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setCouponForm({ ...couponForm, is_leftover: false, price_paid: '' })}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '0.74rem',
+                          fontWeight: 600,
+                          border: 'none',
+                          cursor: 'pointer',
+                          background: !couponForm.is_leftover ? '#d97706' : '#e2e8f0',
+                          color: !couponForm.is_leftover ? '#fff' : 'var(--text-muted)'
+                        }}
+                      >
+                        📘 Standard Book
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCouponForm({
+                          ...couponForm,
+                          is_leftover: true,
+                          price_paid: '0',
+                          book_number: couponForm.book_number || `PHYSICAL-${customerId}-${Math.floor(100 + Math.random() * 900)}`,
+                          notes: couponForm.notes || 'Existing physical coupons held prior to app onboarding'
+                        })}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '0.74rem',
+                          fontWeight: 600,
+                          border: 'none',
+                          cursor: 'pointer',
+                          background: couponForm.is_leftover ? '#0284c7' : '#e2e8f0',
+                          color: couponForm.is_leftover ? '#fff' : 'var(--text-muted)'
+                        }}
+                      >
+                        🎟️ Leftover (₹0)
+                      </button>
+                    </div>
+                  </div>
 
                   {couponError && (
                     <div style={{ padding: '8px 12px', background: '#fee2e2', color: '#991b1b', borderRadius: '6px', fontSize: '0.8rem', marginBottom: '12px' }}>
@@ -668,72 +753,108 @@ export default function CustomerProfileModal({
                   <form onSubmit={handleIssueBook}>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Book Number / Serial (Optional)</label>
+                        <label className="form-label">{couponForm.is_leftover ? 'Physical Serial / Book # (Optional)' : 'Book Number / Serial (Optional)'}</label>
                         <input
                           type="text"
                           className="form-input"
-                          placeholder="e.g. BK-2026-001"
+                          placeholder={couponForm.is_leftover ? 'e.g. PHYSICAL-001' : 'e.g. BK-2026-001'}
                           value={couponForm.book_number}
                           onChange={(e) => setCouponForm({ ...couponForm, book_number: e.target.value })}
                         />
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">Total Coupons in Book *</label>
+                        <label className="form-label">{couponForm.is_leftover ? 'Number of Remaining Physical Coupons Held *' : 'Total Coupons in Book *'}</label>
                         <input
                           type="number"
                           min="1"
                           required
                           className="form-input"
-                          placeholder="e.g. 30 or 60"
+                          placeholder={couponForm.is_leftover ? 'e.g. 15' : 'e.g. 30 or 60'}
                           value={couponForm.total_coupons}
                           onChange={(e) => setCouponForm({ ...couponForm, total_coupons: e.target.value })}
                         />
                       </div>
                     </div>
 
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label className="form-label">Advance Price Paid (₹)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          className="form-input"
-                          placeholder="0.00"
-                          value={couponForm.price_paid}
-                          onChange={(e) => setCouponForm({ ...couponForm, price_paid: e.target.value })}
-                        />
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          Recorded automatically in customer payments & ledger
+                    {/* Quick Presets */}
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Quick Presets:</span>
+                      {(couponForm.is_leftover ? [5, 10, 15, 20, 25, 30] : [30, 50, 60, 100]).map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setCouponForm({ ...couponForm, total_coupons: num })}
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '0.72rem',
+                            border: '1px solid #cbd5e1',
+                            background: parseInt(couponForm.total_coupons, 10) === num ? (couponForm.is_leftover ? '#0284c7' : '#d97706') : '#fff',
+                            color: parseInt(couponForm.total_coupons, 10) === num ? '#fff' : 'var(--text-secondary)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {num} coupons
+                        </button>
+                      ))}
+                    </div>
+
+                    {couponForm.is_leftover ? (
+                      <div style={{ padding: '12px', background: '#dcfce7', border: '1px solid #86efac', borderRadius: '8px', fontSize: '0.8rem', color: '#166534', marginBottom: '12px' }}>
+                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <CheckCircle size={15} color="#16a34a" />
+                          <span>Price: ₹0.00 (No payment charged)</span>
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: '#15803d', lineHeight: '1.4' }}>
+                          Already paid offline before app creation. <strong>No payment receipt or customer ledger entry is created</strong>.
+                          These {couponForm.total_coupons || 0} coupons will credit directly to active balance and deduct normally on daily milk deliveries until exhausted.
                         </div>
                       </div>
+                    ) : (
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">Advance Price Paid (₹)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            className="form-input"
+                            placeholder="0.00"
+                            value={couponForm.price_paid}
+                            onChange={(e) => setCouponForm({ ...couponForm, price_paid: e.target.value })}
+                          />
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Recorded automatically in customer payments & ledger
+                          </div>
+                        </div>
 
-                      <div className="form-group">
-                        <label className="form-label">Payment Method</label>
-                        <select
-                          className="form-select"
-                          value={couponForm.payment_method}
-                          onChange={(e) => setCouponForm({ ...couponForm, payment_method: e.target.value })}
-                        >
-                          <option value="CASH">Cash</option>
-                          <option value="UPI">UPI / GPay / PhonePe</option>
-                          <option value="BANK_TRANSFER">Bank Transfer</option>
-                          <option value="ONLINE">Online</option>
-                        </select>
-                      </div>
+                        <div className="form-group">
+                          <label className="form-label">Payment Method</label>
+                          <select
+                            className="form-select"
+                            value={couponForm.payment_method}
+                            onChange={(e) => setCouponForm({ ...couponForm, payment_method: e.target.value })}
+                          >
+                            <option value="CASH">Cash</option>
+                            <option value="UPI">UPI / GPay / PhonePe</option>
+                            <option value="BANK_TRANSFER">Bank Transfer</option>
+                            <option value="ONLINE">Online</option>
+                          </select>
+                        </div>
 
-                      <div className="form-group">
-                        <label className="form-label">Issue Date *</label>
-                        <input
-                          type="date"
-                          required
-                          className="form-input"
-                          value={couponForm.issue_date}
-                          onChange={(e) => setCouponForm({ ...couponForm, issue_date: e.target.value })}
-                        />
+                        <div className="form-group">
+                          <label className="form-label">Issue Date *</label>
+                          <input
+                            type="date"
+                            required
+                            className="form-input"
+                            value={couponForm.issue_date}
+                            onChange={(e) => setCouponForm({ ...couponForm, issue_date: e.target.value })}
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div className="form-group">
                       <label className="form-label">Notes (Optional)</label>
@@ -758,10 +879,17 @@ export default function CustomerProfileModal({
                       <button
                         type="submit"
                         className="btn btn-primary btn-sm"
-                        style={{ background: '#d97706', borderColor: '#b45309' }}
+                        style={{
+                          background: couponForm.is_leftover ? '#0284c7' : '#d97706',
+                          borderColor: couponForm.is_leftover ? '#0369a1' : '#b45309'
+                        }}
                         disabled={couponLoading}
                       >
-                        {couponLoading ? 'Issuing...' : 'Issue Book & Add Coupons'}
+                        {couponLoading
+                          ? 'Saving...'
+                          : couponForm.is_leftover
+                          ? `Record ${couponForm.total_coupons || 0} Leftover Coupons (₹0)`
+                          : 'Issue Book & Add Coupons'}
                       </button>
                     </div>
                   </form>
@@ -773,16 +901,48 @@ export default function CustomerProfileModal({
                 <EmptyState
                   icon={Ticket}
                   title="No coupon books issued yet"
-                  description="When customer takes a new coupon book, click '+ Issue New Coupon Book' to credit coupons and record the advance payment."
+                  description="When customer takes a new coupon book, click '+ Issue New Coupon Book' or 'Record Leftover (₹0)' to credit coupons."
                   action={
-                    <button
-                      type="button"
-                      onClick={() => setShowIssueBook(true)}
-                      className="btn btn-primary btn-sm"
-                      style={{ background: '#d97706', borderColor: '#b45309' }}
-                    >
-                      <PlusCircle size={14} /> Issue First Coupon Book
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCouponForm({
+                            book_number: `PHYSICAL-${customerId}-${Math.floor(100 + Math.random() * 900)}`,
+                            total_coupons: 15,
+                            price_paid: '0',
+                            payment_method: 'CASH',
+                            issue_date: getLocalDateString(),
+                            notes: 'Existing physical coupons held prior to app onboarding',
+                            is_leftover: true
+                          });
+                          setShowIssueBook(true);
+                        }}
+                        className="btn btn-secondary btn-sm"
+                        style={{ background: '#0284c7', borderColor: '#0369a1', color: '#fff' }}
+                      >
+                        <Ticket size={14} /> Record Leftover (₹0)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCouponForm({
+                            book_number: '',
+                            total_coupons: 30,
+                            price_paid: '',
+                            payment_method: 'CASH',
+                            issue_date: getLocalDateString(),
+                            notes: '',
+                            is_leftover: false
+                          });
+                          setShowIssueBook(true);
+                        }}
+                        className="btn btn-primary btn-sm"
+                        style={{ background: '#d97706', borderColor: '#b45309' }}
+                      >
+                        <PlusCircle size={14} /> Issue First Coupon Book
+                      </button>
+                    </div>
                   }
                 />
               ) : (
@@ -803,7 +963,14 @@ export default function CustomerProfileModal({
                       <tbody>
                         {profile.coupon_books.map((b) => (
                           <tr key={b.id}>
-                            <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{b.book_number}</td>
+                            <td style={{ fontWeight: '700', color: 'var(--primary)' }}>
+                              {b.book_number}
+                              {b.notes && (
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '400' }}>
+                                  {b.notes}
+                                </div>
+                              )}
+                            </td>
                             <td>{b.issue_date}</td>
                             <td><span style={{ fontWeight: '700' }}>{b.total_coupons}</span></td>
                             <td style={{ color: '#dc2626', fontWeight: '700' }}>{b.used_coupons}</td>
@@ -818,7 +985,26 @@ export default function CustomerProfileModal({
                                 {b.remaining_coupons} left
                               </span>
                             </td>
-                            <td style={{ fontWeight: '700' }}>₹{(b.price_paid || 0).toFixed(2)}</td>
+                            <td style={{ fontWeight: '700' }}>
+                              {(!b.price_paid || parseFloat(b.price_paid) === 0) ? (
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '600',
+                                  background: '#ecfdf5',
+                                  color: '#047857',
+                                  border: '1px solid #a7f3d0'
+                                }}>
+                                  🎟️ Pre-App (₹0)
+                                </span>
+                              ) : (
+                                `₹${parseFloat(b.price_paid).toFixed(2)}`
+                              )}
+                            </td>
                             <td>
                               <span className={`badge ${b.status === 'ACTIVE' ? 'badge-success' : 'badge-gray'}`}>
                                 {b.status}
@@ -845,8 +1031,8 @@ export default function CustomerProfileModal({
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f8fafc', borderRadius: '8px', fontSize: '0.8rem', marginTop: '6px' }}>
                           <div>Total: <strong>{b.total_coupons}</strong></div>
                           <div style={{ color: '#dc2626' }}>Used: <strong>{b.used_coupons}</strong></div>
-                          <div style={{ color: '#16a34a' }}>Left: <strong>{b.remaining_coupons}</strong></div>
-                          <div>Paid: <strong>₹{(b.price_paid || 0).toFixed(2)}</strong></div>
+                          <div style={{ color: '#166534' }}>Left: <strong>{b.remaining_coupons}</strong></div>
+                          <div>Paid: <strong>{(!b.price_paid || parseFloat(b.price_paid) === 0) ? '₹0 (Pre-App)' : `₹${parseFloat(b.price_paid).toFixed(2)}`}</strong></div>
                         </div>
                       </div>
                     ))}

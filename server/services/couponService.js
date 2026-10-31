@@ -64,7 +64,8 @@ async function issueCouponBook({
   issueDate,
   notes = '',
   agentId = 1,
-  recordedByUserId = null
+  recordedByUserId = null,
+  isLeftover = false
 }) {
   const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
   if (!customer) {
@@ -91,15 +92,19 @@ async function issueCouponBook({
 
   const finalBookNumber = bookNumber && bookNumber.trim()
     ? bookNumber.trim()
-    : `BK-${customerId}-${Date.now().toString().slice(-4)}`;
+    : (isLeftover ? `PHYSICAL-${customerId}-${Date.now().toString().slice(-4)}` : `BK-${customerId}-${Date.now().toString().slice(-4)}`);
 
   const finalIssueDate = issueDate || new Date().toISOString().slice(0, 10);
-  let amountPaid = pricePaid !== null && pricePaid !== undefined ? parseFloat(pricePaid) : NaN;
+  let amountPaid = isLeftover ? 0 : (pricePaid !== null && pricePaid !== undefined ? parseFloat(pricePaid) : NaN);
   if (isNaN(amountPaid)) {
     const unitPrice = product ? parseFloat(product.selling_price || 25) : 25;
     const delCharge = getStandardDeliveryChargePerUnit(product, customer.customer_category);
     amountPaid = parseFloat((couponsCount * (unitPrice + delCharge)).toFixed(2));
   }
+
+  const finalNotes = isLeftover
+    ? (notes ? `[Existing Physical Coupons] ${notes}` : '[Existing Physical Coupons - Prior to App]')
+    : (notes || '');
 
   // 1. Insert coupon book
   const insertBook = await db.prepare(`
@@ -121,7 +126,7 @@ async function issueCouponBook({
     amountPaid,
     paymentMethod,
     finalIssueDate,
-    notes,
+    finalNotes,
     agentId || customer.agent_id || 1
   );
 
@@ -139,6 +144,10 @@ async function issueCouponBook({
 
   // 3. Log in coupon_transactions
   const productLabel = product ? `${product.name} (${product.variant_label || ''})` : 'Universal Milk';
+  const txDesc = isLeftover
+    ? `Credited ${couponsCount} leftover physical coupons held prior to app onboarding (${productLabel}) - ₹0.00`
+    : `Purchased Coupon Book #${finalBookNumber} (${couponsCount} coupons for ${productLabel})${notes ? ` - ${notes}` : ''}`;
+
   await db.prepare(`
     INSERT INTO coupon_transactions (
       customer_id, coupon_book_id, delivery_id, change_amount, balance_after,
@@ -153,7 +162,7 @@ async function issueCouponBook({
     couponsCount,
     newCouponBal,
     finalIssueDate,
-    `Purchased Coupon Book #${finalBookNumber} (${couponsCount} coupons for ${productLabel})${notes ? ` - ${notes}` : ''}`,
+    txDesc,
     agentId || customer.agent_id || 1
   );
 

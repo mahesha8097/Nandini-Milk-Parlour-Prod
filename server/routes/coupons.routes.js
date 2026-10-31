@@ -88,10 +88,21 @@ router.get('/customers/:id', verifyToken, async (req, res) => {
   }
 });
 
-// Issue / Add a new coupon book to a customer (Admin only)
+// Issue / Add a new coupon book or record leftover physical coupons (Admin only)
 router.post('/issue', requireAdmin, async (req, res) => {
   try {
-    const { customer_id, product_id, book_number, total_coupons, price_paid, payment_method, issue_date, notes } = req.body;
+    const {
+      customer_id,
+      product_id,
+      book_number,
+      total_coupons,
+      price_paid,
+      payment_method,
+      issue_date,
+      notes,
+      is_leftover,
+      is_opening_balance
+    } = req.body;
 
     if (!customer_id) {
       return res.status(400).json({ error: 'Customer ID is required' });
@@ -100,26 +111,78 @@ router.post('/issue', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Total coupons count is required and must be greater than 0' });
     }
 
+    const isLeftoverCoupon = Boolean(is_leftover || is_opening_balance);
+    const finalPricePaid = isLeftoverCoupon
+      ? 0
+      : (price_paid !== undefined && price_paid !== null && price_paid !== '' ? parseFloat(price_paid) : null);
+
     const result = await issueCouponBook({
       customerId: customer_id,
       productId: product_id || null,
       bookNumber: book_number,
       totalCoupons: parseInt(total_coupons, 10),
-      pricePaid: parseFloat(price_paid || 0),
+      pricePaid: finalPricePaid,
       paymentMethod: payment_method || 'CASH',
       issueDate: issue_date,
       notes,
+      isLeftover: isLeftoverCoupon,
       agentId: req.agentId || 1,
       recordedByUserId: req.user?.id || null
     });
 
     res.status(201).json({
-      message: `Coupon Book #${result.book.book_number} issued successfully!`,
+      message: isLeftoverCoupon
+        ? `Added ${result.book.total_coupons} leftover physical coupons (₹0.00) for customer!`
+        : `Coupon Book #${result.book.book_number} issued successfully!`,
       ...result
     });
   } catch (err) {
     console.error('Issue coupon book error:', err);
     res.status(400).json({ error: err.message || 'Failed to issue coupon book' });
+  }
+});
+
+// Dedicated endpoint to record leftover physical coupons (₹0 Price, No payment receipt)
+router.post('/leftover', requireAdmin, async (req, res) => {
+  try {
+    const {
+      customer_id,
+      product_id,
+      total_coupons,
+      book_number,
+      issue_date,
+      notes
+    } = req.body;
+
+    if (!customer_id) {
+      return res.status(400).json({ error: 'Customer ID is required' });
+    }
+    const count = parseInt(total_coupons, 10);
+    if (!count || count <= 0) {
+      return res.status(400).json({ error: 'Number of leftover physical coupons must be greater than 0' });
+    }
+
+    const result = await issueCouponBook({
+      customerId: customer_id,
+      productId: product_id || null,
+      bookNumber: book_number,
+      totalCoupons: count,
+      pricePaid: 0,
+      paymentMethod: 'OFFLINE_PREPAID',
+      issueDate: issue_date,
+      notes: notes || 'Existing physical coupons held prior to app onboarding',
+      isLeftover: true,
+      agentId: req.agentId || 1,
+      recordedByUserId: req.user?.id || null
+    });
+
+    res.status(201).json({
+      message: `Successfully credited ${count} leftover physical coupons (₹0.00) to customer!`,
+      ...result
+    });
+  } catch (err) {
+    console.error('Record leftover coupons error:', err);
+    res.status(400).json({ error: err.message || 'Failed to record leftover physical coupons' });
   }
 });
 

@@ -74,7 +74,8 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     price_paid: 750,
     payment_method: 'CASH',
     issue_date: new Date().toISOString().slice(0, 10),
-    notes: ''
+    notes: '',
+    is_leftover: false
   });
 
   const [editBookForm, setEditBookForm] = useState({
@@ -228,7 +229,31 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       price_paid: parseFloat((defaultTotal * totalRate).toFixed(2)),
       payment_method: 'CASH',
       issue_date: new Date().toISOString().slice(0, 10),
-      notes: targetCust ? `Coupon Book for ${targetCust.name}` : ''
+      notes: targetCust ? `Coupon Book for ${targetCust.name}` : '',
+      is_leftover: false
+    });
+    setSelectedCustomer(targetCust);
+    setShowIssueModal(true);
+  };
+
+  const handleOpenLeftoverModal = (cust = null, preselectedProductId = null) => {
+    const targetCust = cust || allCustomers[0] || null;
+    const custId = targetCust ? targetCust.id : '';
+    const selectedProd = allProducts.find(p => p.id === parseInt(preselectedProductId, 10));
+    const prodPrefix = selectedProd ? (selectedProd.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
+    const defaultBookNo = `PHYSICAL-${prodPrefix}-${custId || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`;
+    const defaultTotal = 15;
+
+    setIssueForm({
+      customer_id: custId,
+      product_id: preselectedProductId ? String(preselectedProductId) : '',
+      book_number: defaultBookNo,
+      total_coupons: defaultTotal,
+      price_paid: 0,
+      payment_method: 'CASH',
+      issue_date: new Date().toISOString().slice(0, 10),
+      notes: targetCust ? `Existing physical coupons held by ${targetCust.name} prior to app onboarding` : 'Existing physical coupons held prior to app onboarding',
+      is_leftover: true
     });
     setSelectedCustomer(targetCust);
     setShowIssueModal(true);
@@ -240,14 +265,15 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
     const { totalRate } = calculateCouponRate(p, targetCust);
     const prodPrefix = p ? (p.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
-    const newBookNo = issueForm.book_number.startsWith('BK-')
-      ? `BK-${prodPrefix}-${issueForm.customer_id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
+    const prefix = issueForm.is_leftover ? 'PHYSICAL' : 'BK';
+    const newBookNo = (issueForm.book_number.startsWith('BK-') || issueForm.book_number.startsWith('PHYSICAL-'))
+      ? `${prefix}-${prodPrefix}-${issueForm.customer_id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
       : issueForm.book_number;
 
     setIssueForm({
       ...issueForm,
       product_id: prodId,
-      price_paid: parseFloat((total * totalRate).toFixed(2)),
+      price_paid: issueForm.is_leftover ? 0 : parseFloat((total * totalRate).toFixed(2)),
       book_number: newBookNo
     });
   };
@@ -260,7 +286,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     setIssueForm({
       ...issueForm,
       total_coupons: newTotal,
-      price_paid: parseFloat((total * totalRate).toFixed(2))
+      price_paid: issueForm.is_leftover ? 0 : parseFloat((total * totalRate).toFixed(2))
     });
   };
 
@@ -315,9 +341,10 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
       setSaving(true);
       const res = await api.post('/coupons/issue', {
         ...issueForm,
+        price_paid: issueForm.is_leftover ? 0 : parseFloat(issueForm.price_paid || 0),
         product_id: issueForm.product_id ? parseInt(issueForm.product_id, 10) : null
       });
-      setMessage({ type: 'success', text: res.message || 'Coupon book issued successfully!' });
+      setMessage({ type: 'success', text: res.message || (issueForm.is_leftover ? 'Leftover physical coupons recorded successfully (₹0 price)!' : 'Coupon book issued successfully!') });
       setShowIssueModal(false);
       fetchSummary();
       fetchCustomers();
@@ -481,7 +508,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => { fetchSummary(); fetchBooks(); }}
             className="btn btn-outline"
@@ -490,6 +517,23 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           >
             <RefreshCw size={16} className={loading || booksLoading ? 'animate-spin' : ''} />
             Refresh
+          </button>
+          <button
+            onClick={() => handleOpenLeftoverModal()}
+            className="btn btn-secondary"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#0284c7',
+              borderColor: '#0284c7',
+              color: '#fff',
+              fontWeight: 600
+            }}
+            title="Record physical paper coupons customer already holds prior to using the app (₹0 price, normal delivery deduction)"
+          >
+            <Ticket size={17} />
+            🎟️ Record Leftover Physical Coupons (₹0)
           </button>
           <button
             onClick={() => handleOpenIssueModal()}
@@ -863,7 +907,26 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         </td>
 
                         <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => handleOpenLeftoverModal({ id: row.customerId, name: row.customerName })}
+                              className="btn btn-outline"
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                borderColor: '#0284c7',
+                                color: '#0284c7',
+                                background: '#f0f9ff'
+                              }}
+                              title="Record physical paper coupons customer already holds before app creation (₹0)"
+                            >
+                              <Ticket size={12} />
+                              Leftover (₹0)
+                            </button>
+
                             <button
                               onClick={() => handleOpenIssueModal({ id: row.customerId, name: row.customerName })}
                               className="btn btn-outline"
@@ -1002,7 +1065,26 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => handleOpenLeftoverModal()}
+                className="btn btn-secondary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: '#0284c7',
+                  borderColor: '#0284c7',
+                  color: '#fff',
+                  fontSize: '13px',
+                  padding: '8px 14px',
+                  fontWeight: 600
+                }}
+                title="Record leftover physical paper coupons customers had before app creation (₹0 price)"
+              >
+                <Ticket size={15} />
+                Record Leftover (₹0)
+              </button>
               <button
                 onClick={() => handleOpenIssueModal()}
                 className="btn btn-primary"
@@ -1146,8 +1228,27 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         </td>
 
                         <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                          <div style={{ fontWeight: 600 }}>₹{b.price_paid || 0}</div>
-                          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{b.payment_method}</div>
+                          {(!b.price_paid || parseFloat(b.price_paid) === 0) ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              background: '#f0fdf4',
+                              color: '#166534',
+                              border: '1px solid #bbf7d0'
+                            }} title="Physical coupons held prior to app (₹0 price, normal delivery deduction)">
+                              🎟️ Pre-App (₹0)
+                            </span>
+                          ) : (
+                            <>
+                              <div style={{ fontWeight: 600 }}>₹{b.price_paid || 0}</div>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{b.payment_method}</div>
+                            </>
+                          )}
                         </td>
 
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
@@ -1235,25 +1336,109 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
             style={{ width: '100%', maxWidth: '580px' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fffbeb', backgroundColor: '#fffbeb' }}>
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: issueForm.is_leftover ? '#f0fdf4' : '#fffbeb',
+              backgroundColor: issueForm.is_leftover ? '#f0fdf4' : '#fffbeb'
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: issueForm.is_leftover ? '#dcfce7' : '#fef3c7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: issueForm.is_leftover ? '#16a34a' : '#d97706'
+                }}>
                   <Ticket size={22} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#92400e' }}>
-                    Issue New Coupon Book
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: issueForm.is_leftover ? '#14532d' : '#92400e' }}>
+                    {issueForm.is_leftover ? 'Record Leftover Physical Coupons' : 'Issue New Coupon Book'}
                   </h3>
-                  <div style={{ fontSize: '12px', color: '#b45309' }}>
-                    Select milk product, assign coupons, and record advance payment (with delivery charge)
+                  <div style={{ fontSize: '12px', color: issueForm.is_leftover ? '#15803d' : '#b45309' }}>
+                    {issueForm.is_leftover
+                      ? 'Pre-app physical coupons • ₹0 price (no charge/receipt) • Works with normal daily milk deductions'
+                      : 'Select milk product, assign coupons, and record advance payment (with delivery charge)'}
                   </div>
                 </div>
               </div>
               <button
                 onClick={() => setShowIssueModal(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: issueForm.is_leftover ? '#14532d' : '#92400e' }}
               >
                 <X size={20} />
+              </button>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div style={{ display: 'flex', padding: '10px 24px 0 24px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
+                  const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
+                  const { totalRate } = calculateCouponRate(selectedProd, targetCust);
+                  const total = parseInt(issueForm.total_coupons, 10) || 30;
+                  const prodPrefix = selectedProd ? (selectedProd.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
+                  setIssueForm({
+                    ...issueForm,
+                    is_leftover: false,
+                    price_paid: parseFloat((total * totalRate).toFixed(2)),
+                    book_number: `BK-${prodPrefix}-${issueForm.customer_id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`,
+                    notes: targetCust ? `Coupon Book for ${targetCust.name}` : ''
+                  });
+                }}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px 8px 0 0',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: !issueForm.is_leftover ? '#fff' : 'transparent',
+                  color: !issueForm.is_leftover ? '#d97706' : 'var(--text-muted)',
+                  borderTop: !issueForm.is_leftover ? '2px solid #d97706' : '2px solid transparent',
+                  boxShadow: !issueForm.is_leftover ? '0 -1px 3px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                📘 Standard New Coupon Book
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
+                  const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
+                  const prodPrefix = selectedProd ? (selectedProd.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
+                  setIssueForm({
+                    ...issueForm,
+                    is_leftover: true,
+                    price_paid: 0,
+                    book_number: `PHYSICAL-${prodPrefix}-${issueForm.customer_id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`,
+                    notes: targetCust ? `Existing physical coupons held by ${targetCust.name} prior to app onboarding` : 'Existing physical coupons held prior to app onboarding'
+                  });
+                }}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '8px 8px 0 0',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: issueForm.is_leftover ? '#fff' : 'transparent',
+                  color: issueForm.is_leftover ? '#0284c7' : 'var(--text-muted)',
+                  borderTop: issueForm.is_leftover ? '2px solid #0284c7' : '2px solid transparent',
+                  boxShadow: issueForm.is_leftover ? '0 -1px 3px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                🎟️ Existing Physical Coupons (Pre-App • ₹0 Price)
               </button>
             </div>
 
@@ -1271,11 +1456,12 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
                       const total = parseInt(issueForm.total_coupons, 10) || 30;
                       const { totalRate } = calculateCouponRate(selectedProd, c);
+                      const prefix = issueForm.is_leftover ? 'PHYSICAL' : 'BK';
                       setIssueForm({
                         ...issueForm,
                         customer_id: id ? String(id) : '',
-                        price_paid: parseFloat((total * totalRate).toFixed(2)),
-                        book_number: `BK-${id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
+                        price_paid: issueForm.is_leftover ? 0 : parseFloat((total * totalRate).toFixed(2)),
+                        book_number: `${prefix}-${id || '001'}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
                       });
                       setSelectedCustomer(c || null);
                     }}
@@ -1322,14 +1508,14 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                      Book Number *
+                      {issueForm.is_leftover ? 'Physical Book / Serial #' : 'Book Number *'}
                     </label>
                     <input
                       type="text"
                       className="form-control"
                       value={issueForm.book_number}
                       onChange={(e) => setIssueForm({ ...issueForm, book_number: e.target.value })}
-                      placeholder="e.g. BK-TM-2026-001"
+                      placeholder={issueForm.is_leftover ? 'e.g. PHYSICAL-001' : 'e.g. BK-TM-2026-001'}
                       required
                       style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
                     />
@@ -1337,7 +1523,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
 
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                      Total Coupons in Book *
+                      {issueForm.is_leftover ? 'Remaining Leftover Coupons Held *' : 'Total Coupons in Book *'}
                     </label>
                     <input
                       type="number"
@@ -1347,15 +1533,15 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       value={issueForm.total_coupons}
                       onChange={(e) => handleIssueTotalChange(e.target.value)}
                       required
-                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
+                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff', fontWeight: 700 }}
                     />
                   </div>
                 </div>
 
                 {/* Quick Coupon Presets */}
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Quick Presets:</span>
-                  {[30, 50, 60, 100].map((preset) => (
+                  {(issueForm.is_leftover ? [5, 10, 15, 20, 25, 30] : [30, 50, 60, 100]).map((preset) => (
                     <button
                       key={preset}
                       type="button"
@@ -1364,7 +1550,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         padding: '4px 8px',
                         borderRadius: '6px',
                         fontSize: '12px',
-                        background: issueForm.total_coupons === preset ? '#d97706' : '#f1f5f9',
+                        background: issueForm.total_coupons === preset ? (issueForm.is_leftover ? '#0284c7' : '#d97706') : '#f1f5f9',
                         color: issueForm.total_coupons === preset ? '#fff' : 'var(--text-secondary)',
                         border: 'none',
                         cursor: 'pointer'
@@ -1375,77 +1561,100 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                   ))}
                 </div>
 
-                {/* Advance Price Paid & Payment Mode */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                      Advance Amount Paid (₹)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="form-control"
-                      value={issueForm.price_paid}
-                      onChange={(e) => setIssueForm({ ...issueForm, price_paid: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff', fontWeight: 700 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                      Payment Method
-                    </label>
-                    <select
-                      className="form-control"
-                      value={issueForm.payment_method}
-                      onChange={(e) => setIssueForm({ ...issueForm, payment_method: e.target.value })}
-                      style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
-                    >
-                      <option value="CASH">CASH</option>
-                      <option value="UPI">UPI / GooglePay / PhonePe</option>
-                      <option value="BANK_TRANSFER">Bank Transfer (NEFT/IMPS)</option>
-                      <option value="CHEQUE">Cheque</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Delivery Charge & Milk Rate Breakdown Box */}
-                {(() => {
-                  const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
-                  const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
-                  const { unitPrice, delCharge, totalRate } = calculateCouponRate(selectedProd, targetCust);
-                  const totalQty = parseInt(issueForm.total_coupons, 10) || 0;
-                  const prodLabel = selectedProd ? `${selectedProd.name} ${selectedProd.variant_label ? `(${selectedProd.variant_label})` : ''}` : 'Universal Milk (500ml)';
-                  return (
-                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', color: '#166534' }}>
-                      <div style={{ fontWeight: 700, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                        <span>🥛 Payment Rate Breakdown (Milk + Coupon Delivery Charge):</span>
+                {/* Conditional Pricing & Delivery Charge Display */}
+                {issueForm.is_leftover ? (
+                  <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '10px', padding: '14px 16px', fontSize: '13px', color: '#166534' }}>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', fontSize: '14px' }}>
+                      <CheckCircle size={18} color="#16a34a" />
+                      <span>Price: ₹0.00 (No Payment Charged)</span>
+                    </div>
+                    <p style={{ margin: '0 0 10px 0', fontSize: '12px', lineHeight: '1.5', color: '#15803d' }}>
+                      Since these physical coupons were already purchased prior to onboarding onto this app, <strong>no payment receipt or ledger entry</strong> will be created. Your financial accounts remain strictly clean and accurate.
+                    </p>
+                    <div style={{ background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 12px', fontSize: '12px' }}>
+                      <div style={{ fontWeight: 700, color: '#14532d', marginBottom: '2px' }}>
+                        🥛 Works Seamlessly With Normal Coupon System:
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                        <span>Milk Product Price ({prodLabel}):</span>
-                        <strong>₹{unitPrice.toFixed(2)} / packet</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                        <span>Coupon Delivery Charge (₹3.00/L bulk rate):</span>
-                        <strong>+ ₹{delCharge.toFixed(2)} / coupon</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #86efac', fontWeight: 700, fontSize: '13px' }}>
-                        <span>Total Rate per Packet / Coupon:</span>
-                        <span>₹{totalRate.toFixed(2)}</span>
-                      </div>
-                      <div style={{ marginTop: '6px', fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px' }}>
-                        ✓ Coupon delivery charges included: <strong>{totalQty} coupons × ₹{totalRate.toFixed(2)} = ₹{(totalQty * totalRate).toFixed(2)}</strong> (500ml = ₹1.50/coupon at ₹3.00/L)
+                      <div style={{ color: '#166534', lineHeight: '1.4' }}>
+                        These <strong>{issueForm.total_coupons || 0} coupons</strong> will immediately credit to the customer's active coupon balance. When delivery boy marks daily milk deliveries, packets will automatically deduct from these coupons just like regular coupons until exhausted.
                       </div>
                     </div>
-                  );
-                })()}
+                  </div>
+                ) : (
+                  <>
+                    {/* Advance Price Paid & Payment Mode */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                          Advance Amount Paid (₹)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="form-control"
+                          value={issueForm.price_paid}
+                          onChange={(e) => setIssueForm({ ...issueForm, price_paid: parseFloat(e.target.value) || 0 })}
+                          style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff', fontWeight: 700 }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                          Payment Method
+                        </label>
+                        <select
+                          className="form-control"
+                          value={issueForm.payment_method}
+                          onChange={(e) => setIssueForm({ ...issueForm, payment_method: e.target.value })}
+                          style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
+                        >
+                          <option value="CASH">CASH</option>
+                          <option value="UPI">UPI / GooglePay / PhonePe</option>
+                          <option value="BANK_TRANSFER">Bank Transfer (NEFT/IMPS)</option>
+                          <option value="CHEQUE">Cheque</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Delivery Charge & Milk Rate Breakdown Box */}
+                    {(() => {
+                      const selectedProd = allProducts.find(p => p.id === parseInt(issueForm.product_id, 10));
+                      const targetCust = allCustomers.find(c => c.id === parseInt(issueForm.customer_id, 10)) || selectedCustomer;
+                      const { unitPrice, delCharge, totalRate } = calculateCouponRate(selectedProd, targetCust);
+                      const totalQty = parseInt(issueForm.total_coupons, 10) || 0;
+                      const prodLabel = selectedProd ? `${selectedProd.name} ${selectedProd.variant_label ? `(${selectedProd.variant_label})` : ''}` : 'Universal Milk (500ml)';
+                      return (
+                        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 14px', fontSize: '12px', color: '#166534' }}>
+                          <div style={{ fontWeight: 700, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                            <span>🥛 Payment Rate Breakdown (Milk + Coupon Delivery Charge):</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span>Milk Product Price ({prodLabel}):</span>
+                            <strong>₹{unitPrice.toFixed(2)} / packet</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span>Coupon Delivery Charge (₹3.00/L bulk rate):</span>
+                            <strong>+ ₹{delCharge.toFixed(2)} / coupon</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #86efac', fontWeight: 700, fontSize: '13px' }}>
+                            <span>Total Rate per Packet / Coupon:</span>
+                            <span>₹{totalRate.toFixed(2)}</span>
+                          </div>
+                          <div style={{ marginTop: '6px', fontSize: '11px', color: '#15803d', background: '#dcfce7', padding: '4px 8px', borderRadius: '4px' }}>
+                            ✓ Coupon delivery charges included: <strong>{totalQty} coupons × ₹{totalRate.toFixed(2)} = ₹{(totalQty * totalRate).toFixed(2)}</strong> (500ml = ₹1.50/coupon at ₹3.00/L)
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
 
                 {/* Issue Date & Notes */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                      Issue Date
+                      {issueForm.is_leftover ? 'Recorded Date' : 'Issue Date'}
                     </label>
                     <input
                       type="date"
@@ -1463,7 +1672,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                     <input
                       type="text"
                       className="form-control"
-                      placeholder="Optional notes..."
+                      placeholder={issueForm.is_leftover ? 'e.g. Existing physical coupons held prior to app' : 'Optional notes...'}
                       value={issueForm.notes}
                       onChange={(e) => setIssueForm({ ...issueForm, notes: e.target.value })}
                       style={{ width: '100%', borderRadius: '8px', background: '#ffffff', backgroundColor: '#ffffff' }}
@@ -1472,7 +1681,11 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                 </div>
 
                 <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)', border: '1px solid #e2e8f0' }}>
-                  💡 <strong>Automatic Balance Sync:</strong> Adding this book will immediately add <strong>+{issueForm.total_coupons || 0} coupons</strong> to the customer's balance and record an advance receipt for <strong>₹{issueForm.price_paid || 0}</strong>.
+                  {issueForm.is_leftover ? (
+                    <span>💡 <strong>Automatic Balance Sync:</strong> Recording these physical coupons will immediately add <strong>+{issueForm.total_coupons || 0} coupons</strong> to the customer's balance with <strong>₹0.00 price</strong>.</span>
+                  ) : (
+                    <span>💡 <strong>Automatic Balance Sync:</strong> Adding this book will immediately add <strong>+{issueForm.total_coupons || 0} coupons</strong> to the customer's balance and record an advance receipt for <strong>₹{issueForm.price_paid || 0}</strong>.</span>
+                  )}
                 </div>
               </div>
 
@@ -1488,9 +1701,16 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                   type="submit"
                   disabled={saving}
                   className="btn btn-primary"
-                  style={{ background: '#d97706', borderColor: '#d97706' }}
+                  style={{
+                    background: issueForm.is_leftover ? '#0284c7' : '#d97706',
+                    borderColor: issueForm.is_leftover ? '#0284c7' : '#d97706'
+                  }}
                 >
-                  {saving ? 'Issuing...' : 'Confirm & Issue Book'}
+                  {saving
+                    ? 'Saving...'
+                    : issueForm.is_leftover
+                    ? `Record ${issueForm.total_coupons || 0} Leftover Coupons (₹0)`
+                    : 'Confirm & Issue Book'}
                 </button>
               </div>
             </form>
@@ -1918,12 +2138,20 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       <h4 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
                         Issued Coupon Books
                       </h4>
-                      <button
-                        onClick={() => handleOpenIssueModal(selectedCustomer)}
-                        style={{ background: 'none', border: 'none', color: '#d97706', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <Plus size={14} /> Add Another Book
-                      </button>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <button
+                          onClick={() => handleOpenLeftoverModal(selectedCustomer)}
+                          style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Ticket size={13} /> Record Leftover (₹0)
+                        </button>
+                        <button
+                          onClick={() => handleOpenIssueModal(selectedCustomer)}
+                          style={{ background: 'none', border: 'none', color: '#d97706', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Plus size={14} /> Add Another Book
+                        </button>
+                      </div>
                     </div>
 
                     <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
@@ -1958,7 +2186,13 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                               <td style={{ padding: '8px 12px', textAlign: 'center' }}>{b.total_coupons}</td>
                               <td style={{ padding: '8px 12px', textAlign: 'center', color: '#4f46e5' }}>{b.used_coupons}</td>
                               <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#16a34a' }}>{b.remaining_coupons}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>₹{b.price_paid || 0}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                {(!b.price_paid || parseFloat(b.price_paid) === 0) ? (
+                                  <span style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>🎟️ ₹0 (Pre-App)</span>
+                                ) : (
+                                  `₹${b.price_paid}`
+                                )}
+                              </td>
                               <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                                 <span style={{
                                   padding: '1px 6px',
