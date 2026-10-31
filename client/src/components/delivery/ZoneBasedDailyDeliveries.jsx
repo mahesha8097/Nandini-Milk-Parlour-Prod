@@ -803,6 +803,55 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     return list;
   }, [activeZone, customerCategoryTab, customerStatusFilter, deferredCustomerSearch]);
 
+  // Natural delivery queue for customers in the active zone (sorted by serial no / flat no)
+  const zoneDeliveryQueue = useMemo(() => {
+    if (!activeZone) return [];
+    let list = [...activeZone.customerGroups];
+    list.sort((a, b) => {
+      if (a.customer_serial_no && b.customer_serial_no && a.customer_serial_no !== b.customer_serial_no) {
+        return a.customer_serial_no - b.customer_serial_no;
+      }
+      return (a.flat_no || '').localeCompare(b.flat_no || '', undefined, { numeric: true });
+    });
+    return list;
+  }, [activeZone]);
+
+  const currentCustomerIndex = useMemo(() => {
+    if (!selectedCustomerId || zoneDeliveryQueue.length === 0) return -1;
+    return zoneDeliveryQueue.findIndex((c) => String(c.customer_id) === String(selectedCustomerId));
+  }, [selectedCustomerId, zoneDeliveryQueue]);
+
+  const prevCustomer = useMemo(() => {
+    if (currentCustomerIndex > 0) {
+      return zoneDeliveryQueue[currentCustomerIndex - 1];
+    }
+    return null;
+  }, [currentCustomerIndex, zoneDeliveryQueue]);
+
+  const nextCustomer = useMemo(() => {
+    if (currentCustomerIndex >= 0 && currentCustomerIndex < zoneDeliveryQueue.length - 1) {
+      return zoneDeliveryQueue[currentCustomerIndex + 1];
+    }
+    return null;
+  }, [currentCustomerIndex, zoneDeliveryQueue]);
+
+  const isLastCustomerInZone = useMemo(() => {
+    return currentCustomerIndex >= 0 && currentCustomerIndex === zoneDeliveryQueue.length - 1;
+  }, [currentCustomerIndex, zoneDeliveryQueue]);
+
+  // Current zone index and next zone in sequence
+  const currentZoneIndex = useMemo(() => {
+    if (!activeZone || displayedZones.length === 0) return -1;
+    return displayedZones.findIndex((z) => z.key === activeZone.key || String(z.id) === String(activeZone.id));
+  }, [activeZone, displayedZones]);
+
+  const nextZone = useMemo(() => {
+    if (currentZoneIndex >= 0 && currentZoneIndex < displayedZones.length - 1) {
+      return displayedZones[currentZoneIndex + 1];
+    }
+    return null;
+  }, [currentZoneIndex, displayedZones]);
+
   // ----------------------------------------------------
   // ACTION HANDLERS (with instant optimistic UI updates)
   // ----------------------------------------------------
@@ -1041,6 +1090,68 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         prev.map((d) => (d.id === item.id ? { ...d, status: 'PENDING', delivered_at: null } : d))
       );
       alert(err.message || 'Failed to mark item delivered');
+    }
+  };
+
+  // Move to next zone after finishing current zone
+  const handleDoneAndMoveToNextZone = (targetZone = null) => {
+    const nextZ = targetZone || nextZone;
+    if (nextZ) {
+      setSelectedZoneKey(nextZ.key);
+      try {
+        localStorage.setItem('nandini_selected_zone_key', nextZ.key);
+      } catch {}
+
+      // If next zone has customers, automatically open its first customer!
+      if (nextZ.customerGroups && nextZ.customerGroups.length > 0) {
+        const sortedNextCusts = [...nextZ.customerGroups].sort((a, b) => {
+          if (a.customer_serial_no && b.customer_serial_no && a.customer_serial_no !== b.customer_serial_no) {
+            return a.customer_serial_no - b.customer_serial_no;
+          }
+          return (a.flat_no || '').localeCompare(b.flat_no || '', undefined, { numeric: true });
+        });
+        const firstCust = sortedNextCusts[0];
+        setSelectedCustomerId(firstCust.customer_id);
+        showToast(`✓ Done with ${activeZone?.name || 'zone'}! Now in ${nextZ.name} — First customer: ${firstCust.customer_name} (${firstCust.flat_no || ''})`);
+      } else {
+        setSelectedCustomerId(null);
+        showToast(`✓ Done with ${activeZone?.name || 'zone'}! Moved to ${nextZ.name}`);
+      }
+    } else {
+      setSelectedCustomerId(null);
+      setSelectedZoneKey(null);
+      try {
+        localStorage.removeItem('nandini_selected_zone_key');
+      } catch {}
+      showToast('🎉 All deliveries across all zones completed! Great work!');
+    }
+  };
+
+  // One-click Deliver single item & immediately jump to next customer or next zone
+  const handleDeliverSingleItemAndGoNext = async (item, customerName) => {
+    if (activeCustomer?.billing_type === 'DAILY' && (!activeCustomer.paidTodayAmount || activeCustomer.paidTodayAmount <= 0)) {
+      handleOpenDailyPaymentModal(activeCustomer);
+      return;
+    }
+    await handleDeliverSingleItem(item, customerName);
+    if (nextCustomer) {
+      setSelectedCustomerId(nextCustomer.customer_id);
+    } else {
+      handleDoneAndMoveToNextZone();
+    }
+  };
+
+  // One-click Deliver customer group & jump to next customer or next zone
+  const handleDeliverCustomerGroupAndGoNext = async (group) => {
+    if (group?.billing_type === 'DAILY' && (!group.paidTodayAmount || group.paidTodayAmount <= 0)) {
+      handleOpenDailyPaymentModal(group);
+      return;
+    }
+    await handleDeliverCustomerGroup(group);
+    if (nextCustomer) {
+      setSelectedCustomerId(nextCustomer.customer_id);
+    } else {
+      handleDoneAndMoveToNextZone();
     }
   };
 
@@ -2956,6 +3067,61 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               })
             )}
           </div>
+
+          {/* Bottom Zone Progress & Move to Next Zone Action */}
+          <div style={{
+            marginTop: '16px',
+            padding: '16px 20px',
+            background: activeZone.isCompleted ? '#f0fdf4' : '#f8fafc',
+            border: activeZone.isCompleted ? '1.5px solid #86efac' : '1px solid #e2e8f0',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.95rem', color: activeZone.isCompleted ? '#166534' : '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {activeZone.isCompleted ? <CheckCheck size={20} color="#16a34a" /> : <Layers size={18} color="#2563eb" />}
+                <span>{activeZone.isCompleted ? `All ${activeZone.totalStops} deliveries completed in ${activeZone.name}!` : `Zone: ${activeZone.name} (${activeZone.deliveredStops}/${activeZone.totalStops} completed)`}</span>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
+                {nextZone ? `Next Route Zone: ${nextZone.name} (${nextZone.totalStops || 0} stops scheduled)` : 'This is the final zone on the route.'}
+              </div>
+            </div>
+
+            {nextZone ? (
+              <button
+                type="button"
+                onClick={() => handleDoneAndMoveToNextZone()}
+                className="btn btn-primary"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontWeight: 800,
+                  padding: '9px 18px',
+                  borderRadius: '8px',
+                  background: 'linear-gradient(135deg, #059669, #10b981)',
+                  borderColor: '#059669',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+                }}
+              >
+                <span>Done & Move to Next Zone: {nextZone.name}</span>
+                <ArrowRight size={16} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSelectedZoneKey(null)}
+                className="btn btn-outline btn-sm"
+                style={{ fontWeight: 700 }}
+              >
+                Back to All Zones
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         /* ------------------------------------------------------------------------- */
@@ -2977,28 +3143,114 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         }}>
           {/* Top Bar inside Customer Screen */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedCustomerId(null)}
-              style={{
-                background: '#eff6ff',
-                border: '1.5px solid #bfdbfe',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                color: '#1d4ed8',
-                fontWeight: '800',
-                fontSize: '0.88rem',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 14px'
-              }}
-            >
-              <ArrowLeft size={16} />
-              <span>Back to Customers</span>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedCustomerId(null)}
+                style={{
+                  background: '#eff6ff',
+                  border: '1.5px solid #bfdbfe',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  color: '#1d4ed8',
+                  fontWeight: '800',
+                  fontSize: '0.88rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 14px'
+                }}
+              >
+                <ArrowLeft size={16} />
+                <span>Back to Customers</span>
+              </button>
 
+              {currentCustomerIndex >= 0 && (
+                <span style={{
+                  background: '#f1f5f9',
+                  color: '#334155',
+                  padding: '5px 12px',
+                  borderRadius: '999px',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  border: '1px solid #cbd5e1'
+                }}>
+                  Stop {currentCustomerIndex + 1} of {zoneDeliveryQueue.length}
+                </span>
+              )}
+            </div>
+
+            {/* Quick Next / Prev Customer Navigation Controls */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {prevCustomer && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomerId(prevCustomer.customer_id)}
+                  className="btn btn-outline btn-sm"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    padding: '7px 12px',
+                    borderRadius: '8px'
+                  }}
+                  title={`Previous Customer: ${prevCustomer.customer_name} (${prevCustomer.flat_no || ''})`}
+                >
+                  <ChevronLeft size={16} />
+                  <span>Prev</span>
+                </button>
+              )}
+
+              {nextCustomer ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    background: '#2563eb',
+                    borderColor: '#1d4ed8',
+                    color: 'white',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    padding: '7px 14px',
+                    borderRadius: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 6px rgba(37,99,235,0.3)'
+                  }}
+                  title={`Next Customer: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
+                >
+                  <span>Next Customer</span>
+                  <ChevronRight size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleDoneAndMoveToNextZone()}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    background: 'linear-gradient(135deg, #059669, #10b981)',
+                    borderColor: '#059669',
+                    color: 'white',
+                    fontWeight: 900,
+                    fontSize: '0.85rem',
+                    padding: '7px 14px',
+                    borderRadius: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 6px rgba(16,185,129,0.3)'
+                  }}
+                  title="Done with all customers in this zone, move to next zone"
+                >
+                  <CheckCheck size={16} />
+                  <span>{nextZone ? `Done & Move to Next Zone ➔` : '✓ All Deliveries Done!'}</span>
+                </button>
+              )}
+
               <span style={{
                 background: '#f8fafc',
                 color: '#475569',
@@ -3168,19 +3420,69 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
                 <div>
                   {activeCustomer.status === 'DELIVERED' ? (
-                    <span style={{
-                      background: '#dcfce7',
-                      color: '#15803d',
-                      padding: '6px 14px',
-                      borderRadius: '999px',
-                      fontSize: '0.85rem',
-                      fontWeight: 800,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}>
-                      <Check size={16} /> Delivered
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{
+                        background: '#dcfce7',
+                        color: '#15803d',
+                        padding: '6px 14px',
+                        borderRadius: '999px',
+                        fontSize: '0.85rem',
+                        fontWeight: 800,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <Check size={16} /> Delivered
+                      </span>
+
+                      {/* Immediate Next Customer / Next Zone action button right beside Delivered badge */}
+                      {nextCustomer ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
+                          style={{
+                            background: '#2563eb',
+                            color: 'white',
+                            border: 'none',
+                            padding: '6px 14px',
+                            borderRadius: '999px',
+                            fontSize: '0.82rem',
+                            fontWeight: 800,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(37,99,235,0.25)'
+                          }}
+                          title={`Next: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
+                        >
+                          <span>Next Customer ({nextCustomer.flat_no ? (nextCustomer.flat_no.toLowerCase().includes('flat') || nextCustomer.flat_no.toLowerCase().includes('villa') ? nextCustomer.flat_no : `Flat ${nextCustomer.flat_no}`) : nextCustomer.customer_name})</span>
+                          <ChevronRight size={15} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleDoneAndMoveToNextZone()}
+                          style={{
+                            background: 'linear-gradient(135deg, #059669, #10b981)',
+                            color: 'white',
+                            border: 'none',
+                            padding: '6px 14px',
+                            borderRadius: '999px',
+                            fontSize: '0.82rem',
+                            fontWeight: 900,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(16,185,129,0.3)'
+                          }}
+                        >
+                          <CheckCheck size={15} />
+                          <span>{nextZone ? `Done & Move to Next Zone (${nextZone.name}) ➔` : '✓ All Deliveries Done!'}</span>
+                        </button>
+                      )}
+                    </div>
                   ) : activeCustomer.status === 'SKIPPED' ? (
                     <span style={{
                       background: '#fee2e2',
@@ -3446,7 +3748,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                           </div>
 
                           {/* Action Buttons: Mark Delivered & Skip */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
                             <button
                               type="button"
                               onClick={() => handleDeliverSingleItem(item, activeCustomer.customer_name)}
@@ -3467,6 +3769,30 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             >
                               <CheckCircle2 size={16} />
                               <span>Mark Delivered</span>
+                            </button>
+
+                            {/* One-click Deliver & Next Customer */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeliverSingleItemAndGoNext(item, activeCustomer.customer_name)}
+                              style={{
+                                background: 'linear-gradient(135deg, #15803d, #16a34a)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontWeight: 800,
+                                fontSize: '0.85rem',
+                                padding: '8px 14px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
+                              }}
+                              title={nextCustomer ? `Deliver item and immediately jump to ${nextCustomer.customer_name}` : 'Deliver item and move to next zone'}
+                            >
+                              <span>{nextCustomer ? 'Deliver & Next' : 'Deliver & Finish Zone'}</span>
+                              <ChevronRight size={16} />
                             </button>
 
                             <button
@@ -3498,6 +3824,53 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                               {item.quantity}
                             </span>
                           </div>
+
+                          {/* Quick Next Customer icon button when item is delivered */}
+                          {nextCustomer ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
+                              style={{
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                border: '1.5px solid #bfdbfe',
+                                borderRadius: '8px',
+                                fontWeight: 800,
+                                fontSize: '0.82rem',
+                                padding: '7px 12px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                cursor: 'pointer'
+                              }}
+                              title={`Next: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
+                            >
+                              <span>Next Customer</span>
+                              <ChevronRight size={15} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleDoneAndMoveToNextZone()}
+                              style={{
+                                background: '#ecfdf5',
+                                color: '#059669',
+                                border: '1.5px solid #86efac',
+                                borderRadius: '8px',
+                                fontWeight: 800,
+                                fontSize: '0.82rem',
+                                padding: '7px 12px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <CheckCheck size={14} />
+                              <span>Done & Next Zone</span>
+                              <ChevronRight size={14} />
+                            </button>
+                          )}
 
                           {/* Edit / Correct Button */}
                           <button
@@ -3619,39 +3992,80 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             borderTop: '1.5px solid #f1f5f9',
             paddingTop: '14px'
           }}>
-            <button
-              type="button"
-              onClick={() => setSelectedCustomerId(null)}
-              className="btn btn-outline btn-sm"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: '700' }}
-            >
-              <ArrowLeft size={15} />
-              <span>Back to Customers</span>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedCustomerId(null)}
+                className="btn btn-outline btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: '700' }}
+              >
+                <ArrowLeft size={15} />
+                <span>Back to Customers</span>
+              </button>
+
+              {prevCustomer && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomerId(prevCustomer.customer_id)}
+                  className="btn btn-outline btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: '700' }}
+                  title={`Previous Customer: ${prevCustomer.customer_name}`}
+                >
+                  <ChevronLeft size={15} />
+                  <span>Prev</span>
+                </button>
+              )}
+            </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               {/* Deliver All Items button if multiple products and some are still pending */}
               {activeCustomer.items.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') && activeCustomer.items.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => handleDeliverCustomerGroup(activeCustomer)}
-                  style={{
-                    background: '#15803d',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontWeight: 800,
-                    fontSize: '0.85rem',
-                    padding: '8px 16px',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 2px 6px rgba(21, 128, 61, 0.25)'
-                  }}
-                >
-                  <CheckCircle2 size={16} /> Mark All Delivered
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleDeliverCustomerGroup(activeCustomer)}
+                    style={{
+                      background: '#15803d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontWeight: 800,
+                      fontSize: '0.85rem',
+                      padding: '8px 16px',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 6px rgba(21, 128, 61, 0.25)'
+                    }}
+                  >
+                    <CheckCircle2 size={16} /> Mark All Delivered
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeliverCustomerGroupAndGoNext(activeCustomer)}
+                    style={{
+                      background: 'linear-gradient(135deg, #15803d, #16a34a)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontWeight: 800,
+                      fontSize: '0.85rem',
+                      padding: '8px 16px',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
+                    }}
+                    title={nextCustomer ? `Mark all delivered and advance to ${nextCustomer.customer_name}` : 'Mark all delivered and move to next zone'}
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>{nextCustomer ? 'Mark All & Next' : 'Mark All & Finish Zone'}</span>
+                    <ChevronRight size={16} />
+                  </button>
+                </>
               )}
 
               {/* Record Payment Button */}
@@ -3742,6 +4156,56 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 >
                   <RotateCcw size={14} />
                   <span>Revert All to Pending</span>
+                </button>
+              )}
+
+              {/* Next Customer or Done & Move to Next Zone Action */}
+              {nextCustomer ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
+                  className="btn btn-primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #1d4ed8, #2563eb)',
+                    color: 'white',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: '0.88rem',
+                    padding: '8px 18px',
+                    borderRadius: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(37,99,235,0.25)'
+                  }}
+                  title={`Go to next customer: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
+                >
+                  <span>Next Customer ({nextCustomer.flat_no ? (nextCustomer.flat_no.toLowerCase().includes('flat') || nextCustomer.flat_no.toLowerCase().includes('villa') ? nextCustomer.flat_no : `Flat ${nextCustomer.flat_no}`) : nextCustomer.customer_name})</span>
+                  <ChevronRight size={18} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleDoneAndMoveToNextZone()}
+                  className="btn btn-primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #059669, #10b981)',
+                    borderColor: '#059669',
+                    color: 'white',
+                    fontWeight: 900,
+                    fontSize: '0.9rem',
+                    padding: '9px 20px',
+                    borderRadius: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(16,185,129,0.35)'
+                  }}
+                >
+                  <CheckCheck size={18} />
+                  <span>{nextZone ? `✓ Done & Move to Next Zone (${nextZone.name}) ➔` : '✓ All Deliveries & Zones Done!'}</span>
                 </button>
               )}
             </div>
