@@ -92,20 +92,20 @@ export default function CustomerSubscriptionsManager({
   };
 
   // Handle Save / Submit of subscription changes
-  const handleSaveSubscription = async (e) => {
+  const handleSaveSubscription = async (e, returnSuccess = false) => {
     if (e) e.preventDefault();
     const qty = parseInt(subForm.quantity, 10);
     if (isNaN(qty) || qty <= 0) {
       setFormError('Subscription quantity must be at least 1 packet.');
-      return;
+      return false;
     }
     if (!subForm.start_date) {
       setFormError('Please select a valid start date for this subscription.');
-      return;
+      return false;
     }
     if (!subForm.product_id) {
       setFormError('Please select a valid product.');
-      return;
+      return false;
     }
 
     try {
@@ -141,9 +141,11 @@ export default function CustomerSubscriptionsManager({
       setSelectedSub(null);
       if (onRefresh) await onRefresh();
       setTimeout(() => setSuccessToast(''), 4000);
+      return true;
     } catch (err) {
       console.error('Subscription save error:', err);
       setFormError(err.message || 'Failed to save subscription changes.');
+      return false;
     } finally {
       setSubmitting(false);
     }
@@ -1216,31 +1218,63 @@ export default function CustomerSubscriptionsManager({
               </span>
             </div>
 
-            {/* Big Green Save Changes Button */}
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={handleSaveSubscription}
-              style={{
-                width: '100%',
-                background: '#16a34a',
-                color: 'white',
-                fontWeight: 900,
-                fontSize: '1rem',
-                padding: '14px',
-                borderRadius: '12px',
-                border: 'none',
-                cursor: submitting ? 'not-allowed' : 'pointer',
-                boxShadow: '0 4px 14px rgba(22, 163, 74, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                marginTop: '4px'
-              }}
-            >
-              {submitting ? 'Saving Changes...' : 'Save Changes'}
-            </button>
+            {/* Save Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+              {onOpenMonthlyBill && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={async (e) => {
+                    const saved = await handleSaveSubscription(e, true);
+                    if (saved) {
+                      onOpenMonthlyBill(customerId);
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    background: 'linear-gradient(135deg, #0054a6, #2563eb)',
+                    color: 'white',
+                    fontWeight: 900,
+                    fontSize: '0.96rem',
+                    padding: '13px 16px',
+                    borderRadius: '12px',
+                    border: 'none',
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 14px rgba(0, 84, 166, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <Calendar size={18} />
+                  <span>{submitting ? 'Saving...' : 'Save & Send Advance Bill on WhatsApp ➔'}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleSaveSubscription}
+                style={{
+                  width: '100%',
+                  background: onOpenMonthlyBill ? '#f8fafc' : '#16a34a',
+                  color: onOpenMonthlyBill ? '#334155' : 'white',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  padding: onOpenMonthlyBill ? '10px 14px' : '14px',
+                  borderRadius: '12px',
+                  border: onOpenMonthlyBill ? '1.5px solid #cbd5e1' : 'none',
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                {submitting ? 'Saving...' : (isAddMode ? 'Save Subscription Only' : 'Save Changes Only')}
+              </button>
+            </div>
           </div>
         </div>
       )}
