@@ -262,11 +262,23 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
     let baseMsg = `*${profile.invoice_business_name || profile.business_name || 'NANDINI MILK PARLOUR'} — INVOICE*\n`;
     baseMsg += `*Invoice No:* ${bill.bill_number}\n`;
     baseMsg += `*Month:* ${bill.billing_month}\n`;
-    baseMsg += `*Customer:* ${bill.customer_name}\n\n`;
+    baseMsg += `*Customer:* ${bill.customer_name}\n`;
+    if (bill.total_deliveries_count) {
+      baseMsg += `*Schedule:* ${bill.total_deliveries_count} Scheduled Days${items[0]?.custom_days ? ` (${items[0].custom_days})` : (bill.billing_type === 'PREPAID' ? ' (Full Month Advance)' : '')}\n`;
+    }
+    baseMsg += `\n`;
     
     if (items && items.length > 0) {
-      const itemsList = items.map(it => `• ${it.product_name || it.product_name_snapshot} (${it.variant_label || it.variant_snapshot || 'Pkt'}) × ${it.total_quantity || it.quantity || 1} = ₹${(it.total_line_amount || it.total_amount || 0).toFixed(2)}`).join('\n');
-      baseMsg += `*Item Details:* \n${itemsList}\n\n`;
+      const itemsList = items.map(it => {
+        const pName = it.product_name || it.product_name_snapshot;
+        const vLabel = it.variant_label || it.variant_snapshot || 'Pkt';
+        const totalQty = it.total_quantity || it.quantity || 1;
+        const perDay = it.quantity_per_day || (it.days_active_in_month ? Math.round(totalQty / it.days_active_in_month) : null);
+        const days = it.days_active_in_month || it.delivered_days_count || bill.total_deliveries_count;
+        const subSchedule = perDay && days ? ` (${perDay}/day × ${days} days)` : '';
+        return `• ${pName} (${vLabel}) × ${totalQty}${subSchedule} = ₹${(it.total_line_amount || it.total_amount || 0).toFixed(2)}`;
+      }).join('\n');
+      baseMsg += `*Item & Schedule Details:* \n${itemsList}\n\n`;
     }
 
     baseMsg += `*Gross Bill:* ₹${grossAmount.toFixed(2)}\n`;
@@ -672,18 +684,22 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
                   Category: <strong>{bill.customer_category === 'BULK_HOTEL' ? 'Bulk / Commercial' : 'Household'}</strong>
                 </div>
                 <div style={{ fontSize: '0.78rem', color: '#475569' }}>
-                  Plan: <strong>{bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : 'Postpaid'}</strong>
+                  Plan: <strong>{bill.billing_type === 'PREPAID' ? 'Prepaid (Advance)' : (bill.billing_type === 'WEEKLY' ? 'Weekly' : 'Postpaid')}</strong>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+                  Schedule: <strong style={{ color: '#0054a6' }}>{bill.total_deliveries_count ? `${bill.total_deliveries_count} Scheduled Days` : 'Monthly'}</strong>
+                  {items[0]?.custom_days ? ` (${items[0].custom_days})` : (items[0]?.frequency && items[0]?.frequency !== 'DAILY' ? ` (${items[0].frequency})` : '')}
                 </div>
               </div>
             </div>
 
             {/* Product Item Table (NO GST, Includes MRP & Effective PRICE) */}
-            <div style={{ marginBottom: '14px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div style={{ marginBottom: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <table style={{ width: '100%', minWidth: '500px', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9', borderTop: '1px solid #cbd5e1', borderBottom: '2px solid #cbd5e1' }}>
                     <th style={{ padding: '6px 8px', textAlign: 'center', width: '36px' }}>#</th>
-                    <th style={{ padding: '6px 8px', textAlign: 'left' }}>ITEM NAME</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left' }}>ITEM & SCHEDULE</th>
                     <th style={{ padding: '6px 8px', textAlign: 'center', width: '70px' }}>QUANTITY</th>
                     <th style={{ padding: '6px 8px', textAlign: 'center', width: '65px' }}>UNIT</th>
                     <th style={{ padding: '6px 8px', textAlign: 'right', width: '75px' }}>MRP (₹)</th>
@@ -703,7 +719,23 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
                     return (
                       <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
                         <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{idx + 1}</td>
-                        <td style={{ padding: '6px 8px', fontWeight: '600' }}>{itemName}</td>
+                        <td style={{ padding: '6px 8px', fontWeight: '600' }}>
+                          <div style={{ color: '#0f172a' }}>{itemName}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px', fontWeight: 'normal', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                            <span style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', border: '1px solid #e2e8f0', color: '#0054a6', fontWeight: '700' }}>
+                              📅 {item.days_active_in_month ? `${item.days_active_in_month} Scheduled Days` : (item.delivered_days_count ? `${item.delivered_days_count} Delivered Days` : (bill.total_deliveries_count ? `${bill.total_deliveries_count} Days` : 'Scheduled'))}
+                            </span>
+                            <span>
+                              ({item.quantity_per_day || (item.days_active_in_month ? Math.round(qty / item.days_active_in_month) : Math.round(qty / (bill.total_deliveries_count || 30)) || 1)} {unitLabel}/day)
+                            </span>
+                            {item.custom_days && (
+                              <span style={{ color: '#059669', fontWeight: '700' }}>• {item.custom_days}</span>
+                            )}
+                            {item.frequency && item.frequency !== 'DAILY' && !item.custom_days && (
+                              <span style={{ color: '#059669', fontWeight: '700' }}>• {item.frequency}</span>
+                            )}
+                          </div>
+                        </td>
                         <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: '700' }}>{qty}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{unitLabel}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right' }}>{baseMrp.toFixed(2)}</td>
@@ -714,6 +746,31 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Delivery Schedule Bar */}
+            <div style={{
+              marginTop: '-2px',
+              marginBottom: '14px',
+              padding: '6px 10px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '4px',
+              fontSize: '0.74rem',
+              color: '#334155',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '6px'
+            }}>
+              <div>
+                🗓️ <strong>Delivery Schedule:</strong> {bill.total_deliveries_count || 30} Scheduled Days for <strong>{bill.billing_month}</strong>
+                {items[0]?.custom_days ? ` • Days: ${items[0].custom_days}` : (items[0]?.frequency === 'DAILY' ? ' • Daily Delivery' : '')}
+              </div>
+              <div style={{ color: '#0054a6', fontWeight: '700' }}>
+                Total: {items.reduce((s, it) => s + (it.total_quantity || it.quantity || 0), 0)} {items[0]?.variant_label || 'packets'}
+              </div>
             </div>
 
             {/* Bill Summary Breakdown */}

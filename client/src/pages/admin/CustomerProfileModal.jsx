@@ -77,6 +77,34 @@ export default function CustomerProfileModal({
   const [billLoading, setBillLoading] = useState(false);
   const [billSuccessMsg, setBillSuccessMsg] = useState('');
   const [showBillGeneratorModal, setShowBillGeneratorModal] = useState(false);
+  const currentMonthStr = todayStr.slice(0, 7);
+  const [billingMonth, setBillingMonth] = useState(currentMonthStr);
+
+  const monthOptions = React.useMemo(() => {
+    const list = [];
+    const today = new Date();
+    for (let offset = -2; offset <= 2; offset++) {
+      const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      list.push({ value: val, label: `${label} (${val})` });
+    }
+    return list;
+  }, []);
+
+  // Auto-detect billing month if customer has active subscriptions in an upcoming month
+  useEffect(() => {
+    if (profile?.subscriptions && profile.subscriptions.length > 0) {
+      const activeSubs = profile.subscriptions.filter(s => s.is_active === 1 || s.is_active === true);
+      const hasCurrentSub = activeSubs.some(s => s.start_date <= `${currentMonthStr}-31` && (!s.end_date || s.end_date >= `${currentMonthStr}-01`));
+      if (!hasCurrentSub && activeSubs.length > 0) {
+        const nextSub = activeSubs.find(s => s.start_date && s.start_date.slice(0, 7) > currentMonthStr);
+        if (nextSub && nextSub.start_date) {
+          setBillingMonth(nextSub.start_date.slice(0, 7));
+        }
+      }
+    }
+  }, [profile, currentMonthStr]);
 
   // Coupon Book Management in Profile
   const [showIssueBook, setShowIssueBook] = useState(false);
@@ -286,7 +314,22 @@ export default function CustomerProfileModal({
 
   const handleGenerateOrRecalculateBill = async (targetMonth = null, basis = 'AUTO') => {
     if (billLoading) return;
-    const monthToUse = targetMonth || new Date().toISOString().slice(0, 7);
+    let monthToUse = targetMonth || billingMonth || currentMonthStr;
+
+    // Intelligent check: if generating advance subscription bill for PREPAID customer,
+    // and customer has an active subscription in an upcoming month (e.g. next month) but none in monthToUse:
+    if (basis === 'SUBSCRIPTION' || customer.billing_type === 'PREPAID') {
+      const activeSubs = (profile?.subscriptions || []).filter(s => s.is_active === 1 || s.is_active === true);
+      const hasInMonth = activeSubs.some(s => s.start_date <= `${monthToUse}-31` && (!s.end_date || s.end_date >= `${monthToUse}-01`));
+      if (!hasInMonth && activeSubs.length > 0) {
+        const altSub = activeSubs.find(s => s.start_date);
+        if (altSub && altSub.start_date) {
+          monthToUse = altSub.start_date.slice(0, 7);
+          setBillingMonth(monthToUse);
+        }
+      }
+    }
+
     try {
       setBillLoading(true);
       setBillSuccessMsg('');
@@ -301,6 +344,9 @@ export default function CustomerProfileModal({
       await fetchCustomerProfile();
       onRefreshList?.();
       setTimeout(() => setBillSuccessMsg(''), 4000);
+      if (res.id) {
+        setSelectedBillId(res.id); // Open downloadable invoice immediately
+      }
     } catch (err) {
       alert(err.message || 'Failed to generate/recalculate bill');
     } finally {
@@ -1172,7 +1218,31 @@ export default function CustomerProfileModal({
           {activeTab === 'bills' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                <h4 style={{ fontSize: '0.9rem', margin: 0 }}>Monthly Invoices & Bills</h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <h4 style={{ fontSize: '0.9rem', margin: 0 }}>Monthly Invoices & Bills</h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', padding: '3px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: '700' }}>Month:</span>
+                    <select
+                      value={billingMonth}
+                      onChange={(e) => setBillingMonth(e.target.value)}
+                      style={{
+                        padding: '2px 6px',
+                        fontSize: '0.8rem',
+                        fontWeight: '700',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '4px',
+                        background: 'white',
+                        cursor: 'pointer',
+                        color: '#0054a6'
+                      }}
+                      title="Target billing month for advance or delivered milk bill"
+                    >
+                      {monthOptions.map(m => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button
                     type="button"
@@ -1190,7 +1260,7 @@ export default function CustomerProfileModal({
                     🧾 Interactive Calendar Bill Generator
                   </button>
                   <button
-                    onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')}
+                    onClick={() => handleGenerateOrRecalculateBill(billingMonth, 'DELIVERIES')}
                     className="btn btn-outline btn-sm"
                     disabled={billLoading}
                     style={{ color: '#16a34a', borderColor: '#bbf7d0', fontWeight: '700' }}
@@ -1200,7 +1270,7 @@ export default function CustomerProfileModal({
                     {billLoading ? 'Processing...' : 'Bill Delivered Milk (Till Today)'}
                   </button>
                   <button
-                    onClick={() => handleGenerateOrRecalculateBill(null, 'SUBSCRIPTION')}
+                    onClick={() => handleGenerateOrRecalculateBill(billingMonth, 'SUBSCRIPTION')}
                     className="btn btn-outline btn-sm"
                     disabled={billLoading}
                     style={{ fontSize: '0.8rem', fontWeight: '700' }}
@@ -1232,10 +1302,10 @@ export default function CustomerProfileModal({
                       >
                         <Receipt size={14} /> 🧾 Interactive Calendar Bill Generator
                       </button>
-                      <button onClick={() => handleGenerateOrRecalculateBill(null, 'DELIVERIES')} className="btn btn-outline btn-sm" disabled={billLoading} style={{ color: '#16a34a', borderColor: '#bbf7d0' }}>
+                      <button onClick={() => handleGenerateOrRecalculateBill(billingMonth, 'DELIVERIES')} className="btn btn-outline btn-sm" disabled={billLoading} style={{ color: '#16a34a', borderColor: '#bbf7d0' }}>
                         <Truck size={14} /> Bill Delivered Milk (Till Today)
                       </button>
-                      <button onClick={() => handleGenerateOrRecalculateBill(null, 'SUBSCRIPTION')} className="btn btn-outline btn-sm" disabled={billLoading}>
+                      <button onClick={() => handleGenerateOrRecalculateBill(billingMonth, 'SUBSCRIPTION')} className="btn btn-outline btn-sm" disabled={billLoading}>
                         <Calendar size={14} /> Full Month Advance
                       </button>
                     </div>

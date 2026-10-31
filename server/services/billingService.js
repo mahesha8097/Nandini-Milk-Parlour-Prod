@@ -102,9 +102,48 @@ async function upsertBillLedgerEntry({
   }
 }
 
+function parseCustomDays(customDays) {
+  if (!customDays) return null;
+  if (Array.isArray(customDays)) {
+    return customDays.map(Number).filter(n => !isNaN(n));
+  }
+  if (typeof customDays === 'string') {
+    try {
+      const parsed = JSON.parse(customDays);
+      if (Array.isArray(parsed)) return parsed.map(Number).filter(n => !isNaN(n));
+    } catch (e) {}
+
+    const parts = customDays.split(',').map(s => s.trim().toUpperCase());
+    const dayMap = {
+      'SUN': 0, 'SUNDAY': 0, '0': 0,
+      'MON': 1, 'MONDAY': 1, '1': 1,
+      'TUE': 2, 'TUESDAY': 2, '2': 2,
+      'WED': 3, 'WEDNESDAY': 3, '3': 3,
+      'THU': 4, 'THURSDAY': 4, '4': 4,
+      'FRI': 5, 'FRIDAY': 5, '5': 5,
+      'SAT': 6, 'SATURDAY': 6, '6': 6
+    };
+    const indices = [];
+    parts.forEach(p => {
+      if (dayMap[p] !== undefined) indices.push(dayMap[p]);
+    });
+    return indices.length > 0 ? indices : null;
+  }
+  return null;
+}
+
+function formatCustomDaysSummary(customDays, frequency = 'DAILY') {
+  if (frequency === 'DAILY' && !customDays) return 'Daily';
+  if (frequency === 'ALTERNATE_DAYS') return 'Alternate Days';
+  const parsed = parseCustomDays(customDays);
+  if (!parsed || parsed.length === 0) return frequency || 'Daily';
+  const nameMap = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+  return parsed.map(idx => nameMap[idx] || idx).join(', ');
+}
+
 /**
  * Generates an Advance / Expected bill for a Prepaid Customer for a specified month (YYYY-MM).
- * Based on customer's active subscriptions in that month, strictly respecting start_date and end_date.
+ * Based on customer's active subscriptions in that month, strictly respecting start_date, end_date, frequency, and custom_days.
  */
 async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate = false) {
   if (customer.billing_type === 'COUPON') {
@@ -121,6 +160,7 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   }
 
   const daysInMonth = getDaysInMonth(billingMonth);
+  const [bYear, bMonth] = billingMonth.split('-').map(Number);
   const monthStart = `${billingMonth}-01`;
   const monthEnd = `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
 
@@ -142,6 +182,9 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   // Track breakdowns per subscription
   const subBreakdown = {};
   for (const s of subs) {
+    const customDows = (s.frequency === 'CUSTOM' || s.custom_days) ? parseCustomDays(s.custom_days) : null;
+    const customSummary = formatCustomDaysSummary(s.custom_days, s.frequency);
+
     subBreakdown[s.id] = {
       subscriptionId: s.id,
       productId: s.product_id,
@@ -152,6 +195,9 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       unitPrice: s.selling_price,
       startDate: s.start_date,
       endDate: s.end_date || null,
+      frequency: s.frequency || 'DAILY',
+      customDows,
+      customDaysSummary: customSummary,
       activeDaysCount: 0,
       totalQuantity: 0,
       productSubtotal: 0,
@@ -165,7 +211,26 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   // Day-by-day calculation across the billing month
   for (let d = 1; d <= daysInMonth; d++) {
     const dayDate = `${billingMonth}-${d.toString().padStart(2, '0')}`;
-    const daySubs = subs.filter(s => s.start_date <= dayDate && (!s.end_date || s.end_date === '' || s.end_date >= dayDate));
+    const dow = new Date(bYear, bMonth - 1, d).getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+
+    // Filter subscriptions active on this specific calendar day
+    const daySubs = subs.filter(s => {
+      // 1. Date range check
+      if (s.start_date > dayDate) return false;
+      if (s.end_date && s.end_date.trim() !== '' && s.end_date < dayDate) return false;
+
+      // 2. Frequency & custom days check
+      const b = subBreakdown[s.id];
+      if (b && b.customDows && b.customDows.length > 0) {
+        return b.customDows.includes(dow);
+      }
+      if (s.frequency === 'ALTERNATE_DAYS') {
+        const startDayNum = parseInt(s.start_date.split('-')[2], 10) || 1;
+        return (d - startDayNum) % 2 === 0;
+      }
+      return true; // DAILY
+    });
+
     if (daySubs.length === 0) continue;
 
     const dailyItems = daySubs.map(s => ({
@@ -213,6 +278,8 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       days_in_month: daysInMonth,
       effective_start: b.startDate,
       effective_end: b.endDate || 'Ongoing',
+      frequency: b.frequency,
+      custom_days: b.customDaysSummary,
       total_quantity: b.totalQuantity,
       product_subtotal: parseFloat(b.productSubtotal.toFixed(2)),
       delivery_charges_total: parseFloat(b.deliveryChargesTotal.toFixed(2)),
@@ -275,6 +342,9 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
 
   let billId = existing ? existing.id : null;
 
+  const scheduledDaysCount = activeBreakdowns.reduce((max, b) => Math.max(max, b.days_active_in_month), 0);
+  const notesText = `Monthly Advance Bill (${billingMonth}, ${scheduledDaysCount} scheduled days${activeBreakdowns[0]?.custom_days ? `: ${activeBreakdowns[0].custom_days}` : ''})`;
+
   if (existing && forceRegenerate) {
     await db.prepare(`
       UPDATE bills
@@ -285,7 +355,7 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     `).run(
       daysInMonth, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(activeBreakdowns), 'Updated Monthly Advance Bill (Effective Dates Applied)',
+      JSON.stringify(activeBreakdowns), notesText,
       existing.id
     );
     billId = existing.id;
@@ -308,7 +378,7 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       billNumber, customer.id, billingMonth, billDate, dueDate,
       daysInMonth, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       currentPending, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(activeBreakdowns), 'Automatic Monthly Advance Bill (Effective Dates Applied)',
+      JSON.stringify(activeBreakdowns), notesText,
       customer.agent_id || 1
     );
     billId = info.lastInsertRowid;

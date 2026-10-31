@@ -2862,6 +2862,9 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
               <div style={{ fontSize: '0.78rem', color: '#475569' }}>
                 Plan: <strong>Prepaid (Advance)</strong>
               </div>
+              <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+                Schedule: <strong style={{ color: '#0054a6' }}>{scheduledMilkDaysCount} Scheduled Days</strong>
+              </div>
             </div>
           </div>
 

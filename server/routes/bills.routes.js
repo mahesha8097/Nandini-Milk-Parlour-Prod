@@ -212,13 +212,33 @@ router.post('/generate-single', requireAdmin, async (req, res) => {
       });
     }
 
-    const targetMonth = month || new Date().toISOString().slice(0, 7);
+    let targetMonth = month || new Date().toISOString().slice(0, 7);
     const { generateBillForCustomer } = require('../services/billingService');
 
-    const bill = await generateBillForCustomer(customer, targetMonth, {
+    let bill = await generateBillForCustomer(customer, targetMonth, {
       billingBasis: billingBasis || 'AUTO',
       forceRegenerate: Boolean(forceRegenerate)
     });
+
+    // If no bill was generated and customer is PREPAID or requested SUBSCRIPTION basis,
+    // automatically check if the customer has an active upcoming subscription (e.g. starting next month)
+    if (!bill && (billingBasis === 'SUBSCRIPTION' || customer.billing_type === 'PREPAID')) {
+      const activeSub = await db.prepare(`
+        SELECT start_date FROM subscriptions
+        WHERE customer_id = ? AND is_active = 1
+        ORDER BY start_date ASC
+        LIMIT 1
+      `).get(customer.id);
+      if (activeSub && activeSub.start_date) {
+        const subMonth = activeSub.start_date.slice(0, 7);
+        if (subMonth !== targetMonth) {
+          bill = await generateBillForCustomer(customer, subMonth, {
+            billingBasis: billingBasis || 'AUTO',
+            forceRegenerate: Boolean(forceRegenerate)
+          });
+        }
+      }
+    }
 
     if (!bill) {
       return res.status(400).json({ error: 'No active subscriptions or delivered records found to generate bill' });
