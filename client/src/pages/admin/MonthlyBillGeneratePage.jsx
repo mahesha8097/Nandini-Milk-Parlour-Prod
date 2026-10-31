@@ -34,6 +34,12 @@ export default function MonthlyBillGeneratePage() {
   const [defaultMonthDays, setDefaultMonthDays] = useState(31);
   const [items, setItems] = useState([]); // Array of { productId, productName, variantLabel, unitVolumeLitres, unitPrice, quantity, days, startDate, endDate, selectedDays }
 
+  // Delivery Charge Calculation Rule Key: 'COMBINED_DAILY' (1L of two different milks = ₹3/day) or 'PER_PACKET' (₹2 per packet)
+  const [deliveryRuleMode, setDeliveryRuleMode] = useState('COMBINED_DAILY');
+
+  // Calendar Section Target Product: 'ALL' or specific product index string ('0', '1', ...)
+  const [calendarTargetProduct, setCalendarTargetProduct] = useState('ALL');
+
   // Customer Search & Filter State
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
@@ -465,11 +471,11 @@ export default function MonthlyBillGeneratePage() {
   };
 
   const handleSaveCalendarSelection = (applyToAll = false) => {
-    const count = tempSelectedDays.length || 1;
+    const count = tempSelectedDays.length;
     const sortedDays = [...tempSelectedDays].sort((a, b) => a - b);
     const pad = (n) => String(n).padStart(2, '0');
-    const startStr = sortedDays.length > 0 ? `${selectedMonth}-${pad(sortedDays[0])}` : `${selectedMonth}-01`;
-    const endStr = sortedDays.length > 0 ? `${selectedMonth}-${pad(sortedDays[sortedDays.length - 1])}` : `${selectedMonth}-${pad(defaultMonthDays)}`;
+    const startStr = sortedDays.length > 0 ? `${selectedMonth}-${pad(sortedDays[0])}` : null;
+    const endStr = sortedDays.length > 0 ? `${selectedMonth}-${pad(sortedDays[sortedDays.length - 1])}` : null;
 
     setItems(prev => prev.map((item, idx) => {
       if (applyToAll || idx === activeItemIndex) {
@@ -488,75 +494,268 @@ export default function MonthlyBillGeneratePage() {
   };
 
   // -------------------------------------------------------------
-  // EXACT BUSINESS RULES DELIVERY CHARGE & PRICE CALCULATION
+  // EXACT BUSINESS RULES DELIVERY CHARGE & ADVANCE CALCULATION
   // -------------------------------------------------------------
   const selectedCustomer = customers.find(c => String(c.id) === String(selectedCustomerId)) || null;
   const isBulkHotel = selectedCustomer?.customer_category === 'BULK_HOTEL';
 
-  // Calculate line items and delivery charges
-  // Respects exact Nandini Milk Parlour business rules:
-  // 1. Bulk / Hotel customers -> ₹0 delivery charges (unit price remains exact MRP)
-  // 2. Fixed per unit products -> (fixedDeliveryCharge * quantity) per day
-  // 3. None products -> ₹0 delivery charge
-  // 4. Milk rule products:
-  //    - <= 0.5 Litre per day (e.g. 1 x 500ml) = ₹2.00 delivery charge per day
-  //    - > 0.5 Litres per day (e.g. 2 x 500ml = 1.0L, or 1 x 1L) = Total Litres × ₹3.00 per day
-  const calculatedItems = items.map((item) => {
-    const itemDays = item.days !== undefined ? item.days : defaultMonthDays;
-    const qty = Math.max(0, parseInt(item.quantity, 10) || 0);
-    const totalQty = qty * itemDays;
-    const unitPrice = parseFloat(item.unitPrice) || 0;
-    const milkSubtotal = parseFloat((unitPrice * totalQty).toFixed(2));
+  // Day-by-day delivery and milk calculation across the month
+  // Correctly handles customers taking multiple different milks on the same day:
+  // - Combined daily volume (e.g. 500ml Shubham + 500ml Special = 1.0L total milk) -> ₹3.00/day delivery charge!
+  // - Also supports per-packet separate mode (₹2 each packet) via the selector key.
+  // - Bulk / Hotel customers -> ₹0 delivery charges
+  // - For days with no milk -> ₹0 billed (No Milk Required)
+  const dailyBreakdown = useMemo(() => {
+    const daysInMonth = defaultMonthDays;
+    const days = [];
 
-    // Daily delivery charge for this row's daily volume & configuration
-    let dailyDeliveryCharge = 0;
-    const chargeType = item.deliveryChargeType || item.delivery_charge_type;
-    const isMilkCat = Boolean(item.category && item.category.trim().toLowerCase() === 'milk');
-    const isMilkRule = chargeType === 'MILK_RULE' || (!chargeType && isMilkCat);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const activeForDay = items
+        .map((it, idx) => ({ ...it, originalIndex: idx }))
+        .filter(it => (it.selectedDays || []).includes(d));
 
-    if (isBulkHotel) {
-      dailyDeliveryCharge = 0;
-    } else if (chargeType === 'FIXED_PER_UNIT') {
-      const fixedPerUnit = parseFloat(item.fixedDeliveryCharge !== undefined ? item.fixedDeliveryCharge : item.fixed_delivery_charge) || 0;
-      dailyDeliveryCharge = parseFloat((fixedPerUnit * qty).toFixed(2));
-    } else if (chargeType === 'NONE') {
-      dailyDeliveryCharge = 0;
-    } else if (isMilkRule) {
-      let vol = item.unitVolumeLitres;
-      if (!vol || vol <= 0) {
-        if (item.variantLabel && item.variantLabel.toLowerCase().includes('500')) vol = 0.5;
-        else if (item.variantLabel && item.variantLabel.toLowerCase().includes('1')) vol = 1.0;
-        else vol = 0.5;
+      if (activeForDay.length === 0) {
+        days.push({
+          day: d,
+          hasMilk: false,
+          activeItems: [],
+          totalLitres: 0,
+          milkCost: 0,
+          deliveryCharge: 0,
+          dayTotal: 0,
+          itemCharges: {}
+        });
+        continue;
       }
-      const dailyLitres = vol * qty;
-      if (dailyLitres <= 0) {
-        dailyDeliveryCharge = 0;
-      } else if (dailyLitres <= 0.5) {
-        dailyDeliveryCharge = 2.0; // ₹2.00 for 500ml or less per day
+
+      let milkCost = 0;
+      let totalLitres = 0;
+      const milkItems = [];
+      const otherItems = [];
+
+      activeForDay.forEach(it => {
+        const qty = Math.max(0, parseInt(it.quantity, 10) || 0);
+        const unitPrice = parseFloat(it.unitPrice) || 0;
+        milkCost += unitPrice * qty;
+
+        const chargeType = it.deliveryChargeType || it.delivery_charge_type;
+        const isMilkCat = Boolean(it.category && it.category.trim().toLowerCase() === 'milk');
+        const isMilkRule = chargeType === 'MILK_RULE' || (!chargeType && isMilkCat);
+
+        let vol = parseFloat(it.unitVolumeLitres) || 0;
+        if (!vol || vol <= 0) {
+          if (it.variantLabel && it.variantLabel.toLowerCase().includes('500')) vol = 0.5;
+          else if (it.variantLabel && it.variantLabel.toLowerCase().includes('1')) vol = 1.0;
+          else vol = 0.5;
+        }
+
+        if (isMilkRule) {
+          milkItems.push({ ...it, qty, vol, itemLitres: vol * qty });
+          totalLitres += vol * qty;
+        } else {
+          otherItems.push({ ...it, qty, vol, chargeType });
+        }
+      });
+
+      let dayDeliveryCharge = 0;
+      const itemCharges = {};
+
+      if (isBulkHotel) {
+        dayDeliveryCharge = 0;
+        activeForDay.forEach(it => { itemCharges[it.originalIndex] = 0; });
       } else {
-        dailyDeliveryCharge = parseFloat((dailyLitres * 3.0).toFixed(2)); // ₹3.00 per litre per day
+        if (milkItems.length > 0) {
+          if (deliveryRuleMode === 'PER_PACKET') {
+            // Per packet separate rule (₹2 per 500ml packet)
+            milkItems.forEach(m => {
+              const charge = (m.vol <= 0.5 ? 2.0 : (m.vol * 3.0)) * m.qty;
+              itemCharges[m.originalIndex] = parseFloat(charge.toFixed(2));
+              dayDeliveryCharge += charge;
+            });
+          } else {
+            // Combined daily volume rule (e.g. 1L across different milks = ₹3/day)
+            let milkGroupCharge = 0;
+            if (totalLitres <= 0) {
+              milkGroupCharge = 0;
+            } else if (totalLitres <= 0.5) {
+              milkGroupCharge = 2.0;
+            } else {
+              milkGroupCharge = parseFloat((totalLitres * 3.0).toFixed(2));
+            }
+            dayDeliveryCharge += milkGroupCharge;
+
+            // Distribute group charge proportionally across milk items
+            let remainingMilkCharge = milkGroupCharge;
+            milkItems.forEach((m, idx) => {
+              if (idx === milkItems.length - 1) {
+                itemCharges[m.originalIndex] = parseFloat(remainingMilkCharge.toFixed(2));
+              } else {
+                const share = totalLitres > 0
+                  ? parseFloat(((m.itemLitres / totalLitres) * milkGroupCharge).toFixed(2))
+                  : 0;
+                itemCharges[m.originalIndex] = share;
+                remainingMilkCharge -= share;
+              }
+            });
+          }
+        }
+
+        // Other products
+        otherItems.forEach(o => {
+          let charge = 0;
+          if (o.chargeType === 'FIXED_PER_UNIT') {
+            const fixedPerUnit = parseFloat(o.fixedDeliveryCharge !== undefined ? o.fixedDeliveryCharge : o.fixed_delivery_charge) || 0;
+            charge = parseFloat((fixedPerUnit * o.qty).toFixed(2));
+          } else {
+            charge = 0;
+          }
+          itemCharges[o.originalIndex] = charge;
+          dayDeliveryCharge += charge;
+        });
       }
+
+      dayDeliveryCharge = parseFloat(dayDeliveryCharge.toFixed(2));
+      milkCost = parseFloat(milkCost.toFixed(2));
+
+      days.push({
+        day: d,
+        hasMilk: true,
+        activeItems: activeForDay,
+        totalLitres,
+        milkCost,
+        deliveryCharge: dayDeliveryCharge,
+        dayTotal: parseFloat((milkCost + dayDeliveryCharge).toFixed(2)),
+        itemCharges
+      });
     }
 
-    const deliveryChargeTotal = parseFloat((dailyDeliveryCharge * itemDays).toFixed(2));
-    const lineTotal = parseFloat((milkSubtotal + deliveryChargeTotal).toFixed(2));
-    const effectiveUnitPrice = totalQty > 0 ? parseFloat((lineTotal / totalQty).toFixed(2)) : unitPrice;
+    return days;
+  }, [items, defaultMonthDays, isBulkHotel, deliveryRuleMode]);
 
-    return {
-      ...item,
-      itemDays,
-      totalQty,
-      milkSubtotal,
-      dailyDeliveryCharge,
-      deliveryChargeTotal,
-      lineTotal,
-      effectiveUnitPrice
-    };
-  });
+  const calculatedItems = useMemo(() => {
+    return items.map((item, idx) => {
+      const selectedDays = item.selectedDays || [];
+      const itemDays = selectedDays.length;
+      const qty = Math.max(0, parseInt(item.quantity, 10) || 0);
+      const totalQty = qty * itemDays;
+      const unitPrice = parseFloat(item.unitPrice) || 0;
+      const milkSubtotal = parseFloat((unitPrice * totalQty).toFixed(2));
+
+      let deliveryChargeTotal = 0;
+      dailyBreakdown.forEach(dayInfo => {
+        if (dayInfo.hasMilk && dayInfo.itemCharges[idx] !== undefined) {
+          deliveryChargeTotal += dayInfo.itemCharges[idx];
+        }
+      });
+      deliveryChargeTotal = parseFloat(deliveryChargeTotal.toFixed(2));
+      const lineTotal = parseFloat((milkSubtotal + deliveryChargeTotal).toFixed(2));
+      const effectiveUnitPrice = totalQty > 0 ? parseFloat((lineTotal / totalQty).toFixed(2)) : unitPrice;
+      const dailyDeliveryCharge = itemDays > 0 ? parseFloat((deliveryChargeTotal / itemDays).toFixed(2)) : 0;
+
+      return {
+        ...item,
+        itemDays,
+        totalQty,
+        milkSubtotal,
+        dailyDeliveryCharge,
+        deliveryChargeTotal,
+        lineTotal,
+        effectiveUnitPrice
+      };
+    });
+  }, [items, dailyBreakdown]);
 
   const totalMilkSubtotal = calculatedItems.reduce((acc, it) => acc + it.milkSubtotal, 0);
   const totalDeliveryCharges = calculatedItems.reduce((acc, it) => acc + it.deliveryChargeTotal, 0);
   const grossTotalBill = parseFloat((totalMilkSubtotal + totalDeliveryCharges).toFixed(2));
+
+  // Calendar summary counts
+  const scheduledMilkDaysCount = useMemo(() => {
+    return dailyBreakdown.filter(d => d.hasMilk).length;
+  }, [dailyBreakdown]);
+
+  const noMilkDaysCount = Math.max(0, defaultMonthDays - scheduledMilkDaysCount);
+
+  const monthDisplayTitle = useMemo(() => {
+    if (!selectedMonth) return '';
+    const [year, month] = selectedMonth.split('-').map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }, [selectedMonth]);
+
+  const [yearNum, monthNum] = (selectedMonth || '2026-10').split('-').map(Number);
+  const firstDayOfMonthOffset = new Date(yearNum, monthNum - 1, 1).getDay();
+
+  // Handler to toggle an individual day on the calendar (Milk Taken <-> No Milk Required)
+  const handleToggleCalendarDay = (dayNum) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    setItems(prevItems => {
+      const targetIndices = calendarTargetProduct === 'ALL'
+        ? prevItems.map((_, i) => i)
+        : [parseInt(calendarTargetProduct, 10)];
+
+      const isCurrentlyActive = targetIndices.some(idx =>
+        (prevItems[idx]?.selectedDays || []).includes(dayNum)
+      );
+
+      return prevItems.map((item, idx) => {
+        if (!targetIndices.includes(idx)) return item;
+        const currentDays = item.selectedDays || [];
+        let newDays;
+        if (isCurrentlyActive) {
+          newDays = currentDays.filter(d => d !== dayNum);
+        } else {
+          newDays = [...currentDays, dayNum].sort((a, b) => a - b);
+        }
+        return {
+          ...item,
+          days: newDays.length,
+          startDate: newDays.length > 0 ? `${selectedMonth}-${pad(newDays[0])}` : null,
+          endDate: newDays.length > 0 ? `${selectedMonth}-${pad(newDays[newDays.length - 1])}` : null,
+          selectedDays: newDays
+        };
+      });
+    });
+  };
+
+  // Handler for Calendar Presets
+  const handleApplyCalendarPreset = (presetType) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    const totalDays = defaultMonthDays;
+    let targetDays = [];
+
+    if (presetType === 'FULL') {
+      for (let d = 1; d <= totalDays; d++) targetDays.push(d);
+    } else if (presetType === 'ODD') {
+      for (let d = 1; d <= totalDays; d += 2) targetDays.push(d);
+    } else if (presetType === 'EVEN') {
+      for (let d = 2; d <= totalDays; d += 2) targetDays.push(d);
+    } else if (presetType === 'WEEKDAYS') {
+      const [y, m] = selectedMonth.split('-').map(Number);
+      for (let d = 1; d <= totalDays; d++) {
+        const dayOfWeek = new Date(y, m - 1, d).getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) targetDays.push(d);
+      }
+    } else if (presetType === 'CLEAR') {
+      targetDays = [];
+    }
+
+    setItems(prevItems => {
+      const targetIndices = calendarTargetProduct === 'ALL'
+        ? prevItems.map((_, i) => i)
+        : [parseInt(calendarTargetProduct, 10)];
+
+      return prevItems.map((item, idx) => {
+        if (!targetIndices.includes(idx)) return item;
+        return {
+          ...item,
+          days: targetDays.length,
+          startDate: targetDays.length > 0 ? `${selectedMonth}-${pad(targetDays[0])}` : null,
+          endDate: targetDays.length > 0 ? `${selectedMonth}-${pad(targetDays[targetDays.length - 1])}` : null,
+          selectedDays: [...targetDays]
+        };
+      });
+    });
+  };
 
   // Advance adjustment for Prepaid / Advance Balance customers
   const customerAdvance = Number(selectedCustomer?.advance_balance || 0);
@@ -567,6 +766,7 @@ export default function MonthlyBillGeneratePage() {
     : 0;
   const netPayable = parseFloat(Math.max(0, grossTotalBill - advanceAdjusted).toFixed(2));
   const remainingAdvance = parseFloat(Math.max(0, customerAdvance - advanceAdjusted).toFixed(2));
+
 
   // Invoice Number & Meta
   const invoiceNumber = `NB-${selectedMonth.replace('-', '')}-${selectedCustomer ? selectedCustomer.id.toString().padStart(4, '0') : '0001'}`;
@@ -692,8 +892,12 @@ export default function MonthlyBillGeneratePage() {
     let msg = `*NANDINI MILK PARLOUR — ADVANCE MONTHLY BILL*\n`;
     msg += `*Invoice No:* ${invoiceNumber}\n`;
     msg += `*Month:* ${selectedMonth}\n`;
-    msg += `*Customer:* ${selectedCustomer.name}\n\n`;
-    msg += `*Products & Schedule:* \n${itemsSummary}\n\n`;
+    msg += `*Customer:* ${selectedCustomer.name}\n`;
+    msg += `*Schedule:* ${scheduledMilkDaysCount} Milk Days Scheduled`;
+    if (noMilkDaysCount > 0) {
+      msg += ` (${noMilkDaysCount} Days: No Milk Required)`;
+    }
+    msg += `\n\n*Products & Schedule:* \n${itemsSummary}\n\n`;
     if (advanceAdjusted > 0) {
       msg += `*Total Bill:* ₹${grossTotalBill.toFixed(2)}\n`;
       msg += `*Deducted from Advance:* ₹${advanceAdjusted.toFixed(2)}\n`;
@@ -1313,10 +1517,45 @@ export default function MonthlyBillGeneratePage() {
 
         {/* Product Items Quick Edit Bar with Date / Days & Calendar Picker */}
         <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Daily Milk Items (Configure Qty & Days / Calendar per Product):
             </span>
+            {/* Delivery Charge Calculation Selector Key */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              padding: '4px 10px',
+              flexWrap: 'wrap'
+            }}>
+              <span style={{ fontSize: '0.74rem', fontWeight: '800', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Sparkles size={13} color="#0054a6" /> Delivery Charge Rule:
+              </span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', fontWeight: '700', cursor: 'pointer', color: deliveryRuleMode === 'COMBINED_DAILY' ? '#0054a6' : 'var(--text-secondary)' }} title="When customer takes multiple milk packets (e.g. 2 x 500ml of different milks = 1L), delivery charge is ₹3/day total">
+                <input
+                  type="radio"
+                  name="deliveryRuleMode"
+                  value="COMBINED_DAILY"
+                  checked={deliveryRuleMode === 'COMBINED_DAILY'}
+                  onChange={() => setDeliveryRuleMode('COMBINED_DAILY')}
+                />
+                <span>Combined Litres (1L = ₹3/day) <strong style={{ color: '#16a34a' }}>✓ Default</strong></span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', fontWeight: '700', cursor: 'pointer', color: deliveryRuleMode === 'PER_PACKET' ? '#0054a6' : 'var(--text-secondary)' }} title="Charge ₹2 separately on every single packet">
+                <input
+                  type="radio"
+                  name="deliveryRuleMode"
+                  value="PER_PACKET"
+                  checked={deliveryRuleMode === 'PER_PACKET'}
+                  onChange={() => setDeliveryRuleMode('PER_PACKET')}
+                />
+                <span>Separate Per Packet (₹2 each)</span>
+              </label>
+            </div>
           </div>
 
           {items.map((item, idx) => {
@@ -1655,6 +1894,314 @@ export default function MonthlyBillGeneratePage() {
         </div>
       )}
 
+      {/* CALENDAR SECTION: Interactive Month Grid & Advance Calculation */}
+      <div className="card" style={{ marginBottom: '20px', padding: '16px' }}>
+        {/* Calendar Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <CalendarDays size={20} color="#0054a6" />
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: 'var(--text-primary)' }}>
+                Monthly Delivery Schedule & Calendar — {monthDisplayTitle}
+              </h3>
+            </div>
+            <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              Click any day to toggle between <strong>Milk Taken</strong> and <strong>No Milk Required</strong>. Advance calculates based on active milk days.
+            </p>
+          </div>
+
+          {/* Schedule Status Badges */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{
+              background: 'rgba(16, 185, 129, 0.12)',
+              color: '#059669',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              padding: '4px 10px',
+              borderRadius: '999px',
+              fontSize: '0.75rem',
+              fontWeight: '800',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              🥛 {scheduledMilkDaysCount} Milk Days Scheduled
+            </span>
+            <span style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              color: '#dc2626',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              padding: '4px 10px',
+              borderRadius: '999px',
+              fontSize: '0.75rem',
+              fontWeight: '800',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              🚫 {noMilkDaysCount} Days: No Milk Required
+            </span>
+            <span style={{
+              background: 'rgba(0, 84, 166, 0.1)',
+              color: '#0054a6',
+              border: '1px solid rgba(0, 84, 166, 0.25)',
+              padding: '4px 10px',
+              borderRadius: '999px',
+              fontSize: '0.75rem',
+              fontWeight: '800',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              💰 Advance: ₹{grossTotalBill.toFixed(2)}
+            </span>
+          </div>
+        </div>
+
+        {/* Advance Summary Highlight Banner */}
+        <div style={{
+          marginBottom: '14px',
+          padding: '10px 14px',
+          background: 'linear-gradient(135deg, rgba(0, 84, 166, 0.06) 0%, rgba(16, 185, 129, 0.08) 100%)',
+          border: '1px solid #93c5fd',
+          borderRadius: '8px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircle2 size={16} color="#059669" />
+            <span style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+              Advance calculated for <strong>{scheduledMilkDaysCount} active milk days</strong>. Remaining <strong>{noMilkDaysCount} days marked as "No Milk Required" (₹0)</strong>.
+            </span>
+          </div>
+          <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#0054a6' }}>
+            Milk Subtotal: ₹{totalMilkSubtotal.toFixed(2)} + Delivery: ₹{totalDeliveryCharges.toFixed(2)} = ₹{grossTotalBill.toFixed(2)}
+          </div>
+        </div>
+
+        {/* Toolbar: Target Selector & Quick Presets */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '10px',
+          padding: '10px 12px',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '8px',
+          marginBottom: '14px'
+        }}>
+          {/* Target Product Selector if multiple products */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-secondary)' }}>Schedule Days For:</span>
+            <select
+              className="form-select"
+              value={calendarTargetProduct}
+              onChange={(e) => setCalendarTargetProduct(e.target.value)}
+              style={{ fontSize: '0.78rem', fontWeight: '700', padding: '4px 8px', width: 'auto' }}
+            >
+              <option value="ALL">All Products ({items.length})</option>
+              {items.map((it, idx) => (
+                <option key={idx} value={String(idx)}>
+                  Only: {it.productName} ({it.variantLabel})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Quick Presets */}
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: '800', color: 'var(--text-secondary)' }}>Quick Presets:</span>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+              onClick={() => handleApplyCalendarPreset('FULL')}
+              title="Mark all days of the month as milk taken"
+            >
+              All Days ({defaultMonthDays}d)
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+              onClick={() => handleApplyCalendarPreset('ODD')}
+              title="Mark alternate days (1, 3, 5, 7...)"
+            >
+              Alternate (Odd)
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+              onClick={() => handleApplyCalendarPreset('EVEN')}
+              title="Mark alternate days (2, 4, 6, 8...)"
+            >
+              Alternate (Even)
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+              onClick={() => handleApplyCalendarPreset('WEEKDAYS')}
+              title="Mark Monday to Friday only"
+            >
+              Weekdays
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px', color: '#dc2626', borderColor: '#fecaca' }}
+              onClick={() => handleApplyCalendarPreset('CLEAR')}
+              title="Mark all days as No Milk Required"
+            >
+              All No Milk
+            </button>
+          </div>
+        </div>
+
+        {/* Calendar Grid */}
+        <div style={{
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '10px',
+          padding: '12px',
+          overflowX: 'auto'
+        }}>
+          {/* Weekday Labels Header */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7, minmax(105px, 1fr))',
+            gap: '6px',
+            textAlign: 'center',
+            marginBottom: '8px'
+          }}>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((wd, i) => (
+              <div key={wd} style={{
+                fontSize: '0.75rem',
+                fontWeight: '900',
+                padding: '4px',
+                color: i === 0 ? '#ef4444' : 'var(--text-secondary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em'
+              }}>
+                {wd}
+              </div>
+            ))}
+          </div>
+
+          {/* Days Grid */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7, minmax(105px, 1fr))',
+            gap: '6px'
+          }}>
+            {/* Blank cells for start offset */}
+            {Array.from({ length: firstDayOfMonthOffset }).map((_, i) => (
+              <div key={`blank-${i}`} style={{ minHeight: '68px', opacity: 0.15 }} />
+            ))}
+
+            {/* Days of Month */}
+            {dailyBreakdown.map((dayInfo) => {
+              const d = dayInfo.day;
+              const hasMilk = dayInfo.hasMilk;
+              const isSunday = new Date(yearNum, monthNum - 1, d).getDay() === 0;
+
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => handleToggleCalendarDay(d)}
+                  title={hasMilk ? `Day ${d}: Milk Taken (₹${dayInfo.dayTotal}). Click to mark as No Milk Required.` : `Day ${d}: No Milk Required. Click to schedule Milk.`}
+                  style={{
+                    minHeight: '68px',
+                    padding: '6px 8px',
+                    borderRadius: '8px',
+                    border: hasMilk
+                      ? '1.5px solid #10b981'
+                      : '1px dashed var(--border-color)',
+                    background: hasMilk
+                      ? 'rgba(16, 185, 129, 0.08)'
+                      : 'var(--bg-card)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    alignItems: 'stretch',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                    boxShadow: hasMilk ? '0 1px 3px rgba(16, 185, 129, 0.15)' : 'none'
+                  }}
+                >
+                  {/* Top row: Day number + status indicator */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <span style={{
+                      fontSize: '0.85rem',
+                      fontWeight: '900',
+                      color: isSunday ? '#ef4444' : (hasMilk ? '#059669' : 'var(--text-muted)')
+                    }}>
+                      {d}
+                    </span>
+                    <span style={{
+                      fontSize: '0.65rem',
+                      fontWeight: '800',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      background: hasMilk ? '#10b981' : '#f1f5f9',
+                      color: hasMilk ? '#ffffff' : '#64748b'
+                    }}>
+                      {hasMilk ? '🥛 MILK' : '🚫 OFF'}
+                    </span>
+                  </div>
+
+                  {/* Middle: Milk info or No Milk Required */}
+                  <div style={{ margin: '4px 0', fontSize: '0.7rem', lineHeight: '1.2' }}>
+                    {hasMilk ? (
+                      <div>
+                        <div style={{ fontWeight: '700', color: '#047857' }}>
+                          {dayInfo.totalLitres > 0 ? `${dayInfo.totalLitres}L Milk` : 'Milk Taken'}
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                          {isBulkHotel ? '₹0 Del' : (dayInfo.deliveryCharge > 0 ? `Del: ₹${dayInfo.deliveryCharge}` : 'Del: ₹0')}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.68rem', fontWeight: '600' }}>
+                        No milk required
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom: Cost */}
+                  <div style={{ fontSize: '0.72rem', fontWeight: '800', textAlign: 'right', color: hasMilk ? '#0054a6' : 'var(--text-muted)' }}>
+                    {hasMilk ? `₹${dayInfo.dayTotal.toFixed(0)}` : '₹0'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '10px', fontSize: '0.74rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '12px', height: '12px', borderRadius: '3px', background: 'rgba(16, 185, 129, 0.2)', border: '1.5px solid #10b981' }}></span>
+            <span><strong>Milk Taken</strong> (Included in advance bill calculation)</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '12px', height: '12px', borderRadius: '3px', background: 'var(--bg-card)', border: '1px dashed var(--border-color)' }}></span>
+            <span><strong>No Milk Required</strong> (₹0 billed — excluded from advance bill)</span>
+          </div>
+          <div style={{ marginLeft: 'auto', fontStyle: 'italic', fontSize: '0.72rem' }}>
+            💡 Click any day to toggle between Milk Taken and No Milk Required.
+          </div>
+        </div>
+      </div>
+
       {/* ACTION BAR: Print & Share */}
       <div className="bill-gen-actions-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
         <h2 style={{ fontSize: '1rem', fontWeight: '800', margin: 0, color: 'var(--text-primary)' }}>
@@ -1825,6 +2372,22 @@ export default function MonthlyBillGeneratePage() {
               </tbody>
             </table>
           </div>
+
+          {/* Schedule Note on Invoice if customer has off-days */}
+          {noMilkDaysCount > 0 && (
+            <div style={{
+              marginTop: '-4px',
+              marginBottom: '12px',
+              padding: '6px 10px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '4px',
+              fontSize: '0.74rem',
+              color: '#475569'
+            }}>
+              🗓️ <strong>Delivery Schedule:</strong> Milk scheduled on <strong>{scheduledMilkDaysCount} days</strong>. Remaining <strong>{noMilkDaysCount} days: No milk required (₹0)</strong>.
+            </div>
+          )}
 
           {/* Bill Summary Breakdown Card */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
