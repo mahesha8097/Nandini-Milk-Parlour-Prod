@@ -1407,7 +1407,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   };
 
   return (
-    <div className="zone-delivery-container" style={{ padding: '20px 24px 96px 24px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: 'var(--bg-main)' }}>
+    <div className="zone-delivery-container" style={{ padding: activeCustomer ? '10px 12px 70px 12px' : '20px 24px 96px 24px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: 'var(--bg-main)' }}>
       {/* Toast Notification */}
       {toastMessage && (
         <div style={{
@@ -1434,93 +1434,95 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       {/* ========================================================================= */}
       {/* HEADER: Title, Date, Route Selector & Delivery Boy Filter */}
       {/* ========================================================================= */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
-              <Truck size={22} />
-            </div>
-            <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: '900', color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
-                Daily Delivery Route
-              </h1>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
-                {formatDisplayDate(selectedDate)}
+      {!activeCustomer && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                <Truck size={22} />
+              </div>
+              <div>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: '900', color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+                  Daily Delivery Route
+                </h1>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                  {formatDisplayDate(selectedDate)}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Date Stepper Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)', padding: '6px 10px', borderRadius: '10px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-          <button
-            onClick={handlePrevDay}
-            className="btn btn-outline btn-sm"
-            style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
-            title="Previous Day"
-          >
-            <ChevronLeft size={16} />
-          </button>
-
-          <input
-            type="date"
-            value={selectedDate}
-            max={userRole === 'DELIVERY_BOY' ? getLocalDateString() : undefined}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (userRole === 'DELIVERY_BOY' && val > getLocalDateString()) return;
-              setSelectedDate(val);
-            }}
-            style={{ border: 'none', fontWeight: '800', fontSize: '0.9rem', color: 'var(--text-primary)', outline: 'none', background: 'transparent', cursor: 'pointer' }}
-          />
-
-          {/* Next Day button: hidden for Delivery Boy when on today or future */}
-          {(userRole !== 'DELIVERY_BOY' || selectedDate < getLocalDateString()) && (
+          {/* Date Stepper Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)', padding: '6px 10px', borderRadius: '10px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
             <button
-              onClick={handleNextDay}
+              onClick={handlePrevDay}
               className="btn btn-outline btn-sm"
               style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
-              title="Next Day"
+              title="Previous Day"
             >
-              <ChevronRight size={16} />
+              <ChevronLeft size={16} />
             </button>
-          )}
 
-          {selectedDate !== getLocalDateString() && (
-            <button
-              onClick={handleToday}
-              className="btn btn-sm"
-              style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontWeight: '700', padding: '4px 10px', fontSize: '0.78rem', borderRadius: '6px' }}
-            >
-              Today
-            </button>
+            <input
+              type="date"
+              value={selectedDate}
+              max={userRole === 'DELIVERY_BOY' ? getLocalDateString() : undefined}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (userRole === 'DELIVERY_BOY' && val > getLocalDateString()) return;
+                setSelectedDate(val);
+              }}
+              style={{ border: 'none', fontWeight: '800', fontSize: '0.9rem', color: 'var(--text-primary)', outline: 'none', background: 'transparent', cursor: 'pointer' }}
+            />
+
+            {/* Next Day button: hidden for Delivery Boy when on today or future */}
+            {(userRole !== 'DELIVERY_BOY' || selectedDate < getLocalDateString()) && (
+              <button
+                onClick={handleNextDay}
+                className="btn btn-outline btn-sm"
+                style={{ padding: '6px 8px', borderRadius: '6px', border: 'none', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                title="Next Day"
+              >
+                <ChevronRight size={16} />
+              </button>
+            )}
+
+            {selectedDate !== getLocalDateString() && (
+              <button
+                onClick={handleToday}
+                className="btn btn-sm"
+                style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontWeight: '700', padding: '4px 10px', fontSize: '0.78rem', borderRadius: '6px' }}
+              >
+                Today
+              </button>
+            )}
+          </div>
+
+          {/* Admin Delivery Boy filter */}
+          {userRole === 'ADMIN' && deliveryBoys.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: '700', color: '#64748b' }}>Delivery Boy:</span>
+              <select
+                className="form-select"
+                value={dboyFilter}
+                onChange={(e) => setDboyFilter(e.target.value)}
+                style={{ padding: '6px 12px', fontSize: '0.85rem', fontWeight: '700', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+              >
+                <option value="">All Delivery Boys</option>
+                {deliveryBoys.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name} ({b.phone})</option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
-
-        {/* Admin Delivery Boy filter */}
-        {userRole === 'ADMIN' && deliveryBoys.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.82rem', fontWeight: '700', color: '#64748b' }}>Delivery Boy:</span>
-            <select
-              className="form-select"
-              value={dboyFilter}
-              onChange={(e) => setDboyFilter(e.target.value)}
-              style={{ padding: '6px 12px', fontSize: '0.85rem', fontWeight: '700', borderRadius: '8px', border: '1px solid #cbd5e1' }}
-            >
-              <option value="">All Delivery Boys</option>
-              {deliveryBoys.map((b) => (
-                <option key={b.id} value={b.id}>{b.name} ({b.phone})</option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ========================================================================= */}
       {/* REAL-TIME DELIVERY CALENDAR & MILK VACATION NOTIFICATION BANNERS */}
       {/* ========================================================================= */}
       {/* 1. DO NOT DELIVER TODAY BANNER */}
-      {calendarNotifs?.pausedToday?.length > 0 && (
+      {!activeCustomer && calendarNotifs?.pausedToday?.length > 0 && (
         <div style={{
           background: '#fef2f2',
           border: '1.5px solid #fecaca',
@@ -1587,7 +1589,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       )}
 
       {/* 2. RESUMES TOMORROW (1-DAY PRIOR NOTIFICATION FOR AGENT & DELIVERY BOY) */}
-      {calendarNotifs?.resumingTomorrow?.length > 0 && (
+      {!activeCustomer && calendarNotifs?.resumingTomorrow?.length > 0 && (
         <div style={{
           background: '#eff6ff',
           border: '1.5px solid #bfdbfe',
@@ -3130,512 +3132,325 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         /* ------------------------------------------------------------------------- */
         <div style={{
           background: 'white',
-          borderRadius: '16px',
+          borderRadius: '14px',
           border: '1px solid #e2e8f0',
-          padding: '20px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.04)',
+          padding: '12px 14px',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '18px',
+          gap: '10px',
           width: '100%',
-          maxWidth: '100%',
+          maxWidth: '680px',
+          margin: '0 auto',
           boxSizing: 'border-box'
         }}>
-          {/* Top Bar inside Customer Screen */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {/* 1. Top Bar: Back, Stop / Zone, Next/Prev Controls */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', paddingBottom: '6px', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               <button
                 type="button"
                 onClick={() => setSelectedCustomerId(null)}
                 style={{
                   background: '#eff6ff',
-                  border: '1.5px solid #bfdbfe',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '6px',
                   color: '#1d4ed8',
-                  fontWeight: '800',
-                  fontSize: '0.88rem',
+                  fontWeight: 800,
+                  fontSize: '0.78rem',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 14px'
+                  gap: '4px',
+                  padding: '5px 10px',
+                  cursor: 'pointer',
+                  flexShrink: 0
                 }}
               >
-                <ArrowLeft size={16} />
-                <span>Back to Customers</span>
+                <ArrowLeft size={14} />
+                <span>Back</span>
               </button>
 
-              {currentCustomerIndex >= 0 && (
-                <span style={{
-                  background: '#f1f5f9',
-                  color: '#334155',
-                  padding: '5px 12px',
-                  borderRadius: '999px',
-                  fontSize: '0.8rem',
-                  fontWeight: 800,
-                  border: '1px solid #cbd5e1'
-                }}>
-                  Stop {currentCustomerIndex + 1} of {zoneDeliveryQueue.length}
-                </span>
-              )}
+              <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {currentCustomerIndex >= 0 && (
+                  <span style={{ color: '#2563eb' }}>
+                    Stop {currentCustomerIndex + 1}/{zoneDeliveryQueue.length} •{' '}
+                  </span>
+                )}
+                <span>{activeZone.name}</span>
+              </div>
             </div>
 
-            {/* Quick Next / Prev Customer Navigation Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+              <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 700, marginRight: '4px' }}>
+                {formatDisplayDate(selectedDate)}
+              </span>
               {prevCustomer && (
                 <button
                   type="button"
                   onClick={() => setSelectedCustomerId(prevCustomer.customer_id)}
-                  className="btn btn-outline btn-sm"
                   style={{
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: '#334155',
+                    cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '5px',
-                    fontWeight: 700,
-                    fontSize: '0.82rem',
-                    padding: '7px 12px',
-                    borderRadius: '8px'
+                    gap: '2px'
                   }}
-                  title={`Previous Customer: ${prevCustomer.customer_name} (${prevCustomer.flat_no || ''})`}
+                  title={`Prev: ${prevCustomer.customer_name} (${prevCustomer.flat_no || ''})`}
                 >
-                  <ChevronLeft size={16} />
+                  <ChevronLeft size={14} />
                   <span>Prev</span>
                 </button>
               )}
-
-              {nextCustomer ? (
+              {nextCustomer && (
                 <button
                   type="button"
                   onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
-                  className="btn btn-primary btn-sm"
                   style={{
-                    background: '#2563eb',
-                    borderColor: '#1d4ed8',
-                    color: 'white',
+                    background: '#eff6ff',
+                    border: '1px solid #93c5fd',
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '0.75rem',
                     fontWeight: 800,
-                    fontSize: '0.85rem',
-                    padding: '7px 14px',
-                    borderRadius: '8px',
+                    color: '#1d4ed8',
+                    cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 2px 6px rgba(37,99,235,0.3)'
+                    gap: '2px'
                   }}
-                  title={`Next Customer: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
+                  title={`Next: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
                 >
-                  <span>Next Customer</span>
-                  <ChevronRight size={16} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleDoneAndMoveToNextZone()}
-                  className="btn btn-primary btn-sm"
-                  style={{
-                    background: 'linear-gradient(135deg, #059669, #10b981)',
-                    borderColor: '#059669',
-                    color: 'white',
-                    fontWeight: 900,
-                    fontSize: '0.85rem',
-                    padding: '7px 14px',
-                    borderRadius: '8px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 2px 6px rgba(16,185,129,0.3)'
-                  }}
-                  title="Done with all customers in this zone, move to next zone"
-                >
-                  <CheckCheck size={16} />
-                  <span>{nextZone ? `Done & Move to Next Zone ➔` : '✓ All Deliveries Done!'}</span>
+                  <span>Next</span>
+                  <ChevronRight size={14} />
                 </button>
               )}
-
-              <span style={{
-                background: '#f8fafc',
-                color: '#475569',
-                border: '1px solid #e2e8f0',
-                padding: '4px 10px',
-                borderRadius: '999px',
-                fontSize: '0.78rem',
-                fontWeight: '700'
-              }}>
-                {activeZone.name} • Route #{activeZone.route_order || 1}
-              </span>
-              <span style={{
-                background: '#eff6ff',
-                color: '#1d4ed8',
-                border: '1px solid #bfdbfe',
-                padding: '4px 10px',
-                borderRadius: '999px',
-                fontSize: '0.78rem',
-                fontWeight: '800'
-              }}>
-                📅 {formatDisplayDate(selectedDate)}
-              </span>
             </div>
           </div>
 
-          {/* Customer Profile Header Card */}
+          {/* Active Pause Notice for This Customer (if paused today) */}
+          {(() => {
+            const activePause = calendarNotifs?.pausedToday?.find(
+              (p) => String(p.customer_id) === String(activeCustomer.customer_id)
+            );
+            if (!activePause) return null;
+            return (
+              <div style={{
+                background: '#fee2e2',
+                border: '1px solid #fca5a5',
+                borderRadius: '8px',
+                padding: '6px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                fontSize: '0.78rem',
+                color: '#991b1b',
+                fontWeight: 800
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={15} color="#dc2626" style={{ flexShrink: 0 }} />
+                  <span>⛔ MILK PAUSED TODAY ({activePause.start_date} to {activePause.end_date})</span>
+                </div>
+                {activePause.gcal_url && (
+                  <a
+                    href={activePause.gcal_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#b91c1c', display: 'inline-flex', alignItems: 'center', gap: '3px', textDecoration: 'none', fontSize: '0.72rem', fontWeight: 800 }}
+                  >
+                    <Calendar size={12} /> Cal
+                  </a>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* 2. Customer Info & Quick Contact */}
           <div style={{
             background: '#f8fafc',
-            border: '1.5px solid #e2e8f0',
-            borderRadius: '14px',
-            padding: '16px 18px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '10px',
+            padding: '10px 12px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '12px'
+            gap: '6px'
           }}>
-            {(() => {
-              const activePause = calendarNotifs?.pausedToday?.find(
-                p => String(p.customer_id) === String(activeCustomer.customer_id)
-              );
-              if (!activePause) return null;
-              return (
-                <div style={{
-                  background: '#fee2e2',
-                  border: '1.5px solid #fca5a5',
-                  borderRadius: '10px',
-                  padding: '10px 14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '10px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <AlertTriangle size={18} color="#dc2626" />
-                    <div>
-                      <div style={{ fontWeight: 900, color: '#991b1b', fontSize: '0.9rem' }}>
-                        ⛔ MILK DELIVERY PAUSED (DO NOT DELIVER TODAY)
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: '#b91c1c' }}>
-                        Paused from {activePause.start_date} to {activePause.end_date}. Reason: {activePause.reason || 'Pause requested'}.
-                      </div>
-                    </div>
-                  </div>
-                  {activePause.gcal_url && (
-                    <a
-                      href={activePause.gcal_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        background: 'white',
-                        color: '#b91c1c',
-                        border: '1px solid #fca5a5',
-                        borderRadius: '6px',
-                        padding: '4px 10px',
-                        fontSize: '0.78rem',
-                        fontWeight: 800,
-                        textDecoration: 'none'
-                      }}
-                    >
-                      <Calendar size={13} />
-                      <span>Google Cal</span>
-                    </a>
-                  )}
-                </div>
-              );
-            })()}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  {activeCustomer.flat_no && (
-                    <span style={{
-                      background: '#2563eb',
-                      color: 'white',
-                      fontSize: '0.85rem',
-                      fontWeight: 900,
-                      padding: '3px 10px',
-                      borderRadius: '6px',
-                      letterSpacing: '0.02em'
-                    }}>
-                      {activeCustomer.flat_no.toLowerCase().includes('flat') || activeCustomer.flat_no.toLowerCase().includes('villa') ? '' : 'Flat '}{activeCustomer.flat_no}
-                    </span>
-                  )}
-                  <h2 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0f172a', margin: 0, wordBreak: 'break-word' }}>
-                    {activeCustomer.customer_name}
-                  </h2>
-                  {activeCustomer.customer_category === 'BULK_HOTEL' && (
-                    <span style={{ background: '#f3e8ff', color: '#7c3aed', fontSize: '0.74rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px' }}>
-                      Bulk Hotel
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.85rem', marginTop: '4px' }}>
-                  <MapPin size={14} color="#94a3b8" />
-                  <span>{activeCustomer.customer_address}</span>
-                </div>
+            {/* Row 1: Flat badge + Name + Status + Quick Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flexWrap: 'wrap' }}>
+                {activeCustomer.flat_no && (
+                  <span style={{
+                    background: '#2563eb',
+                    color: 'white',
+                    fontSize: '0.8rem',
+                    fontWeight: 900,
+                    padding: '2px 8px',
+                    borderRadius: '5px'
+                  }}>
+                    {activeCustomer.flat_no.toLowerCase().includes('flat') || activeCustomer.flat_no.toLowerCase().includes('villa') ? '' : 'Flat '}{activeCustomer.flat_no}
+                  </span>
+                )}
+                <h2 style={{ fontSize: '1.05rem', fontWeight: 900, color: '#0f172a', margin: 0, wordBreak: 'break-word' }}>
+                  {activeCustomer.customer_name}
+                </h2>
+                {activeCustomer.status === 'DELIVERED' ? (
+                  <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                    <Check size={12} /> Delivered
+                  </span>
+                ) : activeCustomer.status === 'SKIPPED' ? (
+                  <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                    <XCircle size={12} /> Skipped
+                  </span>
+                ) : (
+                  <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800 }}>
+                    Pending
+                  </span>
+                )}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => handleOpenQuickVacation(activeCustomer)}
-                  className="btn btn-outline btn-sm"
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: '#b45309',
-                    borderColor: '#fde68a',
-                    background: '#fef3c7',
-                    fontWeight: 700,
-                    fontSize: '0.82rem',
-                    cursor: 'pointer'
-                  }}
-                  title="Customer requested not to deliver milk for upcoming days"
-                >
-                  <Calendar size={14} />
-                  <span>Pause Milk / Vacation</span>
-                </button>
-
+              {/* Quick Actions: Call & Pause */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {activeCustomer.customer_phone && (
                   <a
                     href={`tel:${activeCustomer.customer_phone}`}
-                    className="btn btn-outline btn-sm"
                     style={{
-                      padding: '6px 12px',
-                      borderRadius: '8px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '6px',
+                      gap: '4px',
                       textDecoration: 'none',
                       color: '#2563eb',
-                      borderColor: '#bfdbfe',
+                      border: '1px solid #bfdbfe',
+                      background: '#eff6ff',
                       fontWeight: 700,
-                      fontSize: '0.82rem'
+                      fontSize: '0.75rem'
                     }}
+                    title="Call customer"
                   >
-                    <Phone size={14} />
-                    <span>Call Customer</span>
+                    <Phone size={13} />
+                    <span>Call</span>
                   </a>
                 )}
-
-                <div>
-                  {activeCustomer.status === 'DELIVERED' ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{
-                        background: '#dcfce7',
-                        color: '#15803d',
-                        padding: '6px 14px',
-                        borderRadius: '999px',
-                        fontSize: '0.85rem',
-                        fontWeight: 800,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}>
-                        <Check size={16} /> Delivered
-                      </span>
-
-                      {/* Immediate Next Customer / Next Zone action button right beside Delivered badge */}
-                      {nextCustomer ? (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
-                          style={{
-                            background: '#2563eb',
-                            color: 'white',
-                            border: 'none',
-                            padding: '6px 14px',
-                            borderRadius: '999px',
-                            fontSize: '0.82rem',
-                            fontWeight: 800,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 6px rgba(37,99,235,0.25)'
-                          }}
-                          title={`Next: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
-                        >
-                          <span>Next Customer ({nextCustomer.flat_no ? (nextCustomer.flat_no.toLowerCase().includes('flat') || nextCustomer.flat_no.toLowerCase().includes('villa') ? nextCustomer.flat_no : `Flat ${nextCustomer.flat_no}`) : nextCustomer.customer_name})</span>
-                          <ChevronRight size={15} />
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleDoneAndMoveToNextZone()}
-                          style={{
-                            background: 'linear-gradient(135deg, #059669, #10b981)',
-                            color: 'white',
-                            border: 'none',
-                            padding: '6px 14px',
-                            borderRadius: '999px',
-                            fontSize: '0.82rem',
-                            fontWeight: 900,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 6px rgba(16,185,129,0.3)'
-                          }}
-                        >
-                          <CheckCheck size={15} />
-                          <span>{nextZone ? `Done & Move to Next Zone (${nextZone.name}) ➔` : '✓ All Deliveries Done!'}</span>
-                        </button>
-                      )}
-                    </div>
-                  ) : activeCustomer.status === 'SKIPPED' ? (
-                    <span style={{
-                      background: '#fee2e2',
-                      color: '#b91c1c',
-                      padding: '6px 14px',
-                      borderRadius: '999px',
-                      fontSize: '0.85rem',
-                      fontWeight: 800,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}>
-                      <XCircle size={16} /> Skipped
-                    </span>
-                  ) : (
-                    <span style={{
-                      background: '#fef3c7',
-                      color: '#b45309',
-                      padding: '6px 14px',
-                      borderRadius: '999px',
-                      fontSize: '0.85rem',
-                      fontWeight: 800
-                    }}>
-                      Pending Delivery
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Special Instructions Callout */}
-            {activeCustomer.hasSpecialInstructions && activeCustomer.specialInstructions && (
-              <div style={{
-                background: '#fffbeb',
-                border: '1.5px solid #fde68a',
-                borderRadius: '10px',
-                padding: '10px 14px',
-                fontSize: '0.85rem',
-                color: '#b45309',
-                fontWeight: '700',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <AlertCircle size={18} color="#d97706" style={{ flexShrink: 0 }} />
-                <span><strong>Special Delivery Instruction:</strong> {activeCustomer.specialInstructions}</span>
-              </div>
-            )}
-            {/* PAYMENT RECORDER SECTION FOR DAILY & SPOT PAYMENTS */}
-            <div style={{
-              background: activeCustomer.paidTodayAmount > 0 ? '#f0fdf4' : (activeCustomer.billing_type === 'DAILY' ? '#fff7ed' : '#f8fafc'),
-              border: activeCustomer.paidTodayAmount > 0 ? '1.5px solid #86efac' : (activeCustomer.billing_type === 'DAILY' ? '1.5px solid #fdba74' : '1px solid #e2e8f0'),
-              borderRadius: '12px',
-              padding: '14px 18px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '14px',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-            }}>
-              <div style={{ flex: '1 1 260px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <Wallet size={19} color={activeCustomer.paidTodayAmount > 0 ? '#16a34a' : (activeCustomer.billing_type === 'DAILY' ? '#ea580c' : '#64748b')} />
-                  <span style={{ fontWeight: '900', fontSize: '1rem', color: '#0f172a' }}>
-                    Payment Recorder: {activeCustomer.billing_type === 'DAILY' ? 'Daily Payment Customer' : 'Delivery Spot Payment'}
-                  </span>
-                  {activeCustomer.billing_type === 'DAILY' && (
-                    <span style={{ background: '#ffedd5', color: '#c2410c', fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px' }}>
-                      Daily Cash/UPI
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ marginTop: '6px', fontSize: '0.84rem', color: '#475569', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  <div>
-                    <span>Today's Order Total: </span>
-                    <strong style={{ color: '#0f172a' }}>₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'}</strong>
-                  </div>
-                  {activeCustomer.paidTodayAmount > 0 ? (
-                    <div style={{ color: '#15803d', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      <span>✓ Amount Paid: ₹{activeCustomer.paidTodayAmount.toFixed(2)}</span>
-                      <span>({activeCustomer.todayPayments[0]?.payment_method || 'CASH'})</span>
-                      {activeCustomer.todayPayments[0]?.receipt_number && (
-                        <span style={{ color: '#047857', fontFamily: 'monospace' }}>[{activeCustomer.todayPayments[0].receipt_number}]</span>
-                      )}
-                      {activeCustomer.todayPayments[0]?.recorded_by_name && (
-                        <span style={{ color: '#065f46' }}>— Recorded by {activeCustomer.todayPayments[0].recorded_by_name}</span>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ color: '#c2410c', fontWeight: '700' }}>
-                      ⚠️ No payment recorded yet for today (Amount Due: ₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'})
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button
                   type="button"
-                  onClick={() => handleOpenDailyPaymentModal(activeCustomer, activeCustomer.paidTodayAmount > 0)}
-                  className="btn btn-sm"
+                  onClick={() => handleOpenQuickVacation(activeCustomer)}
                   style={{
-                    background: activeCustomer.paidTodayAmount > 0 ? '#059669' : '#16a34a',
-                    color: 'white',
-                    border: 'none',
-                    fontWeight: '800',
-                    fontSize: '0.85rem',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)'
+                    gap: '4px',
+                    color: '#b45309',
+                    border: '1px solid #fde68a',
+                    background: '#fef3c7',
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
                   }}
+                  title="Pause milk / vacation"
                 >
-                  <Wallet size={15} />
-                  <span>{activeCustomer.paidTodayAmount > 0 ? 'Adjust Payment' : 'Enter Amount Paid'}</span>
+                  <Calendar size={13} />
+                  <span>Pause</span>
                 </button>
               </div>
             </div>
-          </div>
 
-          {/* Products Heading */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ShoppingBag size={18} color="#2563eb" />
-              <span>Scheduled Products for Today ({activeCustomer.items.length})</span>
-            </h3>
-          </div>
+            {/* Address */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#64748b', fontSize: '0.76rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <MapPin size={12} color="#94a3b8" style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeCustomer.customer_address}</span>
+            </div>
 
-          {/* Product Items List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {activeCustomer.items.length === 0 ? (
+            {/* Special Instructions note (if any) */}
+            {activeCustomer.hasSpecialInstructions && activeCustomer.specialInstructions && (
               <div style={{
-                padding: '32px 20px',
-                textAlign: 'center',
-                background: '#f8fafc',
-                borderRadius: '12px',
-                border: '1px dashed #cbd5e1',
-                color: '#64748b'
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '6px',
+                padding: '4px 8px',
+                fontSize: '0.74rem',
+                color: '#b45309',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
               }}>
-                <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', fontWeight: 600 }}>
-                  No products scheduled for today yet. Use <strong>Extra Product</strong> or <strong>Manage Products</strong> to add items.
-                </p>
+                <AlertCircle size={13} color="#d97706" style={{ flexShrink: 0 }} />
+                <span><strong>Note:</strong> {activeCustomer.specialInstructions}</span>
+              </div>
+            )}
+
+            {/* Compact 1-line Payment Strip */}
+            <div style={{
+              background: activeCustomer.paidTodayAmount > 0 ? '#f0fdf4' : (activeCustomer.billing_type === 'DAILY' ? '#fff7ed' : '#ffffff'),
+              border: activeCustomer.paidTodayAmount > 0 ? '1px solid #86efac' : (activeCustomer.billing_type === 'DAILY' ? '1px solid #fdba74' : '1px solid #e2e8f0'),
+              borderRadius: '7px',
+              padding: '5px 8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '6px',
+              fontSize: '0.78rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0, overflow: 'hidden' }}>
+                <Wallet size={14} color={activeCustomer.paidTodayAmount > 0 ? '#16a34a' : (activeCustomer.billing_type === 'DAILY' ? '#ea580c' : '#64748b')} style={{ flexShrink: 0 }} />
+                {activeCustomer.paidTodayAmount > 0 ? (
+                  <span style={{ color: '#15803d', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    ✓ Paid: ₹{activeCustomer.paidTodayAmount.toFixed(2)} ({activeCustomer.todayPayments[0]?.payment_method || 'CASH'})
+                  </span>
+                ) : activeCustomer.billing_type === 'DAILY' ? (
+                  <span style={{ color: '#c2410c', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    💰 Due: ₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'}
+                  </span>
+                ) : activeCustomer.billing_type === 'COUPON' ? (
+                  <span style={{ color: '#047857', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    🎟️ Coupon Customer {activeCustomer.coupon_balance !== undefined ? `(Bal: ${activeCustomer.coupon_balance})` : ''}
+                  </span>
+                ) : (
+                  <span style={{ color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    📅 Monthly • Today: ₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'}
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleOpenDailyPaymentModal(activeCustomer, activeCustomer.paidTodayAmount > 0)}
+                style={{
+                  background: activeCustomer.paidTodayAmount > 0 ? '#059669' : '#16a34a',
+                  color: 'white',
+                  border: 'none',
+                  fontWeight: 800,
+                  fontSize: '0.72rem',
+                  padding: '3px 8px',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0
+                }}
+              >
+                {activeCustomer.paidTodayAmount > 0 ? 'Edit Pay' : 'Enter Pay'}
+              </button>
+            </div>
+          </div>
+
+          {/* 3. Scheduled Products to Deliver */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {activeCustomer.items.length === 0 ? (
+              <div style={{ padding: '16px', textAlign: 'center', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '0.82rem' }}>
+                No products scheduled for today.
                 <button
                   type="button"
                   onClick={() => handleOpenExtra(activeCustomer)}
-                  className="btn btn-primary btn-sm"
-                  style={{ fontWeight: 800 }}
+                  style={{ marginLeft: '8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: '5px', fontWeight: 800, cursor: 'pointer', fontSize: '0.75rem' }}
                 >
-                  <PlusCircle size={14} /> Add Extra Product
+                  + Add Extra Product
                 </button>
               </div>
             ) : (
@@ -3651,327 +3466,171 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      gap: '16px',
-                      padding: '14px 18px',
-                      background: '#f8fafc',
-                      borderRadius: '12px',
-                      border: itemDelivered ? '1.5px solid #bbf7d0' : itemSkipped ? '1.5px solid #fecaca' : '1px solid #e2e8f0',
-                      flexWrap: 'wrap'
+                      gap: '8px',
+                      padding: '8px 10px',
+                      background: itemDelivered ? '#f0fdf4' : itemSkipped ? '#fef2f2' : '#ffffff',
+                      borderRadius: '8px',
+                      border: itemDelivered ? '1.5px solid #86efac' : itemSkipped ? '1.5px solid #fecaca' : '1.5px solid #e2e8f0'
                     }}
                   >
-                    {/* Left: Product Image & Details */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: '220px', flex: '1 1 220px' }}>
-                      <ProductPacketImage
-                        category={item.category_snapshot}
-                        productName={item.product_name_snapshot}
-                        imageUrl={item.product_image_url}
-                        size={52}
-                      />
-                      <div>
-                        <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>
+                    {/* Left: Product Name & Qty */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>🥛</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {item.product_name_snapshot} {item.variant_snapshot && `(${item.variant_snapshot})`}
                         </div>
-                        <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '3px' }}>
-                          Subscription: <strong>{item.subscription_quantity || item.quantity} {(item.subscription_quantity || item.quantity) === 1 ? 'packet' : 'packets'}/day</strong>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                          Qty: <strong style={{ color: itemDelivered ? '#15803d' : '#0f172a', fontSize: '0.85rem' }}>{item.quantity} {item.quantity === 1 ? 'pkt' : 'pkts'}</strong>
+                          {activeCustomer?.billing_type === 'COUPON' && (
+                            <span style={{ marginLeft: '6px', color: '#059669', fontWeight: 700 }}>• 🎟️ Coupon</span>
+                          )}
                         </div>
-                        {activeCustomer?.billing_type === 'COUPON' && (
-                          <div style={{ marginTop: '5px' }}>
-                            {item.is_coupon_eligible === 1 || item.category_snapshot === 'Milk' || item.category_snapshot === 'MILK' ? (
-                              <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                background: '#ecfdf5',
-                                color: '#059669',
-                                border: '1px solid #a7f3d0',
-                                borderRadius: '6px',
-                                padding: '2px 8px',
-                                fontSize: '0.72rem',
-                                fontWeight: '700'
-                              }}>
-                                🏷️ Coupon Item (Deducts 1 coupon/pkt)
-                              </span>
-                            ) : (
-                              <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                background: '#f8fafc',
-                                color: '#475569',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '6px',
-                                padding: '2px 8px',
-                                fontSize: '0.72rem',
-                                fontWeight: '700'
-                              }}>
-                                💵 Billed Item (No Coupon Deducted)
-                              </span>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
 
-                    {/* Right: Quantity & Actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    {/* Right: Inline Actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
                       {itemPending ? (
                         <>
-                          {/* Today's Qty Stepper / Display with Edit button */}
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>
-                              Today's Qty
-                            </span>
-                            <div style={{ display: 'flex', alignItems: 'center', background: 'white', border: '1.5px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
-                              <span style={{ padding: '4px 12px', fontWeight: 900, fontSize: '1rem', color: '#0f172a', minWidth: '36px', textAlign: 'center' }}>
-                                {item.quantity}
-                              </span>
-                              {activeCustomer.customer_category !== 'BULK_HOTEL' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEdit(item)}
-                                  style={{
-                                    padding: '6px 8px',
-                                    background: '#f8fafc',
-                                    border: 'none',
-                                    borderLeft: '1px solid #e2e8f0',
-                                    cursor: 'pointer',
-                                    color: '#0284c7',
-                                    display: 'flex',
-                                    alignItems: 'center'
-                                  }}
-                                  title="Edit quantity before delivering (temporary for today only)"
-                                >
-                                  <Edit3 size={14} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Action Buttons: Mark Delivered & Skip */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleDeliverSingleItem(item, activeCustomer.customer_name)}
-                              style={{
-                                background: '#16a34a',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                fontWeight: 800,
-                                fontSize: '0.85rem',
-                                padding: '8px 16px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)'
-                              }}
-                            >
-                              <CheckCircle2 size={16} />
-                              <span>Mark Delivered</span>
-                            </button>
-
-                            {/* One-click Deliver & Next Customer */}
-                            <button
-                              type="button"
-                              onClick={() => handleDeliverSingleItemAndGoNext(item, activeCustomer.customer_name)}
-                              style={{
-                                background: 'linear-gradient(135deg, #15803d, #16a34a)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                fontWeight: 800,
-                                fontSize: '0.85rem',
-                                padding: '8px 14px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '5px',
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
-                              }}
-                              title={nextCustomer ? `Deliver item and immediately jump to ${nextCustomer.customer_name}` : 'Deliver item and move to next zone'}
-                            >
-                              <span>{nextCustomer ? 'Deliver & Next' : 'Deliver & Finish Zone'}</span>
-                              <ChevronRight size={16} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenSkip({ ...activeCustomer, items: [item] })}
-                              style={{
-                                background: '#ffedd5',
-                                color: '#c2410c',
-                                border: '1.5px solid #fed7aa',
-                                borderRadius: '8px',
-                                fontWeight: 800,
-                                fontSize: '0.85rem',
-                                padding: '8px 14px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              Skip
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(item)}
+                            style={{
+                              background: '#f1f5f9',
+                              color: '#0284c7',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '5px',
+                              padding: '4px 7px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}
+                            title="Edit quantity"
+                          >
+                            <Edit3 size={12} />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSkip({ ...activeCustomer, items: [item] })}
+                            style={{
+                              background: '#fff7ed',
+                              color: '#c2410c',
+                              border: '1px solid #fed7aa',
+                              borderRadius: '5px',
+                              padding: '4px 7px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                            title="Skip this item"
+                          >
+                            Skip
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeliverSingleItem(item, activeCustomer.customer_name)}
+                            style={{
+                              background: '#16a34a',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '5px',
+                              padding: '4px 8px',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}
+                            title="Mark only this item delivered"
+                          >
+                            <Check size={12} />
+                            <span>✓</span>
+                          </button>
                         </>
                       ) : itemDelivered ? (
                         <>
-                          {/* Delivered Qty */}
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>
-                              Delivered Qty
-                            </span>
-                            <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#15803d' }}>
-                              {item.quantity}
-                            </span>
-                          </div>
-
-                          {/* Quick Next Customer icon button when item is delivered */}
-                          {nextCustomer ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
-                              style={{
-                                background: '#eff6ff',
-                                color: '#1d4ed8',
-                                border: '1.5px solid #bfdbfe',
-                                borderRadius: '8px',
-                                fontWeight: 800,
-                                fontSize: '0.82rem',
-                                padding: '7px 12px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '5px',
-                                cursor: 'pointer'
-                              }}
-                              title={`Next: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
-                            >
-                              <span>Next Customer</span>
-                              <ChevronRight size={15} />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleDoneAndMoveToNextZone()}
-                              style={{
-                                background: '#ecfdf5',
-                                color: '#059669',
-                                border: '1.5px solid #86efac',
-                                borderRadius: '8px',
-                                fontWeight: 800,
-                                fontSize: '0.82rem',
-                                padding: '7px 12px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '5px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <CheckCheck size={14} />
-                              <span>Done & Next Zone</span>
-                              <ChevronRight size={14} />
-                            </button>
-                          )}
-
-                          {/* Edit / Correct Button */}
+                          <span style={{ color: '#15803d', fontSize: '0.74rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <CheckCircle2 size={13} /> Delivered
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleOpenCorrection(item)}
                             style={{
                               background: '#eff6ff',
                               color: '#1d4ed8',
-                              border: '1.5px solid #bfdbfe',
-                              borderRadius: '8px',
-                              fontWeight: 800,
-                              fontSize: '0.82rem',
-                              padding: '7px 14px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
+                              border: '1px solid #bfdbfe',
+                              borderRadius: '5px',
+                              padding: '3px 6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
                               cursor: 'pointer'
                             }}
+                            title="Edit / Correct"
                           >
-                            <Edit3 size={14} />
-                            <span>Edit / Correct</span>
+                            <Edit3 size={11} />
                           </button>
-
-                          {/* Revert Item to Pending */}
                           <button
                             type="button"
                             onClick={() => handleRevertPending(item.id)}
                             style={{
-                              background: 'var(--bg-surface)',
+                              background: '#fffbeb',
                               color: '#d97706',
-                              border: '1.5px solid #fed7aa',
-                              borderRadius: '8px',
-                              fontWeight: 800,
-                              fontSize: '0.82rem',
-                              padding: '7px 12px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '5px',
-                              cursor: 'pointer'
-                            }}
-                            title="Revert this delivery back to Pending"
-                          >
-                            <RotateCcw size={14} />
-                            <span>Revert</span>
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          {/* Skipped */}
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase', marginBottom: '2px' }}>
-                              Skipped
-                            </span>
-                            <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#64748b' }}>
-                              --
-                            </span>
-                          </div>
-
-                          {/* Edit / Correct Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCorrection(item)}
-                            style={{
-                              background: '#eff6ff',
-                              color: '#1d4ed8',
-                              border: '1.5px solid #bfdbfe',
-                              borderRadius: '8px',
-                              fontWeight: 800,
-                              fontSize: '0.82rem',
-                              padding: '7px 14px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <Edit3 size={14} />
-                            <span>Edit / Correct</span>
-                          </button>
-
-                          {/* Revert Skipped to Pending */}
-                          <button
-                            type="button"
-                            onClick={() => handleRevertPending(item.id)}
-                            style={{
-                              background: 'var(--bg-surface)',
-                              color: '#d97706',
-                              border: '1.5px solid #fed7aa',
-                              borderRadius: '8px',
-                              fontWeight: 800,
-                              fontSize: '0.82rem',
-                              padding: '7px 12px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '5px',
+                              border: '1px solid #fde68a',
+                              borderRadius: '5px',
+                              padding: '3px 6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
                               cursor: 'pointer'
                             }}
                             title="Revert back to Pending"
                           >
-                            <RotateCcw size={14} />
-                            <span>Revert</span>
+                            <RotateCcw size={11} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ color: '#dc2626', fontSize: '0.74rem', fontWeight: 800 }}>
+                            Skipped
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCorrection(item)}
+                            style={{
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              border: '1px solid #bfdbfe',
+                              borderRadius: '5px',
+                              padding: '3px 6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                            title="Edit / Correct"
+                          >
+                            <Edit3 size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRevertPending(item.id)}
+                            style={{
+                              background: '#fffbeb',
+                              color: '#d97706',
+                              border: '1px solid #fde68a',
+                              borderRadius: '5px',
+                              padding: '3px 6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                            title="Revert back to Pending"
+                          >
+                            <RotateCcw size={11} />
                           </button>
                         </>
                       )}
@@ -3982,232 +3641,181 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             )}
           </div>
 
-          {/* Customer Delivery Footer Actions Toolbar */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            flexWrap: 'wrap',
-            borderTop: '1.5px solid #f1f5f9',
-            paddingTop: '14px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* 4. Hero Action: Mark Delivered & Next (Fits in 1 frame) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' }}>
+            {activeCustomer.items.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') ? (
               <button
                 type="button"
-                onClick={() => setSelectedCustomerId(null)}
-                className="btn btn-outline btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: '700' }}
-              >
-                <ArrowLeft size={15} />
-                <span>Back to Customers</span>
-              </button>
-
-              {prevCustomer && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedCustomerId(prevCustomer.customer_id)}
-                  className="btn btn-outline btn-sm"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: '700' }}
-                  title={`Previous Customer: ${prevCustomer.customer_name}`}
-                >
-                  <ChevronLeft size={15} />
-                  <span>Prev</span>
-                </button>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              {/* Deliver All Items button if multiple products and some are still pending */}
-              {activeCustomer.items.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') && activeCustomer.items.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleDeliverCustomerGroup(activeCustomer)}
-                    style={{
-                      background: '#15803d',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontWeight: 800,
-                      fontSize: '0.85rem',
-                      padding: '8px 16px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: '0 2px 6px rgba(21, 128, 61, 0.25)'
-                    }}
-                  >
-                    <CheckCircle2 size={16} /> Mark All Delivered
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDeliverCustomerGroupAndGoNext(activeCustomer)}
-                    style={{
-                      background: 'linear-gradient(135deg, #15803d, #16a34a)',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontWeight: 800,
-                      fontSize: '0.85rem',
-                      padding: '8px 16px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: '0 2px 6px rgba(22, 163, 74, 0.3)'
-                    }}
-                    title={nextCustomer ? `Mark all delivered and advance to ${nextCustomer.customer_name}` : 'Mark all delivered and move to next zone'}
-                  >
-                    <CheckCircle2 size={16} />
-                    <span>{nextCustomer ? 'Mark All & Next' : 'Mark All & Finish Zone'}</span>
-                    <ChevronRight size={16} />
-                  </button>
-                </>
-              )}
-
-              {/* Record Payment Button */}
-              {activeCustomer.billing_type === 'DAILY' && (
-                <button
-                  type="button"
-                  onClick={() => handleOpenDailyPaymentModal(activeCustomer, activeCustomer.paidTodayAmount > 0)}
-                  style={{
-                    background: activeCustomer.paidTodayAmount > 0 ? '#f0fdf4' : '#16a34a',
-                    color: activeCustomer.paidTodayAmount > 0 ? '#15803d' : 'white',
-                    border: activeCustomer.paidTodayAmount > 0 ? '1.5px solid #86efac' : 'none',
-                    fontWeight: 800,
-                    fontSize: '0.85rem',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'pointer',
-                    boxShadow: activeCustomer.paidTodayAmount > 0 ? 'none' : '0 2px 6px rgba(22, 163, 74, 0.25)'
-                  }}
-                >
-                  <Wallet size={15} />
-                  <span>{activeCustomer.paidTodayAmount > 0 ? `Paid ₹${activeCustomer.paidTodayAmount.toFixed(2)} ✓` : `Record ₹${activeCustomer.totalAmount?.toFixed(2) || '0.00'} Payment`}</span>
-                </button>
-              )}
-
-              {/* Extra Product */}
-              <button
-                type="button"
-                onClick={() => handleOpenExtra(activeCustomer.items[0] || activeCustomer)}
+                onClick={() => handleDeliverCustomerGroupAndGoNext(activeCustomer)}
                 style={{
-                  background: '#fffbeb',
-                  color: '#b45309',
-                  border: '1.5px solid #fde68a',
-                  fontWeight: 800,
-                  fontSize: '0.82rem',
-                  padding: '8px 14px',
-                  borderRadius: '8px',
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #15803d, #16a34a)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: 900,
+                  fontSize: '0.98rem',
+                  padding: '11px 16px',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '5px',
-                  cursor: 'pointer'
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 3px 10px rgba(22, 163, 74, 0.3)',
+                  letterSpacing: '0.01em'
                 }}
               >
-                <PlusCircle size={15} color="#d97706" />
-                <span>Extra Product</span>
+                <CheckCircle2 size={18} />
+                <span>{nextCustomer ? 'MARK DELIVERED & NEXT ➔' : (nextZone ? 'MARK DELIVERED & NEXT ZONE ➔' : '✓ MARK DELIVERED (FINISH)')}</span>
               </button>
+            ) : nextCustomer ? (
+              <button
+                type="button"
+                onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #1d4ed8, #2563eb)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: 900,
+                  fontSize: '0.98rem',
+                  padding: '11px 16px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 3px 10px rgba(37, 99, 235, 0.3)'
+                }}
+              >
+                <span>NEXT: {nextCustomer.flat_no ? (nextCustomer.flat_no.toLowerCase().includes('flat') || nextCustomer.flat_no.toLowerCase().includes('villa') ? nextCustomer.flat_no : `Flat ${nextCustomer.flat_no}`) : nextCustomer.customer_name} ➔</span>
+                <ChevronRight size={18} />
+              </button>
+            ) : nextZone ? (
+              <button
+                type="button"
+                onClick={() => handleDoneAndMoveToNextZone()}
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #059669, #10b981)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: 900,
+                  fontSize: '0.98rem',
+                  padding: '11px 16px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 3px 10px rgba(16, 185, 129, 0.3)'
+                }}
+              >
+                <CheckCheck size={18} />
+                <span>DONE & MOVE TO NEXT ZONE ({nextZone.name}) ➔</span>
+              </button>
+            ) : (
+              <div style={{
+                padding: '9px 14px',
+                background: '#dcfce7',
+                color: '#15803d',
+                borderRadius: '8px',
+                fontWeight: 800,
+                textAlign: 'center',
+                fontSize: '0.9rem'
+              }}>
+                ✓ All Deliveries Completed for Today!
+              </div>
+            )}
 
-              {/* Bulk Manage Products */}
-              {activeCustomer.customer_category === 'BULK_HOTEL' && (
+            {/* Bottom Utilities Row: Extra Product, Skip, Revert */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <button
                   type="button"
-                  onClick={() => handleOpenBulkModal(activeCustomer)}
+                  onClick={() => handleOpenExtra(activeCustomer.items[0] || activeCustomer)}
                   style={{
-                    background: '#f3e8ff',
-                    color: '#7c3aed',
-                    border: '1.5px solid #d8b4fe',
-                    fontWeight: 800,
-                    fontSize: '0.82rem',
-                    padding: '8px 14px',
-                    borderRadius: '8px',
+                    background: '#fffbeb',
+                    color: '#b45309',
+                    border: '1px solid #fde68a',
+                    fontWeight: 700,
+                    fontSize: '0.74rem',
+                    padding: '4px 8px',
+                    borderRadius: '5px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
                     cursor: 'pointer'
                   }}
                 >
-                  Manage Products
+                  <PlusCircle size={12} color="#d97706" />
+                  <span>+ Extra Product</span>
                 </button>
-              )}
 
-              {/* Revert all customer deliveries back to Pending if any item is delivered or skipped */}
-              {activeCustomer.items?.some((it) => it.status === 'DELIVERED' || it.status === 'SKIPPED') && (
-                <button
-                  type="button"
-                  onClick={() => handleRevertCustomer(activeCustomer)}
-                  className="btn btn-outline btn-sm"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '0.82rem',
-                    padding: '7px 14px',
-                    borderRadius: '8px',
-                    borderColor: '#f59e0b',
-                    color: '#d97706',
-                    fontWeight: 700
-                  }}
-                  title="Revert all deliveries for this customer back to Pending"
-                >
-                  <RotateCcw size={14} />
-                  <span>Revert All to Pending</span>
-                </button>
-              )}
+                {activeCustomer.customer_category === 'BULK_HOTEL' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenBulkModal(activeCustomer)}
+                    style={{
+                      background: '#f3e8ff',
+                      color: '#7c3aed',
+                      border: '1px solid #d8b4fe',
+                      fontWeight: 700,
+                      fontSize: '0.74rem',
+                      padding: '4px 8px',
+                      borderRadius: '5px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Manage Products
+                  </button>
+                )}
+              </div>
 
-              {/* Next Customer or Done & Move to Next Zone Action */}
-              {nextCustomer ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
-                  className="btn btn-primary"
-                  style={{
-                    background: 'linear-gradient(135deg, #1d4ed8, #2563eb)',
-                    color: 'white',
-                    border: 'none',
-                    fontWeight: 800,
-                    fontSize: '0.88rem',
-                    padding: '8px 18px',
-                    borderRadius: '8px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(37,99,235,0.25)'
-                  }}
-                  title={`Go to next customer: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
-                >
-                  <span>Next Customer ({nextCustomer.flat_no ? (nextCustomer.flat_no.toLowerCase().includes('flat') || nextCustomer.flat_no.toLowerCase().includes('villa') ? nextCustomer.flat_no : `Flat ${nextCustomer.flat_no}`) : nextCustomer.customer_name})</span>
-                  <ChevronRight size={18} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleDoneAndMoveToNextZone()}
-                  className="btn btn-primary"
-                  style={{
-                    background: 'linear-gradient(135deg, #059669, #10b981)',
-                    borderColor: '#059669',
-                    color: 'white',
-                    fontWeight: 900,
-                    fontSize: '0.9rem',
-                    padding: '9px 20px',
-                    borderRadius: '8px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    boxShadow: '0 4px 12px rgba(16,185,129,0.35)'
-                  }}
-                >
-                  <CheckCheck size={18} />
-                  <span>{nextZone ? `✓ Done & Move to Next Zone (${nextZone.name}) ➔` : '✓ All Deliveries & Zones Done!'}</span>
-                </button>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {activeCustomer.items.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenSkip(activeCustomer)}
+                    style={{
+                      background: 'none',
+                      color: '#c2410c',
+                      border: 'none',
+                      fontWeight: 700,
+                      fontSize: '0.74rem',
+                      cursor: 'pointer',
+                      padding: '4px 6px',
+                      textDecoration: 'underline'
+                    }}
+                  >
+                    Skip Customer
+                  </button>
+                )}
+
+                {activeCustomer.items.some((it) => it.status === 'DELIVERED' || it.status === 'SKIPPED') && (
+                  <button
+                    type="button"
+                    onClick={() => handleRevertCustomer(activeCustomer)}
+                    style={{
+                      background: 'none',
+                      color: '#d97706',
+                      border: 'none',
+                      fontWeight: 700,
+                      fontSize: '0.74rem',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '3px',
+                      padding: '4px 6px'
+                    }}
+                  >
+                    <RotateCcw size={11} />
+                    <span>Revert to Pending</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
