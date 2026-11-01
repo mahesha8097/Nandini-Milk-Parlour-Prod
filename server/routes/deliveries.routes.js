@@ -1494,20 +1494,22 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
       }
     }
 
-    // 4. Refresh monthly bill if exists for this customer/month (except PREPAID advance bills)
-    const billingMonth = targetDate.slice(0, 7);
-    const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
-    if (existingBill && existingBill.billing_type !== 'PREPAID') {
-      try {
-        const { generateBillForCustomer } = require('../services/billingService');
-        await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
-      } catch (e) {
-        console.warn('Auto bill refresh on temporary change notice:', e.message);
+    // 4. Refresh monthly bill if exists for this customer/month (only if already DELIVERED)
+    if (targetDel && targetDel.status === 'DELIVERED') {
+      const billingMonth = targetDate.slice(0, 7);
+      const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
+      if (existingBill && existingBill.billing_type !== 'PREPAID') {
+        try {
+          const { generateBillForCustomer } = require('../services/billingService');
+          await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
+        } catch (e) {
+          console.warn('Auto bill refresh on temporary change notice:', e.message);
+        }
       }
     }
 
     // Synchronize coupons if customer uses coupons
-    if (targetDel) {
+    if (targetDel && customer.billing_type === 'COUPON') {
       try {
         await syncCouponsForDelivery(targetDel.id);
       } catch (cpnErr) {
@@ -1515,7 +1517,7 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
       }
     }
 
-    // Fetch and return the updated delivery row
+    // Fetch and return the updated delivery row by Primary Key
     const updatedDelivery = await db.prepare(`
       SELECT d.*, 
              c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
@@ -1540,8 +1542,8 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
         ON s.customer_id = d.customer_id 
         AND (s.product_id = d.product_id OR (r.product_id IS NOT NULL AND s.product_id = r.product_id))
         AND s.is_active = 1
-      WHERE d.customer_id = ? AND d.product_id = ? AND d.delivery_date = ?
-    `).get(customer.id, effTargetProdId, targetDate);
+      WHERE d.id = ?
+    `).get(targetDel ? targetDel.id : delivery_id);
 
     const toastMsg = qty === 0 
       ? 'Delivery marked as skipped for today' 

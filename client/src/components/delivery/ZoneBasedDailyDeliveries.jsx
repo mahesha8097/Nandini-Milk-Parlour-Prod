@@ -1178,28 +1178,68 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       return;
     }
 
-    try {
-      setSubmittingEdit(true);
-      setEditError('');
-      const baseProductId = editingDelivery.subscription_product_id || editingDelivery.req_base_product_id || editingDelivery.product_id;
-      const payload = {
-        delivery_id: editingDelivery.id,
-        customer_id: editingDelivery.customer_id,
-        product_id: baseProductId,
-        target_product_id: editForm.product_id,
-        delivery_date: selectedDate,
-        quantity: targetQty,
-        reason: editForm.reason
-      };
+    const currentDel = editingDelivery;
+    const baseProductId = currentDel.subscription_product_id || currentDel.req_base_product_id || currentDel.product_id;
+    const targetProdId = editForm.product_id ? parseInt(editForm.product_id, 10) : baseProductId;
+    const targetProd = products.find(p => p.id === targetProdId);
 
+    const payload = {
+      delivery_id: currentDel.id,
+      customer_id: currentDel.customer_id,
+      product_id: baseProductId,
+      target_product_id: targetProdId,
+      delivery_date: selectedDate,
+      quantity: targetQty,
+      reason: editForm.reason
+    };
+
+    // 1. INSTANT OPTIMISTIC UI: Close modal immediately (no waiting on "Saving...")
+    setIsEditModalOpen(false);
+    setSubmittingEdit(false);
+
+    // Optimistically update delivery item in local state with calculated totals
+    setDeliveries(prev => prev.map(d => {
+      if (d.id === currentDel.id || (d.customer_id === currentDel.customer_id && (d.product_id === baseProductId || d.product_id === targetProdId) && d.delivery_date === selectedDate)) {
+        const isSkipped = targetQty === 0;
+        const newStatus = isSkipped ? 'SKIPPED' : (d.status === 'SKIPPED' ? 'PENDING' : d.status);
+        const unitPrice = targetProd ? targetProd.selling_price : (d.unit_price_snapshot || 0);
+        const prodTotal = isSkipped ? 0 : parseFloat((unitPrice * targetQty).toFixed(2));
+        const delCharge = isSkipped ? 0 : Number(d.delivery_charge_snapshot || 0);
+        return {
+          ...d,
+          product_id: targetProdId,
+          product_name_snapshot: targetProd ? targetProd.name : d.product_name_snapshot,
+          category_snapshot: targetProd ? targetProd.category : d.category_snapshot,
+          variant_snapshot: targetProd ? targetProd.variant_label : d.variant_snapshot,
+          quantity: isSkipped ? (d.subscription_quantity || d.quantity) : targetQty,
+          unit_price_snapshot: unitPrice,
+          status: newStatus,
+          total_product_amount: prodTotal,
+          delivery_charge_snapshot: delCharge,
+          total_amount: parseFloat((prodTotal + delCharge).toFixed(2)),
+          notes: editForm.reason || (isSkipped ? 'Temporary Skip: Customer requested skip today' : (targetQty !== d.subscription_quantity ? 'Temporary quantity change' : '')),
+          req_required_quantity: targetQty,
+          requirement_type: isSkipped ? 'SKIP_DELIVERY' : 'CHANGE_QUANTITY'
+        };
+      }
+      return d;
+    }));
+
+    const toastMsg = targetQty === 0
+      ? 'Delivery marked as skipped for today'
+      : `Today's quantity updated to ${targetQty} packet(s)`;
+    showToast(toastMsg);
+
+    // 2. Background fast server save & seamless reconciliation
+    try {
       const res = await api.post('/deliveries/temporary-change', payload);
-      setIsEditModalOpen(false);
-      showToast(res.message || "Today's delivery updated successfully!");
-      refreshDeliveriesOnly();
+      if (res && res.delivery) {
+        setDeliveries(prev => prev.map(d => (d.id === res.delivery.id ? { ...d, ...res.delivery } : d)));
+      }
     } catch (err) {
-      setEditError(err.message || "Failed to update today's delivery.");
-    } finally {
-      setSubmittingEdit(false);
+      console.error('Save edit error:', err);
+      showToast(err.message || "Failed to update today's delivery. Reverting...", 'error');
+      refreshDeliveriesOnly();
     }
   };
 
@@ -4306,8 +4346,12 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         onClose={() => setIsCorrectionOpen(false)}
         delivery={selectedCorrectionDelivery}
         onSaveSuccess={(res) => {
-          showToast(res.message || 'Delivery corrected successfully!');
-          refreshDeliveriesOnly();
+          showToast(res?.message || 'Delivery corrected successfully!');
+          if (res?.delivery) {
+            setDeliveries(prev => prev.map(d => (d.id === res.delivery.id ? { ...d, ...res.delivery } : d)));
+          } else {
+            refreshDeliveriesOnly();
+          }
         }}
       />
 
