@@ -23,11 +23,7 @@ const {
 
 /**
  * Ensures pending delivery items exist for a given date based on active customer subscriptions.
- * Bulk / Hotel customers are strictly excluded from automatic subscriptions (they are manual daily).
- */
-/**
- * Ensures pending delivery items exist for a given date based on active customer subscriptions.
- * Bulk / Hotel customers are strictly excluded from automatic subscriptions (they are manual daily).
+ * Works for both House and Bulk/Hotel customers who have active subscriptions.
  */
 async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = null) {
   let authorizedZoneIds = [];
@@ -49,7 +45,6 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
       AND s.start_date <= ?
       AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
       AND c.status = 'ACTIVE'
-      AND c.customer_category != 'BULK_HOTEL'
   `;
   const missingParams = [dateStr, dateStr];
 
@@ -102,7 +97,6 @@ async function syncDeliveriesForDate(dateStr, deliveryBoyId = null, agentId = nu
       AND s.start_date <= ?
       AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
       AND c.status = 'ACTIVE'
-      AND c.customer_category != 'BULK_HOTEL'
   `;
   const subParams = [dateStr, dateStr];
 
@@ -1863,4 +1857,5 @@ router.post('/adhoc', verifyToken, async (req, res) => {
   }
 });
 
+router.syncDeliveriesForDate = syncDeliveriesForDate;
 module.exports = router;
