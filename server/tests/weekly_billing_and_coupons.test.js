@@ -121,6 +121,31 @@ async function runWeeklyAndCouponTests() {
   assert.strictEqual(custAfterRevert.coupon_balance, 30, 'Customer coupon balance should be restored to 30');
   console.log('[TEST 4] Reverting delivery successfully restored coupons back to 30 ✓');
 
+  // 3b. Simulate 1 Litre milk delivery (1 packet of 1 Litre must deduct 2 coupons!)
+  const del1L = await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, delivery_date, product_id, product_name_snapshot,
+      category_snapshot, variant_snapshot, unit_volume_litres_snapshot,
+      quantity, unit_price_snapshot, total_product_amount,
+      delivery_charge_snapshot, total_amount, status, agent_id,
+      created_at, updated_at
+    ) VALUES (
+      ?, '2026-10-05', ?, 'Special Toned Milk 1L',
+      'MILK', '1 Litre', 1.0,
+      1, 46.00, 46.00,
+      3.00, 49.00, 'DELIVERED', 1,
+      datetime('now'), datetime('now')
+    )
+  `).run(customerId, testProd.id);
+
+  const deduct1LRes = await syncCouponsForDelivery(del1L.lastInsertRowid);
+  assert.strictEqual(deduct1LRes.deducted, 2, '1 packet of 1 Litre milk MUST deduct exactly 2 coupons');
+  assert.strictEqual(deduct1LRes.balanceAfter, 28, '30 - 2 = 28 coupons remaining');
+  console.log('[TEST 4b] 1 packet of 1 Litre milk successfully deducted 2 coupons (30 -> 28) ✓');
+
+  // Revert 1L delivery back to 30
+  await revertCouponsForDelivery(del1L.lastInsertRowid);
+
   // 4. Add a new coupon book (Top-up)
   const book2 = await issueCouponBook({
     customerId,

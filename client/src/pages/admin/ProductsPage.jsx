@@ -1055,7 +1055,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.4 }}>
                 {formData.is_coupon_eligible
-                  ? 'Coupon customers will have 1 coupon deducted per packet delivered. Deliveries will never charge cash.'
+                  ? 'Coupon customers will have coupons deducted upon delivery (500ml = 1 coupon, 1 Litre = 2 coupons). Deliveries will never charge cash.'
                   : 'This item is NOT a coupon product (e.g. Curd, Ghee). Delivering this will NEVER deduct coupons from coupon books and will be billed separately.'}
               </div>
             </div>

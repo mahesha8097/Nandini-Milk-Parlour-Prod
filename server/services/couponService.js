@@ -217,12 +217,66 @@ async function issueCouponBook({
 }
 
 /**
+ * Calculates the required coupon count for a milk delivery.
+ * Base unit: 1 standard coupon = 500 ml (0.5 Litre) milk packet.
+ * - 500 ml packet (0.5L) = 1 coupon per packet
+ * - 1 Litre packet (1.0L) = 2 coupons per packet (1.0 / 0.5 = 2 coupons)
+ * - 2 Litre packet (2.0L) = 4 coupons per packet
+ * Formula: packets * (unit_volume_litres / 0.5)
+ */
+function calculateCouponsForDelivery(delivery, product = null) {
+  const qty = Math.max(0, parseInt(delivery.quantity, 10) || 0);
+  if (qty <= 0) return 0;
+
+  let vol = null;
+
+  // 1. Check unit_volume_litres_snapshot on delivery record
+  if (delivery.unit_volume_litres_snapshot !== undefined && delivery.unit_volume_litres_snapshot !== null) {
+    const parsed = parseFloat(delivery.unit_volume_litres_snapshot);
+    if (!isNaN(parsed) && parsed > 0) vol = parsed;
+  }
+
+  // 2. Check product table unit_volume_litres
+  if ((!vol || isNaN(vol)) && product && product.unit_volume_litres !== undefined && product.unit_volume_litres !== null) {
+    const parsed = parseFloat(product.unit_volume_litres);
+    if (!isNaN(parsed) && parsed > 0) vol = parsed;
+  }
+
+  // 3. Fallback: Parse from variant label or product name string
+  if (!vol || isNaN(vol)) {
+    const text = `${delivery.variant_snapshot || ''} ${product?.variant_label || ''} ${delivery.product_name_snapshot || ''} ${product?.name || ''}`.toLowerCase();
+    if (/\b(?:1\s*l|1\s*ltr|1\s*litre|1000\s*ml|1\.0\s*l)\b/.test(text)) {
+      vol = 1.0;
+    } else if (/\b(?:2\s*l|2\s*ltr|2\s*litre|2000\s*ml|2\.0\s*l)\b/.test(text)) {
+      vol = 2.0;
+    } else if (/\b(?:500\s*ml|0\.5\s*l|half\s*litre)\b/.test(text)) {
+      vol = 0.5;
+    } else if (/\b(?:250\s*ml|0\.25\s*l)\b/.test(text)) {
+      vol = 0.25;
+    } else if (/\b(?:200\s*ml|0\.2\s*l)\b/.test(text)) {
+      vol = 0.2;
+    }
+  }
+
+  // Standard Nandini milk default is 500 ml (0.5 L)
+  if (!vol || isNaN(vol) || vol <= 0) {
+    vol = 0.5;
+  }
+
+  // Base coupon unit is 500ml (0.5 Litre)
+  // 0.5L -> 1 coupon
+  // 1.0L -> 2 coupons
+  const couponsPerPacket = Math.max(1, Math.round(vol / 0.5));
+  return qty * couponsPerPacket;
+}
+
+/**
  * Synchronize coupon deduction for a delivery to match its current status & quantity.
  * Fully idempotent and self-healing:
- * - If delivery is DELIVERED with quantity Q, exactly Q coupons will be deducted.
+ * - If delivery is DELIVERED with volume V, coupons = packets * (volume / 0.5L) (1L packet = 2 coupons).
  * - If delivery is SKIPPED / PENDING / MISSED, exactly 0 coupons will be deducted.
- * - If quantity was increased (e.g. 2 -> 4 or 5 pkts), the extra difference is deducted.
- * - If quantity was decreased (e.g. 5 -> 4 pkts), the difference is restored.
+ * - If quantity was increased, the extra difference is deducted.
+ * - If quantity was decreased, the difference is restored.
  */
 async function syncCouponsForDelivery(deliveryId, options = {}) {
   if (!deliveryId) return null;
@@ -242,10 +296,11 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
 
   // Check if delivery product is coupon-eligible (Milk products only; Curd/Ghee/etc are non-coupon billed items)
   let isCouponEligible = false;
+  let prodObj = null;
   if (delivery.product_id) {
-    const prod = await db.prepare('SELECT id, name, category, is_coupon_eligible FROM products WHERE id = ?').get(delivery.product_id);
-    if (prod) {
-      isCouponEligible = prod.is_coupon_eligible === 1 || prod.category === 'Milk' || prod.category === 'MILK';
+    prodObj = await db.prepare('SELECT id, name, category, variant_label, unit_volume_litres, is_coupon_eligible FROM products WHERE id = ?').get(delivery.product_id);
+    if (prodObj) {
+      isCouponEligible = prodObj.is_coupon_eligible === 1 || prodObj.category === 'Milk' || prodObj.category === 'MILK';
     } else {
       isCouponEligible = (delivery.category_snapshot === 'Milk' || delivery.category_snapshot === 'MILK');
     }
@@ -265,7 +320,7 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
     targetCoupons = Math.max(0, parseInt(options.forceTarget, 10) || 0);
   } else {
     const isDelivered = delivery.status === 'DELIVERED';
-    targetCoupons = isDelivered ? Math.max(0, parseInt(delivery.quantity, 10) || 0) : 0;
+    targetCoupons = isDelivered ? calculateCouponsForDelivery(delivery, prodObj) : 0;
   }
 
   // 2. Determine current net coupons deducted in coupon_transactions for this delivery
@@ -448,8 +503,8 @@ async function deductCouponsForDelivery(delivery) {
   if (!delivery) return null;
   const dId = delivery.id || delivery;
   const opts = {};
-  if (delivery.quantity !== undefined && (delivery.status === 'DELIVERED' || delivery.status === undefined)) {
-    opts.forceTarget = delivery.quantity;
+  if (delivery.forceTarget !== undefined) {
+    opts.forceTarget = delivery.forceTarget;
   }
   return await syncCouponsForDelivery(dId, opts);
 }
@@ -823,6 +878,7 @@ module.exports = {
   deductCouponsForDelivery,
   revertCouponsForDelivery,
   syncCouponsForDelivery,
+  calculateCouponsForDelivery,
   reconcileAllCustomerCoupons,
   adjustCouponBalance,
   getCustomerCouponDetails,
