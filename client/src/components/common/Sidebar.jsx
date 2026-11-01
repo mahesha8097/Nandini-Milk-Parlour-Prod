@@ -23,7 +23,8 @@ import {
   X,
   Sun,
   Moon,
-  Monitor
+  Monitor,
+  ExternalLink
 } from 'lucide-react';
 
 export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) {
@@ -162,32 +163,73 @@ export default function Sidebar({ currentTab, setCurrentTab, isOpen, onClose }) 
               const Icon = item.icon;
               const isActive = currentTab === item.id;
               return (
-                <button
+                <div
                   key={item.id}
-                  onClick={() => {
-                    setCurrentTab(item.id);
-                    onClose();
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '11px 16px',
-                    borderRadius: 'var(--radius-md)',
-                    border: 'none',
-                    background: isActive ? 'var(--primary-gradient)' : 'transparent',
-                    color: isActive ? '#ffffff' : '#cbd5e1',
-                    fontWeight: isActive ? '700' : '500',
-                    fontSize: '0.875rem',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    width: '100%',
-                    transition: 'background 0.15s ease'
-                  }}
+                  style={{ position: 'relative', display: 'flex', alignItems: 'center' }}
                 >
-                  <Icon size={18} color={isActive ? '#ffffff' : '#94a3b8'} />
-                  <span>{item.label}</span>
-                </button>
+                  <a
+                    href={`#${item.id}`}
+                    onClick={(e) => {
+                      if (!e.ctrlKey && !e.metaKey && e.button === 0) {
+                        e.preventDefault();
+                        setCurrentTab(item.id);
+                        onClose();
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '11px 16px',
+                      borderRadius: 'var(--radius-md)',
+                      background: isActive ? 'var(--primary-gradient)' : 'transparent',
+                      color: isActive ? '#ffffff' : '#cbd5e1',
+                      fontWeight: isActive ? '700' : '500',
+                      fontSize: '0.875rem',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      textDecoration: 'none',
+                      boxSizing: 'border-box',
+                      transition: 'background 0.15s ease'
+                    }}
+                    title={`Go to ${item.label} (Ctrl+Click to open in new tab)`}
+                  >
+                    <Icon size={18} color={isActive ? '#ffffff' : '#94a3b8'} />
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                  </a>
+
+                  {/* Secondary Quick Open In New Tab button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(`${window.location.origin}${window.location.pathname}#${item.id}`, '_blank');
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: '6px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: '4px',
+                      padding: '4px',
+                      color: '#cbd5e1',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: isActive ? 0.9 : 0.6,
+                      transition: 'opacity 0.15s ease'
+                    }}
+                    title={`Open ${item.label} in new tab / window`}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = isActive ? '0.9' : '0.6'; }}
+                  >
+                    <ExternalLink size={12} />
+                  </button>
+                </div>
               );
             })}
           </nav>

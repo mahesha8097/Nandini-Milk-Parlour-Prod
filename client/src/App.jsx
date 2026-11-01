@@ -59,7 +59,7 @@ const VALID_DELIVERY_TABS = [
 function getStoredTab(role) {
   try {
     const hash = window.location.hash.replace(/^#\/?/, '').trim();
-    const saved = localStorage.getItem('nandini_current_tab');
+    const saved = sessionStorage.getItem('nandini_current_tab') || localStorage.getItem('nandini_current_tab');
     const candidate = hash || saved;
     if (candidate) {
       if (role === 'DELIVERY_BOY' && VALID_DELIVERY_TABS.includes(candidate)) {
@@ -89,7 +89,7 @@ function MainApplication() {
     setCurrentTab(tabId);
     setNavParams(params);
     try {
-      localStorage.setItem('nandini_current_tab', tabId);
+      sessionStorage.setItem('nandini_current_tab', tabId);
       if (window.location.hash !== `#${tabId}`) {
         window.history.replaceState(null, '', `#${tabId}`);
       }
@@ -105,7 +105,7 @@ function MainApplication() {
       if (hash && hash !== currentTab) {
         setCurrentTab(hash);
         try {
-          localStorage.setItem('nandini_current_tab', hash);
+          sessionStorage.setItem('nandini_current_tab', hash);
         } catch {}
       }
     };
@@ -124,7 +124,7 @@ function MainApplication() {
         window.history.replaceState(null, '', `#${currentTab}`);
       }
       try {
-        localStorage.setItem('nandini_current_tab', currentTab);
+        sessionStorage.setItem('nandini_current_tab', currentTab);
       } catch {}
     }
   }, [user]);

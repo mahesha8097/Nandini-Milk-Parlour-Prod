@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { Menu, LogOut, User, Shield, Truck, Sun, Moon, Monitor, Check, ChevronDown } from 'lucide-react';
+import { Menu, LogOut, User, Shield, Truck, Sun, Moon, Monitor, Check, ChevronDown, ExternalLink } from 'lucide-react';
 
 export default function Navbar({ onToggleSidebar }) {
   const { user, logout } = useAuth();
@@ -239,6 +239,30 @@ export default function Navbar({ onToggleSidebar }) {
             </div>
           )}
         </div>
+
+        {/* Open New Window / Multi-Tab Button */}
+        <button
+          type="button"
+          onClick={() => window.open(window.location.href, '_blank')}
+          className="btn btn-outline btn-sm"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 11px',
+            fontSize: '0.8rem',
+            fontWeight: 700,
+            borderRadius: '8px',
+            border: '1px solid var(--border-color)',
+            background: 'var(--bg-surface)',
+            color: 'var(--text-primary)',
+            cursor: 'pointer'
+          }}
+          title="Open Current View in New Tab / Window (Work side-by-side)"
+        >
+          <ExternalLink size={14} color="var(--primary)" />
+          <span className="hide-mobile">New Window</span>
+        </button>
 
         {user && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

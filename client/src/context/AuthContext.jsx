@@ -31,6 +31,15 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     checkStatus();
+
+    // Multi-tab synchronization: keep login/logout state synced across multiple windows
+    const handleStorageChange = (e) => {
+      if (e.key === 'nandini_token') {
+        checkStatus();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const login = async (username, password) => {
