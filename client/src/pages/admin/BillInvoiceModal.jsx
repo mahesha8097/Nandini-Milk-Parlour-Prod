@@ -257,7 +257,8 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
     const hostOrigin = (window.location.origin && !window.location.origin.includes('localhost'))
       ? window.location.origin
       : 'https://nandini-milk-parlour-prod.vercel.app';
-    const statementUrl = `${hostOrigin}/#orders?c=${bill.customer_id}&m=${bill.billing_month}&b=${bill.id}`;
+    const monthParam = (bill.end_date || bill.start_date || bill.billing_month || '').slice(0, 7);
+    const statementUrl = `${hostOrigin}/#orders?c=${bill.customer_id}&b=${bill.id}&m=${encodeURIComponent(monthParam)}`;
 
     let baseMsg = `*${profile.invoice_business_name || profile.business_name || 'NANDINI MILK PARLOUR'} — INVOICE*\n`;
     baseMsg += `*Invoice No:* ${bill.bill_number}\n`;

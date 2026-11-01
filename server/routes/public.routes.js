@@ -86,17 +86,55 @@ router.get('/statement', async (req, res) => {
       return res.status(404).json({ error: 'Customer not found or invalid link' });
     }
 
-    if (!targetMonth) {
+    if (!targetMonth && !billId) {
       targetMonth = new Date().toISOString().slice(0, 7);
     }
 
-    // If bill was not provided by ID, find the appropriate bill for this customer and month
+    // If bill was not provided by ID, find the appropriate bill for this customer:
     if (!bill) {
-      bill = await db.prepare(`
-        SELECT * FROM bills 
-        WHERE customer_id = ? AND billing_month = ?
-        ORDER BY id DESC LIMIT 1
-      `).get(customer.id, targetMonth);
+      // 1. Try exact match on billing_month (for monthly bills or exact range)
+      if (targetMonth) {
+        bill = await db.prepare(`
+          SELECT * FROM bills 
+          WHERE customer_id = ? AND billing_month = ?
+          ORDER BY id DESC LIMIT 1
+        `).get(customer.id, targetMonth);
+      }
+
+      // 2. If targetMonth is YYYY-MM, check for bills overlapping this month
+      if (!bill && targetMonth && typeof targetMonth === 'string' && targetMonth.length === 7) {
+        const [ymYear, ymMonth] = targetMonth.split('-').map(Number);
+        const ymDays = new Date(ymYear, ymMonth, 0).getDate();
+        const mStart = `${targetMonth}-01`;
+        const mEnd = `${targetMonth}-${String(ymDays).padStart(2, '0')}`;
+        bill = await db.prepare(`
+          SELECT * FROM bills
+          WHERE customer_id = ?
+            AND (
+              billing_month = ?
+              OR (start_date <= ? AND end_date >= ?)
+            )
+          ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, id DESC LIMIT 1
+        `).get(customer.id, targetMonth, mEnd, mStart);
+      }
+
+      // 3. If customer has pending balance or is on WEEKLY billing, resolve latest pending bill
+      if (!bill && (customer.billing_type === 'WEEKLY' || Number(customer.pending_balance || 0) > 0)) {
+        bill = await db.prepare(`
+          SELECT * FROM bills
+          WHERE customer_id = ? AND status = 'PENDING'
+          ORDER BY id DESC LIMIT 1
+        `).get(customer.id);
+      }
+
+      // 4. Fallback to latest bill for customer
+      if (!bill) {
+        bill = await db.prepare(`
+          SELECT * FROM bills
+          WHERE customer_id = ?
+          ORDER BY id DESC LIMIT 1
+        `).get(customer.id);
+      }
     }
 
     const isPrepaid = customer.billing_type === 'PREPAID';
@@ -117,16 +155,47 @@ router.get('/statement', async (req, res) => {
       profile = await db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
     }
 
-    // Date range for the month
-    const [yearStr, monthStr] = targetMonth.split('-');
-    const year = parseInt(yearStr, 10);
-    const month = parseInt(monthStr, 10);
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const startDate = `${targetMonth}-01`;
-    const endDate = `${targetMonth}-${String(daysInMonth).padStart(2, '0')}`;
+    // Determine start date, end date, display month, and period label
+    let startDate = '';
+    let endDate = '';
+    let daysInPeriod = 30;
+    let periodLabel = '';
+    let displayMonth = '';
+
+    if (bill && bill.start_date && bill.end_date) {
+      startDate = bill.start_date;
+      endDate = bill.end_date;
+      periodLabel = bill.billing_month || `${startDate} to ${endDate}`;
+      displayMonth = (bill.end_date || bill.start_date || '').slice(0, 7);
+      const d1 = new Date(startDate);
+      const d2 = new Date(endDate);
+      daysInPeriod = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+    } else if (typeof targetMonth === 'string' && targetMonth.includes(' to ')) {
+      const parts = targetMonth.split(' to ');
+      startDate = parts[0].trim();
+      endDate = parts[1].trim();
+      periodLabel = targetMonth;
+      displayMonth = (endDate || startDate || '').slice(0, 7);
+      const d1 = new Date(startDate);
+      const d2 = new Date(endDate);
+      daysInPeriod = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+    } else {
+      const ym = (typeof targetMonth === 'string' && targetMonth.length >= 7)
+        ? targetMonth.slice(0, 7)
+        : new Date().toISOString().slice(0, 7);
+      const [yearStr, monthStr] = ym.split('-');
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      daysInPeriod = new Date(year, month, 0).getDate();
+      startDate = `${ym}-01`;
+      endDate = `${ym}-${String(daysInPeriod).padStart(2, '0')}`;
+      periodLabel = ym;
+      displayMonth = ym;
+    }
+    const daysInMonth = daysInPeriod;
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    // Fetch recorded deliveries for this customer within the month
+    // Fetch recorded deliveries for this customer within the period
     const deliveryRows = await db.prepare(`
       SELECT d.*, p.name as current_product_name, p.category as current_category,
              p.variant_label as current_variant_label, p.delivery_charge_type as current_charge_type,
@@ -264,10 +333,12 @@ router.get('/statement', async (req, res) => {
       let projectedDeliveryCharges = 0;
       let scheduledItemsCount = 0;
 
+      const targetYm = (bill?.billing_month && !bill.billing_month.includes(' to ')) ? bill.billing_month : (displayMonth || targetMonth.slice(0, 7));
+
       // Loop days of month descending
       for (let d = daysInMonth; d >= 1; d--) {
-        const dateStr = `${targetMonth}-${String(d).padStart(2, '0')}`;
-        const dow = new Date(year, month - 1, d).getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+        const dateStr = `${targetYm}-${String(d).padStart(2, '0')}`;
+        const dow = new Date(`${dateStr}T12:00:00Z`).getUTCDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
         
         // Check if customer had active subscriptions on this date
         const activeSubsOnDay = subscriptions.filter(s => {
@@ -464,7 +535,9 @@ router.get('/statement', async (req, res) => {
 
       res.json({
         success: true,
-        month: targetMonth,
+        month: displayMonth,
+        periodLabel: periodLabel || displayMonth,
+        isWeekly: Boolean(bill?.billing_type === 'WEEKLY' || customer.billing_type === 'WEEKLY'),
         billingType: 'PREPAID',
         customer: {
           id: customer.id,
@@ -564,13 +637,15 @@ router.get('/statement', async (req, res) => {
       }
 
       totalDeliveredAmount = parseFloat(totalDeliveredAmount.toFixed(2));
-      const finalGross = bill ? bill.gross_amount : totalDeliveredAmount;
-      const finalAdvanceAdjusted = bill ? bill.advance_adjusted : Math.min(customer.advance_balance || 0, finalGross);
-      const finalNetPayable = bill ? bill.net_payable : Math.max(0, parseFloat((finalGross - finalAdvanceAdjusted).toFixed(2)));
+      const finalGross = bill ? Number(bill.gross_amount) : totalDeliveredAmount;
+      const finalAdvanceAdjusted = bill ? Number(bill.advance_adjusted) : Math.min(Number(customer.advance_balance || 0), finalGross);
+      const finalNetPayable = bill ? Number(bill.net_payable) : Math.max(0, parseFloat((finalGross - finalAdvanceAdjusted).toFixed(2)));
 
       res.json({
         success: true,
-        month: targetMonth,
+        month: displayMonth,
+        periodLabel: periodLabel || displayMonth,
+        isWeekly: Boolean(bill?.billing_type === 'WEEKLY' || customer.billing_type === 'WEEKLY'),
         billingType: 'POSTPAID',
         customer: {
           id: customer.id,
@@ -599,11 +674,11 @@ router.get('/statement', async (req, res) => {
           billingType: bill.billing_type,
           billDate: bill.bill_date,
           dueDate: bill.due_date,
-          grossAmount: bill.gross_amount,
-          advanceAdjusted: bill.advance_adjusted,
-          previousDue: bill.previous_due,
-          netPayable: bill.net_payable,
-          paidAmount: bill.paid_amount,
+          grossAmount: Number(bill.gross_amount || 0),
+          advanceAdjusted: Number(bill.advance_adjusted || 0),
+          previousDue: Number(bill.previous_due || 0),
+          netPayable: Number(bill.net_payable || 0),
+          paidAmount: Number(bill.paid_amount || 0),
           status: bill.status,
           items: bill.items_json ? (typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json) : []
         } : null,
@@ -612,12 +687,13 @@ router.get('/statement', async (req, res) => {
           totalDeliveredDays,
           totalDeliveredItems,
           totalItemsCount: totalDeliveredItems,
-          productSubtotal: bill ? bill.product_subtotal : parseFloat(totalDeliveredProductSubtotal.toFixed(2)),
-          deliveryChargesTotal: bill ? bill.delivery_charges_total : parseFloat(totalDeliveredCharges.toFixed(2)),
+          productSubtotal: bill ? Number(bill.product_subtotal || 0) : parseFloat(totalDeliveredProductSubtotal.toFixed(2)),
+          deliveryChargesTotal: bill ? Number(bill.delivery_charges_total || 0) : parseFloat(totalDeliveredCharges.toFixed(2)),
           monthBillGross: finalGross,
           advanceAdjusted: finalAdvanceAdjusted,
           netPayable: finalNetPayable,
-          daysInMonth
+          daysInMonth: daysInPeriod,
+          periodLabel: periodLabel || displayMonth
         },
         days: daysList
       });

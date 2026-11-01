@@ -186,10 +186,13 @@ export default function CustomerStatementView() {
 
   const { customer, parlour, bill, summary, days } = data;
   const isPrepaid = (data.billingType === 'PREPAID' || (summary && summary.billingType === 'PREPAID'));
-  const monthBillValue = (bill ? bill.grossAmount : (summary.monthBillGross || summary.totalDeliveryAmount || 0));
-  const advanceSettledValue = (bill ? bill.advanceAdjusted : (summary.advanceAdjusted || 0));
-  const netPayableValue = (bill ? bill.netPayable : (summary.netPayable !== undefined ? summary.netPayable : Math.max(0, monthBillValue - advanceSettledValue)));
-  const isPaid = (bill && (bill.status === 'PAID' || bill.status === 'ADVANCE_PAID' || bill.netPayable === 0)) || netPayableValue === 0;
+  const isWeekly = Boolean(data.isWeekly || (bill && bill.billingType === 'WEEKLY') || customer?.billingType === 'WEEKLY');
+  const monthBillValue = (bill ? Number(bill.grossAmount) : Number(summary.monthBillGross || summary.totalDeliveryAmount || 0));
+  const advanceSettledValue = (bill ? Number(bill.advanceAdjusted) : Number(summary.advanceAdjusted || 0));
+  const netPayableValue = (bill ? Number(bill.netPayable) : (summary.netPayable !== undefined ? Number(summary.netPayable) : Math.max(0, monthBillValue - advanceSettledValue)));
+  const isPaid = (bill && (bill.status === 'PAID' || bill.status === 'ADVANCE_PAID')) ||
+                 (bill && bill.status !== 'PENDING' && netPayableValue === 0) ||
+                 (!bill && netPayableValue === 0 && Number(customer?.pendingBalance || 0) === 0);
 
   const upiLink = parlour.upiId
     ? `upi://pay?pa=${encodeURIComponent(parlour.upiId)}&pn=${encodeURIComponent(parlour.businessName)}&am=${encodeURIComponent(netPayableValue || 0)}&cu=INR`
@@ -305,6 +308,24 @@ export default function CustomerStatementView() {
                 <MapPin size={13} color="#64748b" />
                 <span>{customer.flatNo ? `Flat ${customer.flatNo}, ` : ''}{customer.address || customer.route || 'Bangalore'}</span>
               </div>
+              {(data.periodLabel || isWeekly) && (
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: '#0f172a',
+                  border: '1px solid #334155',
+                  color: '#38bdf8',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  marginTop: '8px'
+                }}>
+                  <Calendar size={12} color="#38bdf8" />
+                  <span>{data.periodLabel || bill?.billingMonth}{isWeekly ? ' (Weekly Invoice)' : ''}</span>
+                </div>
+              )}
             </div>
 
             <div style={{ textAlign: 'right' }}>
@@ -365,7 +386,7 @@ export default function CustomerStatementView() {
             </div>
             <div>
               <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>
-                {isPrepaid ? 'Month Bill (Advance)' : 'Month Bill'}
+                {isWeekly ? 'Weekly Bill' : (isPrepaid ? 'Month Bill (Advance)' : 'Month Bill')}
               </div>
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#38bdf8', marginTop: '2px' }}>
                 ₹ {monthBillValue.toFixed(2)}
