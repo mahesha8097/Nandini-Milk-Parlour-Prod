@@ -3,6 +3,8 @@ const db = require('../config/db');
 const {
   generateWeeklyBillForCustomer,
   generateDeliveredMilkBill,
+  generateAdvanceBillForPrepaidCustomer,
+  generateBillForCustomer,
   calculateCustomerPendingDues,
   recordPaymentTransaction
 } = require('../services/billingService');
@@ -195,8 +197,112 @@ async function runTests() {
     );
     console.log('[TEST 10] Verified zero "? IS NULL" untyped parameter expressions in billingService.js ✓');
 
+    // TEST 11: Past Month Reconciliation & Advance Balance Carryover for PREPAID Customer
+    let prepCustId = null;
+    try {
+      const prepRes = await db.prepare(`
+        INSERT INTO customers (
+          name, phone, address, flat_no, customer_category, billing_type,
+          status, pending_balance, advance_balance, agent_id, created_at, updated_at
+        ) VALUES (
+          'Prepaid Carryover Test', '9999900002', 'Test Apt', 'E5', 'HOUSE', 'PREPAID',
+          'ACTIVE', 0, 0, 1, datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `).run();
+      prepCustId = prepRes.lastInsertRowid;
+
+      // Add subscription
+      await db.prepare(`
+        INSERT INTO subscriptions (
+          customer_id, product_id, quantity, start_date, is_active, created_at, updated_at
+        ) VALUES (
+          ?, ?, 1, '2026-10-01', 1, datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `).run(prepCustId, prodId);
+
+      // Create October advance bill (gross 570, net payable 570, status PAID)
+      const octBillRes = await db.prepare(`
+        INSERT INTO bills (
+          customer_id, billing_month, bill_number, gross_amount, net_payable,
+          advance_adjusted, paid_amount, status, billing_type, bill_date, due_date, agent_id,
+          created_at, updated_at
+        ) VALUES (
+          ?, '2026-10', 'BILL-TEST-OCT', 570, 570,
+          0, 570, 'PAID', 'PREPAID', '2026-10-01', '2026-10-10', 1,
+          datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `).run(prepCustId);
+      const octBillId = octBillRes.lastInsertRowid;
+
+      // Record payment of ₹570
+      await db.prepare(`
+        INSERT INTO payments (
+          receipt_number, customer_id, bill_id, payment_date, amount, payment_type, payment_method, notes, agent_id,
+          created_at
+        ) VALUES (
+          'RCT-TEST-001', ?, ?, '2026-10-01', 570, 'ADVANCE_PAYMENT', 'CASH', 'Oct Advance', 1,
+          datetime('now', 'localtime')
+        )
+      `).run(prepCustId, octBillId);
+
+      // Record 8 deliveries of ₹54 each = ₹432
+      for (let day = 1; day <= 8; day++) {
+        const dStr = `2026-10-0${day}`;
+        await db.prepare(`
+          INSERT INTO deliveries (
+            customer_id, delivery_date, product_id, product_name_snapshot, category_snapshot,
+            variant_snapshot, unit_volume_litres_snapshot, quantity, unit_price_snapshot,
+            total_product_amount, delivery_charge_snapshot, total_amount, status, created_at, updated_at
+          ) VALUES (
+            ?, ?, ?, 'Nandini Test Milk', 'Milk', '500 ml', 0.5, 1, 52, 52, 2, 54, 'DELIVERED',
+            datetime('now', 'localtime'), datetime('now', 'localtime')
+          )
+        `).run(prepCustId, dStr, prodId);
+      }
+
+      // Now generate November Advance Bill
+      let prepCust = await db.prepare('SELECT * FROM customers WHERE id = ?').get(prepCustId);
+      const novBill = await generateAdvanceBillForPrepaidCustomer(prepCust, '2026-11', true);
+      assert.ok(novBill, 'November advance bill must be generated');
+
+      // October bill must be reconciled: gross = 432, advance_adjusted = 432, net_payable = 0, status = PAID
+      const reconciledOct = await db.prepare('SELECT * FROM bills WHERE id = ?').get(octBillId);
+      assert.strictEqual(reconciledOct.gross_amount, 432, 'October bill gross must be reconciled to ₹432');
+      assert.strictEqual(reconciledOct.advance_adjusted, 432, 'October bill advance_adjusted must be ₹432');
+      assert.strictEqual(reconciledOct.net_payable, 0, 'October bill net_payable must be ₹0');
+      assert.strictEqual(reconciledOct.status, 'PAID', 'October bill status must remain PAID');
+
+      // November bill must deduct the ₹138 remaining surplus (570 - 432 = 138)
+      assert.strictEqual(novBill.advance_adjusted, 138, 'November bill advance_adjusted must be ₹138 surplus');
+      assert.strictEqual(novBill.net_payable, novBill.gross_amount - 138, 'November bill net_payable must be gross - ₹138');
+
+      // Customer pending balance must match November net payable
+      prepCust = await db.prepare('SELECT * FROM customers WHERE id = ?').get(prepCustId);
+      assert.strictEqual(prepCust.pending_balance, novBill.net_payable, 'Customer pending balance must equal November net payable');
+      assert.strictEqual(prepCust.advance_balance, 0, 'Customer advance balance must be 0 after full adjustment');
+
+      // Test that generateBillForCustomer with 'AUTO' does NOT overwrite the PREPAID advance bill on Nov 1 delivery
+      const billAfterAuto = await generateBillForCustomer(prepCust, '2026-11', { billingBasis: 'AUTO', forceRegenerate: true });
+      assert.strictEqual(billAfterAuto.id, novBill.id, 'November bill ID must be preserved');
+      assert.strictEqual(billAfterAuto.gross_amount, novBill.gross_amount, 'November bill gross amount must NOT be reduced to a 1-day delivery amount');
+
+      console.log(`[TEST 11] PREPAID customer past month reconciliation & surplus carryover verified successfully! ✓`);
+      console.log(`  - Oct bill reconciled from ₹570 to ₹432 (Net: ₹0, Status: PAID)`);
+      console.log(`  - Surplus ₹138 carried to Nov bill (Gross: ₹${novBill.gross_amount}, Adv: ₹138, Net: ₹${novBill.net_payable})`);
+      console.log(`  - Marking daily delivery preserves advance bill ✓`);
+    } finally {
+      if (prepCustId) {
+        await db.prepare('DELETE FROM payments WHERE customer_id = ?').run(prepCustId);
+        await db.prepare('DELETE FROM bills WHERE customer_id = ?').run(prepCustId);
+        await db.prepare('DELETE FROM deliveries WHERE customer_id = ?').run(prepCustId);
+        await db.prepare('DELETE FROM subscriptions WHERE customer_id = ?').run(prepCustId);
+        await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ?').run(prepCustId);
+        await db.prepare('DELETE FROM customers WHERE id = ?').run(prepCustId);
+      }
+    }
+
     console.log('\n================================================================');
-    console.log(' ALL 10 BILLING DUES & PAYMENT FLOW TESTS PASSED SUCCESSFULLY! ✓');
+    console.log(' ALL 11 BILLING DUES & PAYMENT FLOW TESTS PASSED SUCCESSFULLY! ✓');
     console.log('================================================================\n');
   } finally {
     // Cleanup test data

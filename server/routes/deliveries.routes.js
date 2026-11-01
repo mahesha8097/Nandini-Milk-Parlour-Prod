@@ -688,10 +688,10 @@ router.post('/bulk-deliver', verifyToken, async (req, res) => {
       }
     }
 
-    // Refresh monthly bill if exists
+    // Refresh monthly bill if exists (except for PREPAID advance bills)
     const billingMonth = targetDate.slice(0, 7);
-    const existingBill = await db.prepare('SELECT id FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
-    if (existingBill) {
+    const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
+    if (existingBill && existingBill.billing_type !== 'PREPAID') {
       try {
         const { generateBillForCustomer } = require('../services/billingService');
         await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
@@ -768,13 +768,13 @@ async function recalculateCustomerDayDeliveries(customerId, deliveryDate) {
     }
   }
 
-  // Refresh monthly bill if exists and unpaid
+  // Refresh monthly bill if exists and unpaid (except for PREPAID advance bills)
   const billingMonth = deliveryDate.slice(0, 7);
   const existingBill = await db.prepare(`
-    SELECT id, paid_amount FROM bills WHERE customer_id = ? AND billing_month = ?
+    SELECT id, billing_type, paid_amount FROM bills WHERE customer_id = ? AND billing_month = ?
   `).get(customerId, billingMonth);
 
-  if (existingBill && !existingBill.paid_amount) {
+  if (existingBill && !existingBill.paid_amount && existingBill.billing_type !== 'PREPAID') {
     try {
       const { generateBillForCustomer } = require('../services/billingService');
       await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
@@ -1449,10 +1449,10 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
       }
     }
 
-    // 4. Refresh monthly bill if exists for this customer/month
+    // 4. Refresh monthly bill if exists for this customer/month (except PREPAID advance bills)
     const billingMonth = targetDate.slice(0, 7);
-    const existingBill = await db.prepare('SELECT id FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
-    if (existingBill) {
+    const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
+    if (existingBill && existingBill.billing_type !== 'PREPAID') {
       try {
         const { generateBillForCustomer } = require('../services/billingService');
         await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
@@ -1653,13 +1653,13 @@ router.post('/extra', verifyToken, async (req, res) => {
       deliveryId = result.lastInsertRowid;
     }
 
-    // If a monthly bill exists for this customer in this month, automatically refresh it
+    // If a monthly bill exists for this customer in this month, automatically refresh it (except PREPAID advance bills)
     const billingMonth = targetDate.slice(0, 7);
     const existingBill = await db.prepare(`
-      SELECT id FROM bills WHERE customer_id = ? AND billing_month = ?
+      SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?
     `).get(customer.id, billingMonth);
 
-    if (existingBill) {
+    if (existingBill && existingBill.billing_type !== 'PREPAID') {
       try {
         const { generateBillForCustomer } = require('../services/billingService');
         await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
