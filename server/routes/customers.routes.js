@@ -805,6 +805,17 @@ router.delete('/:customerId/subscriptions/:subId', requireAdmin, async (req, res
     // 2. Delete the subscription itself
     await db.prepare('DELETE FROM subscriptions WHERE id = ? AND customer_id = ?').run(subId, customerId);
 
+    // 3. Automatically synchronize customer billing and pending balance
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const targetMonth = (sub.start_date ? sub.start_date.slice(0, 7) : new Date().toISOString().slice(0, 7));
+      await syncCustomerBillingAfterSubscriptionChange(customerId, targetMonth);
+    } catch (syncErr) {
+      console.warn('Sync customer billing after subscription cancel warning:', syncErr.message);
+    }
+
+    const updatedCustomer = await db.prepare('SELECT id, name, pending_balance, advance_balance FROM customers WHERE id = ?').get(customerId);
+
     // Audit log
     try {
       await db.prepare(`
@@ -815,7 +826,11 @@ router.delete('/:customerId/subscriptions/:subId', requireAdmin, async (req, res
       console.warn('Audit log notice (non-fatal):', auditErr.message);
     }
 
-    res.json({ success: true, message: 'Subscription cancelled successfully. Future pending deliveries removed; past completed deliveries remain intact.' });
+    res.json({
+      success: true,
+      message: 'Subscription cancelled successfully. Future pending deliveries removed; past completed deliveries remain intact.',
+      customer: updatedCustomer
+    });
   } catch (err) {
     console.error('Cancel subscription error:', err);
     res.status(500).json({ error: err.message || 'Failed to cancel subscription' });
@@ -838,7 +853,22 @@ router.delete('/subscriptions/:id', requireAdmin, async (req, res) => {
 
     await db.prepare('DELETE FROM subscriptions WHERE id = ?').run(subId);
 
-    res.json({ success: true, message: 'Subscription cancelled successfully' });
+    // Automatically synchronize customer billing and pending balance
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const targetMonth = (sub.start_date ? sub.start_date.slice(0, 7) : new Date().toISOString().slice(0, 7));
+      await syncCustomerBillingAfterSubscriptionChange(sub.customer_id, targetMonth);
+    } catch (syncErr) {
+      console.warn('Sync customer billing after subscription cancel warning:', syncErr.message);
+    }
+
+    const updatedCustomer = await db.prepare('SELECT id, name, pending_balance, advance_balance FROM customers WHERE id = ?').get(sub.customer_id);
+
+    res.json({
+      success: true,
+      message: 'Subscription cancelled successfully',
+      customer: updatedCustomer
+    });
   } catch (err) {
     console.error('Cancel subscription error:', err);
     res.status(500).json({ error: err.message || 'Failed to cancel subscription' });

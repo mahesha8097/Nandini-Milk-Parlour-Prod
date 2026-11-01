@@ -373,6 +373,111 @@ function formatCustomDaysSummary(customDays, frequency = 'DAILY') {
 }
 
 /**
+ * Synchronizes customer bills and pending balance after a subscription is added, modified, or deleted:
+ * - If customer has NO active subscriptions for targetMonth:
+ *   - If DELIVERED deliveries exist:
+ *     Automatically generates/regenerates a Delivered Milk Bill reflecting ONLY the delivered milk,
+ *     and sets customer.pending_balance to ONLY the delivered milk pending amount.
+ *   - If NO DELIVERED deliveries exist (0 deliveries):
+ *     Cancels/zeros any bill for targetMonth, restores advance if adjusted,
+ *     and resets customer.pending_balance to ₹0.00 (or strictly past unpaid dues from prior months).
+ * - If customer STILL has active subscriptions for targetMonth:
+ *   - Regenerates the advance bill reflecting the remaining active subscriptions.
+ */
+async function syncCustomerBillingAfterSubscriptionChange(customerId, targetMonth = null) {
+  const currentMonthStr = targetMonth || new Date().toISOString().slice(0, 7);
+  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!customer) return null;
+
+  if (customer.billing_type === 'COUPON') {
+    return null; // Coupons handle their own balance
+  }
+
+  const daysInMonth = getDaysInMonth(currentMonthStr);
+  const monthStart = `${currentMonthStr}-01`;
+  const monthEnd = `${currentMonthStr}-${daysInMonth.toString().padStart(2, '0')}`;
+
+  // Check remaining active subscriptions for this month
+  const activeSubs = await db.prepare(`
+    SELECT s.* FROM subscriptions s
+    WHERE s.customer_id = ? AND s.is_active = 1
+      AND s.start_date <= ?
+      AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
+  `).all(customerId, monthEnd, monthStart);
+
+  // Check if any delivered records exist for this customer in targetMonth
+  const deliveredCountRow = await db.prepare(`
+    SELECT COUNT(*) as count FROM deliveries
+    WHERE customer_id = ? AND delivery_date LIKE ? AND status = 'DELIVERED'
+  `).get(customerId, `${currentMonthStr}%`);
+  const hasDelivered = deliveredCountRow && Number(deliveredCountRow.count) > 0;
+
+  // Find existing bills for targetMonth (if any)
+  const existingBills = await db.prepare(`
+    SELECT * FROM bills
+    WHERE customer_id = ? AND (billing_month = ? OR (start_date <= ? AND end_date >= ?))
+      AND status != 'CANCELLED'
+  `).all(customerId, currentMonthStr, monthEnd, monthStart);
+
+  if (activeSubs.length > 0) {
+    // Active subscriptions still exist -> Regenerate bill for remaining subscriptions
+    return await generateBillForCustomer(customer, currentMonthStr, { billingBasis: 'AUTO', forceRegenerate: true });
+  }
+
+  // NO active subscriptions remain for this month:
+  if (hasDelivered) {
+    // Deliveries have been marked DELIVERED -> Show ONLY delivered milk pending!
+    return await generateDeliveredMilkBill(customer, currentMonthStr, true);
+  } else {
+    // NO deliveries marked DELIVERED (0 deliveries) -> Pending amount must be shown ZERO!
+    for (const b of existingBills) {
+      if (b.net_payable > 0) {
+        const unpaid = Math.max(0, b.net_payable - (b.paid_amount || 0));
+        await db.prepare(`
+          UPDATE customers
+          SET pending_balance = MAX(0, pending_balance - ?), updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(unpaid, customerId);
+      }
+
+      if (b.advance_adjusted > 0) {
+        await db.prepare(`
+          UPDATE customers
+          SET advance_balance = advance_balance + ?, updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(b.advance_adjusted, customerId);
+      }
+
+      await db.prepare(`
+        UPDATE bills
+        SET status = 'CANCELLED', gross_amount = 0, product_subtotal = 0, delivery_charges_total = 0,
+            advance_adjusted = 0, net_payable = 0, paid_amount = 0, total_deliveries_count = 0,
+            notes = 'Auto-cancelled: All subscriptions deleted with 0 deliveries',
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(b.id);
+
+      await db.prepare(`
+        DELETE FROM customer_ledger
+        WHERE customer_id = ? AND reference_id = ?
+      `).run(customerId, `BILL-${b.id}`);
+    }
+
+    // Re-verify exact customer pending dues from remaining non-cancelled bills
+    const freshDues = await calculateCustomerPendingDues(customerId);
+    const finalPending = freshDues.totalUnpaid || 0;
+
+    await db.prepare(`
+      UPDATE customers
+      SET pending_balance = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(finalPending, customerId);
+
+    return null;
+  }
+}
+
+/**
  * Generates an Advance / Expected bill for a Prepaid Customer for a specified month (YYYY-MM).
  * Based on customer's active subscriptions in that month, strictly respecting start_date, end_date, frequency, and custom_days.
  */
@@ -407,6 +512,9 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   `).all(customer.id, monthEnd, monthStart);
 
   if (!subs || subs.length === 0) {
+    if (existing && forceRegenerate) {
+      return await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+    }
     return null; // No active subscription in this month
   }
 
@@ -572,6 +680,9 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     }));
 
   if (activeBreakdowns.length === 0) {
+    if (existing && forceRegenerate) {
+      return await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+    }
     return null;
   }
 
@@ -1563,7 +1674,23 @@ async function generateBillForCustomer(customer, billingMonth, { billingBasis = 
     if (billingBasis === 'DELIVERIES' || (billingBasis === 'AUTO' && hasDeliveries && billingMonth < currentMonthStr)) {
       return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
     }
-    // For ongoing or future months, PREPAID customers ALWAYS receive their Full Month Advance Bill:
+
+    // Check if customer has active subscriptions for this month
+    const daysInMonth = getDaysInMonth(billingMonth);
+    const monthStart = `${billingMonth}-01`;
+    const monthEnd = `${billingMonth}-${daysInMonth.toString().padStart(2, '0')}`;
+    const activeSubRow = await db.prepare(`
+      SELECT COUNT(*) as count FROM subscriptions
+      WHERE customer_id = ? AND is_active = 1
+        AND start_date <= ? AND (end_date IS NULL OR end_date = '' OR end_date >= ?)
+    `).get(customer.id, monthEnd, monthStart);
+    const hasActiveSubs = activeSubRow && Number(activeSubRow.count) > 0;
+
+    if (!hasActiveSubs) {
+      return await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+    }
+
+    // For ongoing or future months with active subscriptions:
     return await generateAdvanceBillForPrepaidCustomer(customer, billingMonth, forceRegenerate);
   }
 
@@ -1648,7 +1775,11 @@ async function recalculateSingleBill(billId, billingBasis = 'AUTO') {
     }
   }
 
-  return await generateBillForCustomer(customer, bill.billing_month, { billingBasis: effBasis, forceRegenerate: true });
+  const result = await generateBillForCustomer(customer, bill.billing_month, { billingBasis: effBasis, forceRegenerate: true });
+  if (!result) {
+    return await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+  }
+  return result;
 }
 
 /**
@@ -2213,6 +2344,7 @@ module.exports = {
   permanentlyDeletePayment,
   parseCustomDays,
   formatCustomDaysSummary,
-  mergePendingBillsForCustomer
+  mergePendingBillsForCustomer,
+  syncCustomerBillingAfterSubscriptionChange
 };
 

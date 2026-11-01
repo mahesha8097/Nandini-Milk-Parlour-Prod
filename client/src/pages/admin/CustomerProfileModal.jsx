@@ -453,7 +453,7 @@ export default function CustomerProfileModal({
     if (!window.confirm('Are you sure you want to remove this subscription? Past deliveries will remain intact.')) return;
     try {
       await api.delete(`/customers/${customerId}/subscriptions/${subId}`);
-      fetchCustomerProfile();
+      await fetchCustomerProfile();
       onRefreshList?.();
     } catch (err) {
       alert(err.message || 'Failed to remove subscription');

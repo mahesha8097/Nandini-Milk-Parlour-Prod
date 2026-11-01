@@ -688,16 +688,13 @@ router.post('/bulk-deliver', verifyToken, async (req, res) => {
       }
     }
 
-    // Refresh monthly bill if exists (except for PREPAID advance bills)
+    // Refresh monthly bill if exists
     const billingMonth = targetDate.slice(0, 7);
-    const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
-    if (existingBill && existingBill.billing_type !== 'PREPAID') {
-      try {
-        const { generateBillForCustomer } = require('../services/billingService');
-        await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
-      } catch (e) {
-        console.warn('Auto bill refresh on bulk deliver notice:', e.message);
-      }
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+    } catch (e) {
+      console.warn('Auto bill refresh on bulk deliver notice:', e.message);
     }
 
     res.json({
@@ -855,6 +852,27 @@ router.put('/:id/status', verifyToken, async (req, res) => {
     // Recalculate amounts and charges for this customer on this date
     await recalculateCustomerDayDeliveries(delivery.customer_id, delivery.delivery_date);
 
+    // If customer has no active subscriptions or already has a delivered bill, sync bill & pending balance
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const delMonth = delivery.delivery_date.slice(0, 7);
+      const hasActiveSub = await db.prepare(`
+        SELECT COUNT(*) as count FROM subscriptions
+        WHERE customer_id = ? AND is_active = 1
+          AND start_date <= ? AND (end_date IS NULL OR end_date = '' OR end_date >= ?)
+      `).get(delivery.customer_id, `${delMonth}-31`, `${delMonth}-01`);
+
+      const existingDelBill = await db.prepare(`
+        SELECT id FROM bills WHERE customer_id = ? AND billing_month = ? AND (notes LIKE '%Delivered Milk%' OR total_deliveries_count < 28)
+      `).get(delivery.customer_id, delMonth);
+
+      if (!hasActiveSub || Number(hasActiveSub.count) === 0 || existingDelBill) {
+        await syncCustomerBillingAfterSubscriptionChange(delivery.customer_id, delMonth);
+      }
+    } catch (syncErr) {
+      console.warn('Delivery status bill sync notice:', syncErr.message);
+    }
+
     const updated = await db.prepare(`
       SELECT d.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
              c.route as customer_route, c.customer_category, c.billing_type,
@@ -977,6 +995,33 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
     // Recalculate all affected customer days
     for (const { customerId, deliveryDate } of customerDaysToRecalc.values()) {
       await recalculateCustomerDayDeliveries(customerId, deliveryDate);
+    }
+
+    // Sync billing & pending balance for affected customers without active subscriptions
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const affectedCustomerMonths = new Set();
+      for (const { customerId, deliveryDate } of customerDaysToRecalc.values()) {
+        affectedCustomerMonths.add(`${customerId}_${deliveryDate.slice(0, 7)}`);
+      }
+      for (const cm of affectedCustomerMonths) {
+        const [cId, dMonth] = cm.split('_');
+        const hasActiveSub = await db.prepare(`
+          SELECT COUNT(*) as count FROM subscriptions
+          WHERE customer_id = ? AND is_active = 1
+            AND start_date <= ? AND (end_date IS NULL OR end_date = '' OR end_date >= ?)
+        `).get(Number(cId), `${dMonth}-31`, `${dMonth}-01`);
+
+        const existingDelBill = await db.prepare(`
+          SELECT id FROM bills WHERE customer_id = ? AND billing_month = ? AND (notes LIKE '%Delivered Milk%' OR total_deliveries_count < 28)
+        `).get(Number(cId), dMonth);
+
+        if (!hasActiveSub || Number(hasActiveSub.count) === 0 || existingDelBill) {
+          await syncCustomerBillingAfterSubscriptionChange(Number(cId), dMonth);
+        }
+      }
+    } catch (bulkBillSyncErr) {
+      console.warn('Bulk delivery bill sync notice:', bulkBillSyncErr.message);
     }
 
     res.json({
