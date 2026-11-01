@@ -268,12 +268,17 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       return;
     }
 
+    let volInLitres = parseFloat(formData.unit_volume_litres) || 0;
+    if (volInLitres > 10) {
+      volInLitres = parseFloat((volInLitres / 1000).toFixed(3));
+    }
+
     const payload = {
       ...formData,
       name: formData.name.trim(),
       category: finalCategory,
       variant_label: finalVariant,
-      unit_volume_litres: parseFloat(formData.unit_volume_litres) || 0,
+      unit_volume_litres: volInLitres,
       selling_price: parseFloat(formData.selling_price)
     };
 
@@ -962,18 +967,18 @@ export default function ProductsPage({ initialOpenAdd = false }) {
 
           {/* Unit Volume in Litres & Selling Price Row */}
           <div className="form-row">
-            {/* Unit Volume in Litres (Step 0.5) */}
+            {/* Unit Volume in Litres */}
             <div className="form-group">
               <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span>Unit Volume in Litres</span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Steps of 0.5 L</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>e.g. 0.5 (500ml), 0.13 (130g)</span>
               </label>
               <input
                 type="number"
-                step="0.5"
+                step="0.01"
                 min="0"
                 className="form-input"
-                placeholder="0.5, 1.0, 1.5, 2.0"
+                placeholder="0.5, 1.0, 0.13"
                 value={formData.unit_volume_litres}
                 onChange={(e) => setFormData({ ...formData, unit_volume_litres: parseFloat(e.target.value) || 0 })}
               />

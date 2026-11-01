@@ -150,7 +150,10 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Valid selling price is required' });
     }
 
-    const vol = parseFloat(unit_volume_litres || 0);
+    let vol = parseFloat(unit_volume_litres || 0);
+    if (vol > 10) {
+      vol = parseFloat((vol / 1000).toFixed(3));
+    }
     const chargeType = delivery_charge_type || (category === 'Milk' ? 'MILK_RULE' : 'NONE');
     const fixedCharge = parseFloat(fixed_delivery_charge || 0);
     const active = is_active === undefined ? 1 : (is_active ? 1 : 0);
@@ -219,8 +222,10 @@ router.put('/:id', requireAdmin, async (req, res) => {
       is_coupon_eligible
     } = req.body;
 
-    const price = selling_price !== undefined ? parseFloat(selling_price) : existing.selling_price;
-    const vol = unit_volume_litres !== undefined ? parseFloat(unit_volume_litres) : existing.unit_volume_litres;
+    let vol = unit_volume_litres !== undefined ? parseFloat(unit_volume_litres) : existing.unit_volume_litres;
+    if (vol > 10) {
+      vol = parseFloat((vol / 1000).toFixed(3));
+    }
     const chargeType = delivery_charge_type || existing.delivery_charge_type;
     const fixedCharge = fixed_delivery_charge !== undefined ? parseFloat(fixed_delivery_charge) : existing.fixed_delivery_charge;
     const active = is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active;
