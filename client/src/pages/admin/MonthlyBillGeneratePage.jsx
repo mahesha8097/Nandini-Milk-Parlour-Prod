@@ -6,6 +6,8 @@ import {
   User,
   Package,
   Plus,
+  Minus,
+  Edit3,
   Trash2,
   RefreshCw,
   MessageCircle,
@@ -105,6 +107,11 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
   const [tempSelectedDays, setTempSelectedDays] = useState([]);
   const [tempStartDate, setTempStartDate] = useState('');
   const [tempEndDate, setTempEndDate] = useState('');
+
+  // Day Delivery Edit Modal State (Custom products & quantities for specific date)
+  const [dayEditModalOpen, setDayEditModalOpen] = useState(false);
+  const [editingDayNum, setEditingDayNum] = useState(null);
+  const [dayItemQuantities, setDayItemQuantities] = useState({});
 
   const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -318,7 +325,8 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
           days: itemDayInfo.days,
           startDate: itemDayInfo.startDate,
           endDate: itemDayInfo.endDate,
-          selectedDays: itemDayInfo.selectedDays
+          selectedDays: itemDayInfo.selectedDays,
+          dayQuantities: {}
         };
       });
       setItems(mapped);
@@ -337,7 +345,8 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         days: defaultDayInfo.days,
         startDate: defaultDayInfo.startDate,
         endDate: defaultDayInfo.endDate,
-        selectedDays: defaultDayInfo.selectedDays
+        selectedDays: defaultDayInfo.selectedDays,
+        dayQuantities: {}
       }]);
     }
 
@@ -357,13 +366,19 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
               }
               if (savedDays) {
                 const pad = (n) => String(n).padStart(2, '0');
-                setItems(prev => prev.map(it => ({
-                  ...it,
-                  days: savedDays.length,
-                  startDate: `${targetMonth}-${pad(savedDays[0])}`,
-                  endDate: `${targetMonth}-${pad(savedDays[savedDays.length - 1])}`,
-                  selectedDays: savedDays
-                })));
+                setItems(prev => prev.map((it, idx) => {
+                  const savedItem = Array.isArray(parsed) ? parsed[idx] : null;
+                  const itemDays = (savedItem && (savedItem.selectedDays || savedItem.selected_days)) ? (savedItem.selectedDays || savedItem.selected_days) : savedDays;
+                  const itemDayQtys = savedItem?.dayQuantities || {};
+                  return {
+                    ...it,
+                    days: itemDays.length,
+                    startDate: `${targetMonth}-${pad(itemDays[0])}`,
+                    endDate: `${targetMonth}-${pad(itemDays[itemDays.length - 1])}`,
+                    selectedDays: itemDays,
+                    dayQuantities: itemDayQtys
+                  };
+                }));
               }
             }
           } catch (e) {}
@@ -401,7 +416,8 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
           days: itemDayInfo.days,
           startDate: itemDayInfo.startDate,
           endDate: itemDayInfo.endDate,
-          selectedDays: itemDayInfo.selectedDays
+          selectedDays: itemDayInfo.selectedDays,
+          dayQuantities: {}
         };
       });
       setItems(mapped);
@@ -412,7 +428,8 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         days: dayInfo.days,
         startDate: dayInfo.startDate,
         endDate: dayInfo.endDate,
-        selectedDays: dayInfo.selectedDays
+        selectedDays: dayInfo.selectedDays,
+        dayQuantities: {}
       })));
     }
 
@@ -432,13 +449,19 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                 }
                 if (savedDays) {
                   const pad = (n) => String(n).padStart(2, '0');
-                  setItems(prev => prev.map(it => ({
-                    ...it,
-                    days: savedDays.length,
-                    startDate: `${newMonth}-${pad(savedDays[0])}`,
-                    endDate: `${newMonth}-${pad(savedDays[savedDays.length - 1])}`,
-                    selectedDays: savedDays
-                  })));
+                  setItems(prev => prev.map((it, idx) => {
+                    const savedItem = Array.isArray(parsed) ? parsed[idx] : null;
+                    const itemDays = (savedItem && (savedItem.selectedDays || savedItem.selected_days)) ? (savedItem.selectedDays || savedItem.selected_days) : savedDays;
+                    const itemDayQtys = savedItem?.dayQuantities || {};
+                    return {
+                      ...it,
+                      days: itemDays.length,
+                      startDate: `${newMonth}-${pad(itemDays[0])}`,
+                      endDate: `${newMonth}-${pad(itemDays[itemDays.length - 1])}`,
+                      selectedDays: itemDays,
+                      dayQuantities: itemDayQtys
+                    };
+                  }));
                 }
               }
             } catch (e) {}
@@ -471,7 +494,8 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         days: totalDays,
         startDate: `${selectedMonth}-01`,
         endDate: `${selectedMonth}-${pad(totalDays)}`,
-        selectedDays: allDays
+        selectedDays: allDays,
+        dayQuantities: {}
       }
     ]);
   };
@@ -696,14 +720,23 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
   // - Also supports per-packet separate mode (₹2 each packet) via the selector key.
   // - Bulk / Hotel customers -> ₹0 delivery charges
   // - For days with no milk -> ₹0 billed (No Milk Required)
+  // - Fully respects custom per-day quantities (dayQuantities[d])
   const dailyBreakdown = useMemo(() => {
     const daysInMonth = defaultMonthDays;
     const days = [];
 
     for (let d = 1; d <= daysInMonth; d++) {
       const activeForDay = items
-        .map((it, idx) => ({ ...it, originalIndex: idx }))
-        .filter(it => (it.selectedDays || []).includes(d));
+        .map((it, idx) => {
+          let dayQty = 0;
+          if (it.dayQuantities && it.dayQuantities[d] !== undefined) {
+            dayQty = Math.max(0, parseInt(it.dayQuantities[d], 10) || 0);
+          } else if ((it.selectedDays || []).includes(d)) {
+            dayQty = Math.max(0, parseInt(it.quantity, 10) || 0);
+          }
+          return { ...it, originalIndex: idx, dayQty };
+        })
+        .filter(it => it.dayQty > 0);
 
       if (activeForDay.length === 0) {
         days.push({
@@ -725,7 +758,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
       const otherItems = [];
 
       activeForDay.forEach(it => {
-        const qty = Math.max(0, parseInt(it.quantity, 10) || 0);
+        const qty = it.dayQty;
         const unitPrice = parseFloat(it.unitPrice) || 0;
         milkCost += unitPrice * qty;
 
@@ -812,7 +845,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         day: d,
         hasMilk: true,
         activeItems: activeForDay,
-        totalLitres,
+        totalLitres: parseFloat(totalLitres.toFixed(2)),
         milkCost,
         deliveryCharge: dayDeliveryCharge,
         dayTotal: parseFloat((milkCost + dayDeliveryCharge).toFixed(2)),
@@ -825,10 +858,25 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
 
   const calculatedItems = useMemo(() => {
     return items.map((item, idx) => {
-      const selectedDays = item.selectedDays || [];
-      const itemDays = selectedDays.length;
-      const qty = Math.max(0, parseInt(item.quantity, 10) || 0);
-      const totalQty = qty * itemDays;
+      let totalQty = 0;
+      const activeDays = [];
+      const distinctQuantities = new Set();
+
+      for (let d = 1; d <= defaultMonthDays; d++) {
+        let dayQty = 0;
+        if (item.dayQuantities && item.dayQuantities[d] !== undefined) {
+          dayQty = Math.max(0, parseInt(item.dayQuantities[d], 10) || 0);
+        } else if ((item.selectedDays || []).includes(d)) {
+          dayQty = Math.max(0, parseInt(item.quantity, 10) || 0);
+        }
+        if (dayQty > 0) {
+          activeDays.push(d);
+          totalQty += dayQty;
+          distinctQuantities.add(dayQty);
+        }
+      }
+
+      const itemDays = activeDays.length;
       const unitPrice = parseFloat(item.unitPrice) || 0;
       const milkSubtotal = parseFloat((unitPrice * totalQty).toFixed(2));
 
@@ -842,19 +890,22 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
       const lineTotal = parseFloat((milkSubtotal + deliveryChargeTotal).toFixed(2));
       const effectiveUnitPrice = totalQty > 0 ? parseFloat((lineTotal / totalQty).toFixed(2)) : unitPrice;
       const dailyDeliveryCharge = itemDays > 0 ? parseFloat((deliveryChargeTotal / itemDays).toFixed(2)) : 0;
+      const isCustomDaily = distinctQuantities.size > 1;
 
       return {
         ...item,
         itemDays,
+        selectedDays: activeDays,
         totalQty,
         milkSubtotal,
         dailyDeliveryCharge,
         deliveryChargeTotal,
         lineTotal,
-        effectiveUnitPrice
+        effectiveUnitPrice,
+        isCustomDaily
       };
     });
-  }, [items, dailyBreakdown]);
+  }, [items, defaultMonthDays, dailyBreakdown]);
 
   const totalMilkSubtotal = calculatedItems.reduce((acc, it) => acc + it.milkSubtotal, 0);
   const totalDeliveryCharges = calculatedItems.reduce((acc, it) => acc + it.deliveryChargeTotal, 0);
@@ -884,25 +935,34 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         ? prevItems.map((_, i) => i)
         : [parseInt(calendarTargetProduct, 10)];
 
-      const isCurrentlyActive = targetIndices.some(idx =>
-        (prevItems[idx]?.selectedDays || []).includes(dayNum)
-      );
+      const isCurrentlyActive = targetIndices.some(idx => {
+        const item = prevItems[idx];
+        if (!item) return false;
+        if (item.dayQuantities && item.dayQuantities[dayNum] !== undefined) {
+          return item.dayQuantities[dayNum] > 0;
+        }
+        return (item.selectedDays || []).includes(dayNum);
+      });
 
       return prevItems.map((item, idx) => {
         if (!targetIndices.includes(idx)) return item;
         const currentDays = item.selectedDays || [];
+        const currentDayQtyMap = { ...(item.dayQuantities || {}) };
         let newDays;
         if (isCurrentlyActive) {
           newDays = currentDays.filter(d => d !== dayNum);
+          currentDayQtyMap[dayNum] = 0;
         } else {
-          newDays = [...currentDays, dayNum].sort((a, b) => a - b);
+          newDays = currentDays.includes(dayNum) ? currentDays : [...currentDays, dayNum].sort((a, b) => a - b);
+          currentDayQtyMap[dayNum] = Math.max(1, parseInt(item.quantity, 10) || 1);
         }
         return {
           ...item,
           days: newDays.length,
           startDate: newDays.length > 0 ? `${selectedMonth}-${pad(newDays[0])}` : null,
           endDate: newDays.length > 0 ? `${selectedMonth}-${pad(newDays[newDays.length - 1])}` : null,
-          selectedDays: newDays
+          selectedDays: newDays,
+          dayQuantities: currentDayQtyMap
         };
       });
     });
@@ -933,10 +993,14 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         continue;
       }
 
-      // Check if ALL monthDaysForDow are present in every relevant item's selectedDays
+      // Check if ALL monthDaysForDow are present in every relevant item
       const allIncluded = relevantItems.every(it => {
-        const set = new Set(it.selectedDays || []);
-        return monthDaysForDow.every(d => set.has(d));
+        return monthDaysForDow.every(d => {
+          if (it.dayQuantities && it.dayQuantities[d] !== undefined) {
+            return it.dayQuantities[d] > 0;
+          }
+          return (it.selectedDays || []).includes(d);
+        });
       });
 
       status[dow] = allIncluded;
@@ -968,13 +1032,20 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
       return prevItems.map((item, idx) => {
         if (!targetIndices.includes(idx)) return item;
         const currentSet = new Set(item.selectedDays || []);
+        const currentDayQtyMap = { ...(item.dayQuantities || {}) };
 
         if (isCurrentlyActive) {
           // Remove this weekday from selection
-          monthDaysForDow.forEach(d => currentSet.delete(d));
+          monthDaysForDow.forEach(d => {
+            currentSet.delete(d);
+            currentDayQtyMap[d] = 0;
+          });
         } else {
           // Add this weekday to selection
-          monthDaysForDow.forEach(d => currentSet.add(d));
+          monthDaysForDow.forEach(d => {
+            currentSet.add(d);
+            currentDayQtyMap[d] = Math.max(1, parseInt(item.quantity, 10) || 1);
+          });
         }
 
         const updated = Array.from(currentSet).sort((a, b) => a - b);
@@ -983,7 +1054,8 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
           days: updated.length,
           startDate: updated.length > 0 ? `${selectedMonth}-${pad(updated[0])}` : null,
           endDate: updated.length > 0 ? `${selectedMonth}-${pad(updated[updated.length - 1])}` : null,
-          selectedDays: updated
+          selectedDays: updated,
+          dayQuantities: currentDayQtyMap
         };
       });
     });
@@ -1042,16 +1114,168 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
 
       return prevItems.map((item, idx) => {
         if (!targetIndices.includes(idx)) return item;
+        const targetSet = new Set(targetDays);
+        const currentDayQtyMap = { ...(item.dayQuantities || {}) };
+        for (let d = 1; d <= totalDays; d++) {
+          if (targetSet.has(d)) {
+            currentDayQtyMap[d] = Math.max(1, parseInt(item.quantity, 10) || 1);
+          } else {
+            currentDayQtyMap[d] = 0;
+          }
+        }
         return {
           ...item,
           days: targetDays.length,
           startDate: targetDays.length > 0 ? `${selectedMonth}-${pad(targetDays[0])}` : null,
           endDate: targetDays.length > 0 ? `${selectedMonth}-${pad(targetDays[targetDays.length - 1])}` : null,
-          selectedDays: [...targetDays]
+          selectedDays: [...targetDays],
+          dayQuantities: currentDayQtyMap
         };
       });
     });
   };
+
+  // Day Delivery Edit Modal Handlers (Custom quantities per day)
+  const handleOpenDayEditModal = (dayNum) => {
+    setEditingDayNum(dayNum);
+    const initialMap = {};
+    items.forEach((it, idx) => {
+      let qty = 0;
+      if (it.dayQuantities && it.dayQuantities[dayNum] !== undefined) {
+        qty = Math.max(0, parseInt(it.dayQuantities[dayNum], 10) || 0);
+      } else if ((it.selectedDays || []).includes(dayNum)) {
+        qty = Math.max(0, parseInt(it.quantity, 10) || 1);
+      } else {
+        qty = 0;
+      }
+      initialMap[idx] = qty;
+    });
+    setDayItemQuantities(initialMap);
+    setDayEditModalOpen(true);
+  };
+
+  const handleSaveDayQuantities = (applyToDow = false) => {
+    if (!editingDayNum) return;
+    const pad = (n) => String(n).padStart(2, '0');
+    const [y, m] = (selectedMonth || '2026-10').split('-').map(Number);
+    const targetDow = new Date(y, m - 1, editingDayNum).getDay();
+
+    const targetDays = applyToDow
+      ? Array.from({ length: defaultMonthDays }, (_, i) => i + 1)
+          .filter(d => new Date(y, m - 1, d).getDay() === targetDow)
+      : [editingDayNum];
+
+    setItems(prevItems => {
+      return prevItems.map((item, idx) => {
+        const newQty = Math.max(0, parseInt(dayItemQuantities[idx], 10) || 0);
+        const updatedDayQuantities = { ...(item.dayQuantities || {}) };
+        const currentDaysSet = new Set(item.selectedDays || []);
+
+        targetDays.forEach(d => {
+          updatedDayQuantities[d] = newQty;
+          if (newQty > 0) {
+            currentDaysSet.add(d);
+          } else {
+            currentDaysSet.delete(d);
+          }
+        });
+
+        const sortedDays = Array.from(currentDaysSet).sort((a, b) => a - b);
+        return {
+          ...item,
+          days: sortedDays.length,
+          startDate: sortedDays.length > 0 ? `${selectedMonth}-${pad(sortedDays[0])}` : null,
+          endDate: sortedDays.length > 0 ? `${selectedMonth}-${pad(sortedDays[sortedDays.length - 1])}` : null,
+          selectedDays: sortedDays,
+          dayQuantities: updatedDayQuantities
+        };
+      });
+    });
+
+    setDayEditModalOpen(false);
+    setToastMsg(
+      applyToDow
+        ? `✅ Updated quantities for all ${DAYS_OF_WEEK.find(w => w.index === targetDow)?.fullName || 'matching'}s (${targetDays.length} days)`
+        : `✅ Updated delivery quantities for Day ${editingDayNum}`
+    );
+    setTimeout(() => setToastMsg(''), 4000);
+  };
+
+  // Real-time calculation preview for the day currently being edited in the modal
+  const editingDayPreview = useMemo(() => {
+    if (!editingDayNum) return null;
+    let milkCost = 0;
+    let totalLitres = 0;
+    let otherCharges = 0;
+
+    items.forEach((it, idx) => {
+      const qty = Math.max(0, parseInt(dayItemQuantities[idx], 10) || 0);
+      if (qty <= 0) return;
+
+      const unitPrice = parseFloat(it.unitPrice) || 0;
+      milkCost += unitPrice * qty;
+
+      const chargeType = it.deliveryChargeType || it.delivery_charge_type;
+      const isMilkCat = Boolean(it.category && it.category.trim().toLowerCase() === 'milk');
+      const isMilkRule = chargeType === 'MILK_RULE' || (!chargeType && isMilkCat);
+
+      let vol = parseFloat(it.unitVolumeLitres) || 0;
+      if (!vol || vol <= 0) {
+        if (it.variantLabel && it.variantLabel.toLowerCase().includes('500')) vol = 0.5;
+        else if (it.variantLabel && it.variantLabel.toLowerCase().includes('1')) vol = 1.0;
+        else vol = 0.5;
+      }
+
+      if (isMilkRule) {
+        totalLitres += vol * qty;
+      } else if (chargeType === 'FIXED_PER_UNIT') {
+        const fixed = parseFloat(it.fixedDeliveryCharge !== undefined ? it.fixedDeliveryCharge : it.fixed_delivery_charge) || 0;
+        otherCharges += fixed * qty;
+      }
+    });
+
+    let delCharge = 0;
+    let delRuleExplanation = '';
+
+    if (isBulkHotel) {
+      delCharge = 0;
+      delRuleExplanation = 'Bulk / Hotel: ₹0 delivery charge';
+    } else {
+      if (deliveryRuleMode === 'PER_PACKET') {
+        items.forEach((it, idx) => {
+          const qty = Math.max(0, parseInt(dayItemQuantities[idx], 10) || 0);
+          if (qty <= 0) return;
+          let vol = parseFloat(it.unitVolumeLitres) || 0.5;
+          delCharge += (vol <= 0.5 ? 2.0 : vol * 3.0) * qty;
+        });
+        delRuleExplanation = 'Per Packet rule (₹2/pkt ≤0.5L)';
+      } else {
+        if (totalLitres <= 0) {
+          delCharge = 0;
+          delRuleExplanation = 'No milk: ₹0';
+        } else if (totalLitres <= 0.5) {
+          delCharge = 2.0;
+          delRuleExplanation = '≤ 0.5L: ₹2.00 delivery charge';
+        } else {
+          delCharge = parseFloat((totalLitres * 3.0).toFixed(2));
+          delRuleExplanation = `> 0.5L (${totalLitres.toFixed(1)}L): ₹3.00/L = ₹${delCharge.toFixed(2)}`;
+        }
+      }
+      delCharge += otherCharges;
+    }
+
+    delCharge = parseFloat(delCharge.toFixed(2));
+    milkCost = parseFloat(milkCost.toFixed(2));
+    const dayTotal = parseFloat((milkCost + delCharge).toFixed(2));
+
+    return {
+      totalLitres: parseFloat(totalLitres.toFixed(2)),
+      milkCost,
+      delCharge,
+      delRuleExplanation,
+      dayTotal
+    };
+  }, [editingDayNum, dayItemQuantities, items, isBulkHotel, deliveryRuleMode]);
 
   // Advance adjustment for Prepaid / Advance Balance customers
   const customerAdvance = Number(selectedCustomer?.advance_balance || 0);
@@ -1079,8 +1303,8 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
       const allSelectedDays = new Set();
       const allOffDays = new Set();
       for (let d = 1; d <= defaultMonthDays; d++) {
-        const hasMilkOnDay = items.some(it => (it.selectedDays || []).includes(d));
-        if (hasMilkOnDay) allSelectedDays.add(d);
+        const dayInfo = dailyBreakdown.find(day => day.day === d);
+        if (dayInfo && dayInfo.hasMilk) allSelectedDays.add(d);
         else allOffDays.add(d);
       }
 
@@ -2432,6 +2656,281 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         </div>
       </Modal>
 
+      {/* Day Delivery Edit Modal (Custom quantities & products per specific day) */}
+      <Modal
+        isOpen={dayEditModalOpen}
+        onClose={() => setDayEditModalOpen(false)}
+        title={editingDayNum ? `Edit Delivery — Day ${editingDayNum}` : 'Edit Delivery'}
+        maxWidth="580px"
+      >
+        {editingDayNum && (
+          <div>
+            {/* Modal Header Subtitle */}
+            {(() => {
+              const [y, m] = (selectedMonth || '2026-10').split('-').map(Number);
+              const dateObj = new Date(y, m - 1, editingDayNum);
+              const dowObj = DAYS_OF_WEEK.find(w => w.index === dateObj.getDay());
+              const dayName = dowObj?.fullName || 'Day';
+              const monthTitle = dateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+              const matchingDays = Array.from({ length: defaultMonthDays }, (_, i) => i + 1)
+                .filter(d => new Date(y, m - 1, d).getDay() === dateObj.getDay());
+
+              return (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+                      📅 <strong>{dayName}</strong>, {editingDayNum} {monthTitle}
+                    </div>
+                    <span className="badge" style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontSize: '0.72rem', fontWeight: '700' }}>
+                      {matchingDays.length} {dayName}s in this month
+                    </span>
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                    Set exact product quantities for this date. Delivery charges are calculated dynamically based on the day's volume.
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* Products List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+              {items.map((it, idx) => {
+                const currentQty = dayItemQuantities[idx] ?? 0;
+                const unitPrice = parseFloat(it.unitPrice) || 0;
+                const lineTotal = unitPrice * currentQty;
+
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 14px',
+                      borderRadius: '8px',
+                      border: currentQty > 0 ? '1.5px solid #10b981' : '1px solid var(--border-color)',
+                      background: currentQty > 0 ? 'rgba(16, 185, 129, 0.04)' : 'var(--bg-card)',
+                      flexWrap: 'wrap',
+                      gap: '12px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: '800', fontSize: '0.9rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>{it.productName}</span>
+                        <span className="badge" style={{ fontSize: '0.68rem', padding: '2px 6px', background: '#f1f5f9', color: '#475569' }}>
+                          {it.variantLabel}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        ₹{unitPrice.toFixed(2)} / pkt • Subtotal: <strong style={{ color: currentQty > 0 ? '#059669' : 'inherit' }}>₹{lineTotal.toFixed(2)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Stepper + Quick Chips */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: '6px', background: 'white' }}>
+                        <button
+                          type="button"
+                          onClick={() => setDayItemQuantities(prev => ({
+                            ...prev,
+                            [idx]: Math.max(0, (prev[idx] ?? 0) - 1)
+                          }))}
+                          style={{
+                            padding: '6px 10px',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: currentQty > 0 ? '#0f172a' : '#cbd5e1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                          disabled={currentQty <= 0}
+                          title="Decrease quantity"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          max="99"
+                          value={currentQty}
+                          onChange={(e) => {
+                            const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                            setDayItemQuantities(prev => ({ ...prev, [idx]: val }));
+                          }}
+                          style={{
+                            width: '44px',
+                            textAlign: 'center',
+                            border: 'none',
+                            borderLeft: '1px solid #e2e8f0',
+                            borderRight: '1px solid #e2e8f0',
+                            fontSize: '0.9rem',
+                            fontWeight: '800',
+                            color: currentQty > 0 ? '#059669' : '#64748b',
+                            padding: '4px 0'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setDayItemQuantities(prev => ({
+                            ...prev,
+                            [idx]: (prev[idx] ?? 0) + 1
+                          }))}
+                          style={{
+                            padding: '6px 10px',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#0f172a',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                          title="Increase quantity"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+
+                      {/* Quick Chips */}
+                      <div style={{ display: 'flex', gap: '3px' }}>
+                        {[0, 1, 2, 3].map(chipVal => (
+                          <button
+                            key={chipVal}
+                            type="button"
+                            onClick={() => setDayItemQuantities(prev => ({ ...prev, [idx]: chipVal }))}
+                            style={{
+                              padding: '3px 7px',
+                              fontSize: '0.7rem',
+                              fontWeight: '700',
+                              borderRadius: '4px',
+                              border: currentQty === chipVal ? '1px solid #0054a6' : '1px solid #e2e8f0',
+                              background: currentQty === chipVal ? '#0054a6' : '#ffffff',
+                              color: currentQty === chipVal ? '#ffffff' : '#64748b',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {chipVal === 0 ? 'Off' : chipVal}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Live Day Preview Box */}
+            {editingDayPreview && (
+              <div style={{
+                background: editingDayPreview.dayTotal > 0
+                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(0, 84, 166, 0.06) 100%)'
+                  : '#f8fafc',
+                border: editingDayPreview.dayTotal > 0 ? '1px solid #a7f3d0' : '1px dashed #cbd5e1',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                marginBottom: '18px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: '800', color: 'var(--text-primary)' }}>
+                    Day {editingDayNum} Calculation Preview:
+                  </span>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: '800',
+                    color: editingDayPreview.dayTotal > 0 ? '#059669' : '#64748b',
+                    background: editingDayPreview.dayTotal > 0 ? '#ecfdf5' : '#f1f5f9',
+                    padding: '2px 8px',
+                    borderRadius: '999px'
+                  }}>
+                    {editingDayPreview.dayTotal > 0 ? `${editingDayPreview.totalLitres}L Scheduled` : 'No Milk Required'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', fontSize: '0.78rem' }}>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)' }}>Milk Cost:</div>
+                    <div style={{ fontWeight: '800', color: '#0f172a' }}>₹{editingDayPreview.milkCost.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)' }}>Delivery Charge:</div>
+                    <div style={{ fontWeight: '800', color: editingDayPreview.delCharge > 0 ? '#0054a6' : '#64748b' }}>
+                      ₹{editingDayPreview.delCharge.toFixed(2)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: 'var(--text-muted)' }}>Day Total:</div>
+                    <div style={{ fontWeight: '900', fontSize: '0.92rem', color: editingDayPreview.dayTotal > 0 ? '#059669' : '#64748b' }}>
+                      ₹{editingDayPreview.dayTotal.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '6px', fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic' }}>
+                  Rule: {editingDayPreview.delRuleExplanation}
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => {
+                  const zeroed = {};
+                  items.forEach((_, i) => { zeroed[i] = 0; });
+                  setDayItemQuantities(zeroed);
+                }}
+                style={{ fontSize: '0.75rem', color: '#ef4444', borderColor: '#fca5a5' }}
+              >
+                Mark Day as No Milk (0 pkts)
+              </button>
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => setDayEditModalOpen(false)}
+                >
+                  Cancel
+                </button>
+
+                {(() => {
+                  const [y, m] = (selectedMonth || '2026-10').split('-').map(Number);
+                  const dateObj = new Date(y, m - 1, editingDayNum);
+                  const dayName = DAYS_OF_WEEK.find(w => w.index === dateObj.getDay())?.fullName || 'Day';
+                  const matchingDays = Array.from({ length: defaultMonthDays }, (_, i) => i + 1)
+                    .filter(d => new Date(y, m - 1, d).getDay() === dateObj.getDay());
+
+                  return (
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => handleSaveDayQuantities(true)}
+                      style={{ background: '#eff6ff', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: '800' }}
+                      title={`Apply these quantities to all ${matchingDays.length} ${dayName}s in this month`}
+                    >
+                      Apply to all {matchingDays.length} {dayName}s
+                    </button>
+                  );
+                })()}
+
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handleSaveDayQuantities(false)}
+                  style={{ fontWeight: '800' }}
+                >
+                  Save Day {editingDayNum}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* Toast Notification Banner */}
       {(toastMsg || whatsappDirectUrl) && (
         <div style={{
@@ -2783,13 +3282,18 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
               const isSunday = new Date(yearNum, monthNum - 1, d).getDay() === 0;
 
               return (
-                <button
+                <div
                   key={d}
-                  type="button"
-                  onClick={() => handleToggleCalendarDay(d)}
-                  title={hasMilk ? `Day ${d}: Milk Taken (₹${dayInfo.dayTotal}). Click to mark as No Milk Required.` : `Day ${d}: No Milk Required. Click to schedule Milk.`}
+                  onClick={() => handleOpenDayEditModal(d)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleOpenDayEditModal(d); }}
+                  title={hasMilk
+                    ? `Day ${d}: Milk Taken (₹${dayInfo.dayTotal.toFixed(2)}). Click to customize products/quantities.`
+                    : `Day ${d}: No Milk Required. Click to set products & delivery.`
+                  }
                   style={{
-                    minHeight: '68px',
+                    minHeight: '74px',
                     padding: '6px 8px',
                     borderRadius: '8px',
                     border: hasMilk
@@ -2809,7 +3313,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                     boxShadow: hasMilk ? '0 1px 3px rgba(16, 185, 129, 0.15)' : 'none'
                   }}
                 >
-                  {/* Top row: Day number + status indicator */}
+                  {/* Top row: Day number + quick toggle badge */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                     <span style={{
                       fontSize: '0.85rem',
@@ -2818,24 +3322,37 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                     }}>
                       {d}
                     </span>
-                    <span style={{
-                      fontSize: '0.65rem',
-                      fontWeight: '800',
-                      padding: '1px 5px',
-                      borderRadius: '4px',
-                      background: hasMilk ? '#10b981' : '#f1f5f9',
-                      color: hasMilk ? '#ffffff' : '#64748b'
-                    }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleCalendarDay(d);
+                      }}
+                      title={hasMilk ? 'Click to mark OFF (No Milk)' : 'Click to turn ON milk'}
+                      style={{
+                        fontSize: '0.64rem',
+                        fontWeight: '800',
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: hasMilk ? '#10b981' : '#f1f5f9',
+                        color: hasMilk ? '#ffffff' : '#64748b'
+                      }}
+                    >
                       {hasMilk ? '🥛 MILK' : '🚫 OFF'}
-                    </span>
+                    </button>
                   </div>
 
                   {/* Middle: Milk info or No Milk Required */}
-                  <div style={{ margin: '4px 0', fontSize: '0.7rem', lineHeight: '1.2' }}>
+                  <div style={{ margin: '3px 0', fontSize: '0.7rem', lineHeight: '1.25' }}>
                     {hasMilk ? (
                       <div>
-                        <div style={{ fontWeight: '700', color: '#047857' }}>
-                          {dayInfo.totalLitres > 0 ? `${dayInfo.totalLitres}L Milk` : 'Milk Taken'}
+                        <div style={{ fontWeight: '700', color: '#047857', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>{dayInfo.totalLitres > 0 ? `${dayInfo.totalLitres}L Milk` : 'Milk Taken'}</span>
+                          <span style={{ fontSize: '0.62rem', color: '#0284c7', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                            <Edit3 size={10} /> Edit
+                          </span>
                         </div>
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
                           {isBulkHotel ? '₹0 Del' : (dayInfo.deliveryCharge > 0 ? `Del: ₹${dayInfo.deliveryCharge}` : 'Del: ₹0')}
@@ -2852,7 +3369,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                   <div style={{ fontSize: '0.72rem', fontWeight: '800', textAlign: 'right', color: hasMilk ? '#0054a6' : 'var(--text-muted)' }}>
                     {hasMilk ? `₹${dayInfo.dayTotal.toFixed(0)}` : '₹0'}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -2869,7 +3386,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
             <span><strong>No Milk Required</strong> (₹0 billed — excluded from advance bill)</span>
           </div>
           <div style={{ marginLeft: 'auto', fontStyle: 'italic', fontSize: '0.72rem' }}>
-            💡 Click any day to toggle between Milk Taken and No Milk Required.
+            💡 Click any day card to edit products and quantities. Click 🥛 MILK / 🚫 OFF to quickly toggle.
           </div>
         </div>
       </div>
@@ -3052,7 +3569,9 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                       <td style={{ padding: '6px 8px', fontWeight: '600' }}>
                         {item.productName}
                         <span style={{ fontSize: '0.72rem', color: '#64748b', marginLeft: '6px', fontWeight: 'normal' }}>
-                          ({item.itemDays} days @ {item.quantity}/day)
+                          {item.isCustomDaily
+                            ? `(${item.itemDays} scheduled days, ${item.totalQty} total pkts)`
+                            : `(${item.itemDays} days @ ${item.quantity}/day)`}
                         </span>
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: '700' }}>{item.totalQty}</td>
