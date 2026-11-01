@@ -426,6 +426,23 @@ router.post('/generate-weekly', requireAdmin, async (req, res) => {
   }
 });
 
+// Merge multiple pending bills into a single consolidated payment invoice (Admin only)
+router.post('/merge-pending', requireAdmin, async (req, res) => {
+  try {
+    const { customerId, customer_id, billIds } = req.body;
+    const targetId = customerId || customer_id;
+    if (!targetId) {
+      return res.status(400).json({ error: 'Customer ID is required to merge pending bills' });
+    }
+    const { mergePendingBillsForCustomer } = require('../services/billingService');
+    const result = await mergePendingBillsForCustomer(targetId, billIds);
+    res.json(result);
+  } catch (err) {
+    console.error('Merge bills error:', err);
+    res.status(500).json({ error: err.message || 'Failed to merge pending bills' });
+  }
+});
+
 // Get single bill with invoice details and business profile (Admin only)
 router.get('/:id', requireAdmin, async (req, res) => {
   try {

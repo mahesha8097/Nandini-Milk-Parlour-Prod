@@ -1899,6 +1899,16 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                                 <Ticket size={15} />
                               </button>
                             )}
+                            {c.billing_type === 'WEEKLY' && (
+                              <button
+                                onClick={() => handleOpenProfile(c.id, 'bills')}
+                                className="btn btn-outline btn-sm"
+                                style={{ padding: '6px 10px', color: '#4f46e5', borderColor: '#c7d2fe', background: '#e0e7ff' }}
+                                title="Generate Weekly Bill (Selection Calendar / Merge Invoices)"
+                              >
+                                <Calendar size={15} />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleOpenEdit(c)}
                               className="btn btn-outline btn-sm"
@@ -2047,6 +2057,17 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                           style={{ flex: '1 1 100px', minHeight: '38px', fontSize: '0.8rem', color: '#92400e', borderColor: '#fde68a', background: '#fef3c7' }}
                         >
                           <Ticket size={13} /> {c.coupon_balance || 0} Coupons
+                        </button>
+                      )}
+
+                      {c.billing_type === 'WEEKLY' && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProfile(c.id, 'bills')}
+                          className="btn btn-outline btn-sm"
+                          style={{ flex: '1 1 110px', minHeight: '38px', fontSize: '0.8rem', color: '#4f46e5', borderColor: '#c7d2fe', background: '#e0e7ff', fontWeight: '700' }}
+                        >
+                          <Calendar size={13} /> Weekly Bill
                         </button>
                       )}
 

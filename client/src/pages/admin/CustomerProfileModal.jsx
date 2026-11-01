@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
@@ -30,7 +30,8 @@ import {
   Pause,
   Sliders,
   Ticket,
-  Info
+  Info,
+  Zap
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
 
@@ -176,7 +177,7 @@ export default function CustomerProfileModal({
 
   const setWeeklyPreset = (type) => {
     const today = new Date();
-    const day = today.getDay();
+    const day = today.getDay(); // 0 is Sun, 1 is Mon
     const diffToMonday = (day + 6) % 7;
     const monday = new Date(today);
     monday.setDate(today.getDate() - diffToMonday);
@@ -199,6 +200,16 @@ export default function CustomerProfileModal({
         startDate: prevMon.toISOString().slice(0, 10),
         endDate: prevSun.toISOString().slice(0, 10)
       }));
+    } else if (type === 'two_weeks_ago') {
+      const twoMon = new Date(monday);
+      twoMon.setDate(monday.getDate() - 14);
+      const twoSun = new Date(twoMon);
+      twoSun.setDate(twoMon.getDate() + 6);
+      setWeeklyDates(prev => ({
+        ...prev,
+        startDate: twoMon.toISOString().slice(0, 10),
+        endDate: twoSun.toISOString().slice(0, 10)
+      }));
     } else if (type === 'next_7_days') {
       const nextEnd = new Date(today);
       nextEnd.setDate(today.getDate() + 6);
@@ -207,6 +218,57 @@ export default function CustomerProfileModal({
         startDate: today.toISOString().slice(0, 10),
         endDate: nextEnd.toISOString().slice(0, 10)
       }));
+    }
+  };
+
+  // Preview stats for the selected period
+  const periodDeliveryStats = useMemo(() => {
+    if (!profile?.deliveries || !weeklyDates.startDate || !weeklyDates.endDate) return null;
+    const start = weeklyDates.startDate;
+    const end = weeklyDates.endDate;
+    const matching = profile.deliveries.filter(d => 
+      d.delivery_date >= start && d.delivery_date <= end && (d.status === 'DELIVERED' || Number(d.delivered_quantity) > 0)
+    );
+    const totalQty = matching.reduce((sum, d) => sum + (parseFloat(d.delivered_quantity) || 0), 0);
+    const totalAmount = matching.reduce((sum, d) => sum + (parseFloat(d.total_price) || 0), 0);
+    const uniqueDays = new Set(matching.map(d => d.delivery_date)).size;
+    return {
+      daysCount: uniqueDays,
+      totalPkts: totalQty,
+      estimatedTotal: totalAmount
+    };
+  }, [profile?.deliveries, weeklyDates.startDate, weeklyDates.endDate]);
+
+  const [mergingBills, setMergingBills] = useState(false);
+
+  const handleMergePendingBills = async () => {
+    const pendingBills = (profile?.bills || []).filter(b => b.status === 'PENDING' || b.status === 'PARTIALLY_PAID');
+    if (pendingBills.length < 2) {
+      alert('At least two pending bills are required to merge into a single invoice.');
+      return;
+    }
+    const totalPending = pendingBills.reduce((sum, b) => sum + (parseFloat(b.net_payable) || 0), 0);
+    const billNums = pendingBills.map(b => b.bill_number).join(', ');
+    if (!window.confirm(`Merge ${pendingBills.length} pending bills (${billNums}) into ONE single consolidated invoice of ₹${totalPending.toFixed(2)}?\n\nThis will combine all item lines and replace separate pending invoices with 1 unified invoice.`)) {
+      return;
+    }
+
+    try {
+      setMergingBills(true);
+      const res = await api.post('/bills/merge-pending', {
+        customerId,
+        billIds: pendingBills.map(b => b.id)
+      });
+      alert(res.message || 'Bills successfully merged into a single invoice!');
+      await fetchCustomerProfile();
+      onRefreshList?.();
+      if (res.mergedBill?.id) {
+        setSelectedBillId(res.mergedBill.id);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to merge pending bills');
+    } finally {
+      setMergingBills(false);
     }
   };
 
@@ -1414,6 +1476,73 @@ export default function CustomerProfileModal({
                 </div>
               )}
 
+              {/* Multiple Pending Bills Merge Banner */}
+              {profile.bills?.filter(b => b.status === 'PENDING' || b.status === 'PARTIALLY_PAID').length > 1 && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 16px',
+                  background: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)',
+                  border: '1.5px solid #f59e0b',
+                  borderRadius: '10px',
+                  marginBottom: '16px',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  boxShadow: '0 2px 6px rgba(245, 158, 11, 0.15)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '50%',
+                      background: '#fde68a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#b45309'
+                    }}>
+                      <Zap size={20} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: '800', color: '#92400e', fontSize: '0.92rem' }}>
+                        Merge Multiple Pending Bills into 1 Single Invoice
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#b45309' }}>
+                        Customer has {profile.bills.filter(b => b.status === 'PENDING' || b.status === 'PARTIALLY_PAID').length} separate pending bills totaling{' '}
+                        <strong>
+                          ₹{profile.bills
+                            .filter(b => b.status === 'PENDING' || b.status === 'PARTIALLY_PAID')
+                            .reduce((sum, b) => sum + (parseFloat(b.net_payable) || 0), 0)
+                            .toFixed(2)}
+                        </strong>. Merge all into 1 single invoice to send directly to the customer.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleMergePendingBills}
+                    disabled={mergingBills}
+                    className="btn btn-sm"
+                    style={{
+                      background: 'linear-gradient(135deg, #d97706, #b45309)',
+                      color: '#ffffff',
+                      border: 'none',
+                      fontWeight: '800',
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      boxShadow: '0 2px 4px rgba(180, 83, 9, 0.3)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Zap size={15} />
+                    {mergingBills ? 'Merging Bills...' : 'Merge into 1 Single Invoice'}
+                  </button>
+                </div>
+              )}
+
               {profile.bills?.length === 0 ? (
                 <EmptyState
                   title={customer.billing_type === 'WEEKLY' ? 'No weekly bills generated' : 'No monthly bills generated'}
@@ -1772,27 +1901,27 @@ export default function CustomerProfileModal({
             <Modal
               isOpen={showWeeklyModal}
               onClose={() => setShowWeeklyModal(false)}
-              title={`🗓️ Generate Weekly Bill — ${customer.name || 'Customer'}`}
-              maxWidth="520px"
+              title={`🗓️ Weekly & Custom Selection Bill — ${customer.name || 'Customer'}`}
+              maxWidth="540px"
             >
               <form onSubmit={handleGenerateWeeklyBill} style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '4px' }}>
-                <div style={{ background: '#e0e7ff', padding: '10px 14px', borderRadius: '8px', fontSize: '0.82rem', color: '#3730a3' }}>
-                  <strong>Weekly Billing Period:</strong> Select the date range to calculate the weekly bill. Weekly invoice number format: <code>WB-YYYYMMDD-XXXX</code>.
+                <div style={{ background: '#e0e7ff', padding: '10px 14px', borderRadius: '8px', fontSize: '0.82rem', color: '#3730a3', lineHeight: '1.4' }}>
+                  <strong>Single Weekly Invoice:</strong> Select your billing days (e.g., Monday to Sunday). Cross-month dates are automatically merged into <strong>1 single invoice</strong> (<code>WB-YYYYMMDD-XXXX</code>) so you don't need multiple bills.
                 </div>
 
                 {/* Presets */}
                 <div>
                   <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                    QUICK PRESETS
+                    QUICK PRESETS (MONDAY – SUNDAY)
                   </label>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <button
                       type="button"
                       onClick={() => setWeeklyPreset('this_week')}
                       className="btn btn-outline btn-sm"
-                      style={{ fontSize: '0.76rem', padding: '4px 8px' }}
+                      style={{ fontSize: '0.76rem', padding: '4px 8px', borderColor: '#818cf8', color: '#4338ca' }}
                     >
-                      This Week (Mon–Sun)
+                      🗓️ This Week (Mon–Sun)
                     </button>
                     <button
                       type="button"
@@ -1800,7 +1929,15 @@ export default function CustomerProfileModal({
                       className="btn btn-outline btn-sm"
                       style={{ fontSize: '0.76rem', padding: '4px 8px' }}
                     >
-                      Last Week
+                      ⏮️ Last Week (Mon–Sun)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyPreset('two_weeks_ago')}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: '0.76rem', padding: '4px 8px' }}
+                    >
+                      ⏮️ 2 Weeks Ago (Mon–Sun)
                     </button>
                     <button
                       type="button"
@@ -1816,7 +1953,7 @@ export default function CustomerProfileModal({
                 {/* Date range inputs */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div className="form-group" style={{ margin: 0 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: '700' }}>Start Date</label>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '700' }}>Billing Start Date (Mon)</label>
                     <input
                       type="date"
                       className="form-control"
@@ -1826,7 +1963,7 @@ export default function CustomerProfileModal({
                     />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: '700' }}>End Date</label>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '700' }}>Billing End Date (Sun)</label>
                     <input
                       type="date"
                       className="form-control"
@@ -1836,6 +1973,33 @@ export default function CustomerProfileModal({
                     />
                   </div>
                 </div>
+
+                {/* Live Preview Stats */}
+                {periodDeliveryStats && periodDeliveryStats.daysCount > 0 && (
+                  <div style={{
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: '0.82rem'
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: '700', color: '#166534' }}>
+                        📦 Delivered Milk Found in Selection:
+                      </div>
+                      <div style={{ color: '#15803d', fontSize: '0.78rem' }}>
+                        {periodDeliveryStats.daysCount} active days • {periodDeliveryStats.totalPkts} packets
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#166534' }}>Estimated Amount</div>
+                      <strong style={{ fontSize: '0.98rem', color: '#166534' }}>₹{periodDeliveryStats.estimatedTotal.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                )}
 
                 {/* Calculation basis */}
                 <div className="form-group" style={{ margin: 0 }}>
@@ -1889,7 +2053,7 @@ export default function CustomerProfileModal({
                     disabled={weeklyGenerating}
                     style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', borderColor: '#4338ca', fontWeight: '800' }}
                   >
-                    {weeklyGenerating ? 'Generating...' : '🗓️ Generate Weekly Bill'}
+                    {weeklyGenerating ? 'Generating...' : '🗓️ Generate Single Weekly Invoice'}
                   </button>
                 </div>
               </form>

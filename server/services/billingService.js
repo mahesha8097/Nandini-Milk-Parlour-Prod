@@ -981,12 +981,32 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, optio
     return existing;
   }
 
-  // Fetch actual delivered records between startDate and endDate,
-  // excluding any dates that are already billed in other active bills
+  // Fetch actual delivered records between startDate and endDate.
+  // When forceRegenerate is true, any existing active bills for this customer that overlap [startDate, endDate]
+  // have their deliveries included in the new bill, and those old split bills will be merged/superseded!
   const existingBillId = existing ? existing.id : null;
-  const excludeExistingClause = existingBillId ? 'AND b.id != ?' : '';
+  let excludeExistingClause = '';
   const deliveryParams = [customer.id, startDate, endDate];
-  if (existingBillId) {
+
+  let overlappingBills = [];
+  if (forceRegenerate) {
+    overlappingBills = await db.prepare(`
+      SELECT * FROM bills
+      WHERE customer_id = ? AND status != 'CANCELLED'
+        AND start_date IS NOT NULL AND end_date IS NOT NULL
+        AND start_date <= ? AND end_date >= ?
+    `).all(customer.id, endDate, startDate);
+
+    const excludeIds = new Set(overlappingBills.map(b => b.id));
+    if (existingBillId) excludeIds.add(existingBillId);
+
+    if (excludeIds.size > 0) {
+      const idList = Array.from(excludeIds);
+      excludeExistingClause = `AND b.id NOT IN (${idList.map(() => '?').join(',')})`;
+      deliveryParams.push(...idList);
+    }
+  } else if (existingBillId) {
+    excludeExistingClause = 'AND b.id != ?';
     deliveryParams.push(existingBillId);
   }
 
@@ -1256,6 +1276,16 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, optio
     billId = info.lastInsertRowid;
   }
 
+  // If forceRegenerate superseded prior partial bills inside this date range, clean them up
+  if (overlappingBills && overlappingBills.length > 0) {
+    for (const ob of overlappingBills) {
+      if (ob.id !== billId) {
+        await db.prepare('DELETE FROM bills WHERE id = ?').run(ob.id);
+        await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ? AND reference_id = ?').run(customer.id, `BILL-${ob.id}`);
+      }
+    }
+  }
+
   // Update customer balances: Advance is minused and pending updated
   const newAdvance = parseFloat((currentAdvance - advanceToAdjust).toFixed(2));
   const newPending = parseFloat((previousDue + netPayable).toFixed(2));
@@ -1328,6 +1358,155 @@ async function generateWeeklyBillsForPeriod(startDate, endDate, options = {}) {
 
   results.totalGrossAmount = parseFloat(results.totalGrossAmount.toFixed(2));
   return results;
+}
+
+/**
+ * Merges multiple pending bills for a customer into 1 single consolidated payment invoice.
+ */
+async function mergePendingBillsForCustomer(customerId, billIds = null) {
+  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!customer) {
+    throw new Error('Customer not found');
+  }
+
+  let billsToMerge = [];
+  if (billIds && Array.isArray(billIds) && billIds.length > 0) {
+    const placeholders = billIds.map(() => '?').join(',');
+    billsToMerge = await db.prepare(`
+      SELECT * FROM bills
+      WHERE customer_id = ? AND status = 'PENDING' AND id IN (${placeholders})
+      ORDER BY start_date ASC, bill_date ASC, id ASC
+    `).all(customerId, ...billIds);
+  } else {
+    billsToMerge = await db.prepare(`
+      SELECT * FROM bills
+      WHERE customer_id = ? AND status = 'PENDING'
+      ORDER BY start_date ASC, bill_date ASC, id ASC
+    `).all(customerId);
+  }
+
+  if (billsToMerge.length < 2) {
+    return {
+      message: 'Customer has fewer than 2 pending bills to merge.',
+      merged: false,
+      bill: billsToMerge[0] || null
+    };
+  }
+
+  let earliestStart = null;
+  let latestEnd = null;
+  let totalGross = 0;
+  let totalProdSubtotal = 0;
+  let totalDelCharges = 0;
+  let totalAdvAdjusted = 0;
+  let totalNetPayable = 0;
+  let totalDeliveriesCount = 0;
+
+  const itemGroupMap = new Map();
+
+  for (const b of billsToMerge) {
+    totalGross += Number(b.gross_amount || 0);
+    totalProdSubtotal += Number(b.product_subtotal || 0);
+    totalDelCharges += Number(b.delivery_charges_total || 0);
+    totalAdvAdjusted += Number(b.advance_adjusted || 0);
+    totalNetPayable += Number(b.net_payable || 0);
+    totalDeliveriesCount += Number(b.total_deliveries_count || 0);
+
+    const bStart = b.start_date || (b.billing_month?.length === 7 ? `${b.billing_month}-01` : b.bill_date);
+    const bEnd = b.end_date || (b.billing_month?.length === 7 ? `${b.billing_month}-31` : b.bill_date);
+
+    if (!earliestStart || (bStart && bStart < earliestStart)) earliestStart = bStart;
+    if (!latestEnd || (bEnd && bEnd > latestEnd)) latestEnd = bEnd;
+
+    let parsedItems = [];
+    try {
+      parsedItems = typeof b.items_json === 'string' ? JSON.parse(b.items_json) : (b.items_json || []);
+    } catch (e) {
+      parsedItems = [];
+    }
+
+    if (Array.isArray(parsedItems)) {
+      for (const it of parsedItems) {
+        const key = `${it.product_id}_${it.variant_label || ''}_${it.unit_price}`;
+        if (!itemGroupMap.has(key)) {
+          itemGroupMap.set(key, { ...it });
+        } else {
+          const existing = itemGroupMap.get(key);
+          existing.quantity = Number(existing.quantity || 0) + Number(it.quantity || 0);
+          existing.total_quantity = Number(existing.total_quantity || 0) + Number(it.total_quantity || 0);
+          existing.product_subtotal = parseFloat((Number(existing.product_subtotal || 0) + Number(it.product_subtotal || 0)).toFixed(2));
+          existing.delivery_charges_total = parseFloat((Number(existing.delivery_charges_total || 0) + Number(it.delivery_charges_total || 0)).toFixed(2));
+          existing.total_line_amount = parseFloat((Number(existing.total_line_amount || 0) + Number(it.total_line_amount || 0)).toFixed(2));
+          existing.delivered_days_count = Number(existing.delivered_days_count || 0) + Number(it.delivered_days_count || 0);
+        }
+      }
+    }
+  }
+
+  totalGross = parseFloat(totalGross.toFixed(2));
+  totalProdSubtotal = parseFloat(totalProdSubtotal.toFixed(2));
+  totalDelCharges = parseFloat(totalDelCharges.toFixed(2));
+  totalAdvAdjusted = parseFloat(totalAdvAdjusted.toFixed(2));
+  totalNetPayable = parseFloat(totalNetPayable.toFixed(2));
+
+  const mergedItems = Array.from(itemGroupMap.values());
+  const billDate = latestEnd || getLocalDateString();
+  const dueDate = billDate;
+  const billingMonthStr = `${earliestStart} to ${latestEnd}`;
+
+  const primaryBill = billsToMerge[0];
+  const newBillNumber = primaryBill.billing_type === 'WEEKLY'
+    ? (primaryBill.bill_number.startsWith('WB-') ? primaryBill.bill_number : await generateWeeklyBillNumber(earliestStart))
+    : await generateWeeklyBillNumber(earliestStart);
+
+  await db.prepare(`
+    UPDATE bills
+    SET bill_number = ?, billing_month = ?, billing_type = 'WEEKLY',
+        bill_date = ?, due_date = ?, start_date = ?, end_date = ?,
+        total_deliveries_count = ?, product_subtotal = ?, delivery_charges_total = ?,
+        gross_amount = ?, previous_due = 0, advance_adjusted = ?, net_payable = ?,
+        paid_amount = 0, status = 'PENDING', items_json = ?,
+        notes = ?, updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `).run(
+    newBillNumber, billingMonthStr,
+    billDate, dueDate, earliestStart, latestEnd,
+    totalDeliveriesCount, totalProdSubtotal, totalDelCharges,
+    totalGross, totalAdvAdjusted, totalNetPayable,
+    JSON.stringify(mergedItems),
+    `Merged Single Payment Invoice (${billingMonthStr}, ${billsToMerge.length} bills combined, ${totalDeliveriesCount} deliveries)`,
+    primaryBill.id
+  );
+
+  const otherBillIds = billsToMerge.slice(1).map(b => b.id);
+  for (const id of otherBillIds) {
+    await db.prepare('DELETE FROM bills WHERE id = ?').run(id);
+    await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ? AND reference_id = ?').run(customerId, `BILL-${id}`);
+  }
+
+  await db.prepare(`
+    UPDATE customers
+    SET pending_balance = ?, updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `).run(totalNetPayable, customerId);
+
+  await upsertBillLedgerEntry({
+    customerId,
+    billId: primaryBill.id,
+    transactionDate: billDate,
+    grossAmount: totalGross,
+    advanceToAdjust: totalAdvAdjusted,
+    advanceBalanceAfter: Number(customer.advance_balance || 0),
+    pendingBalanceAfter: totalNetPayable,
+    description: `Merged Single Payment Invoice (${billingMonthStr}, ${billsToMerge.length} bills combined, Net: ₹${totalNetPayable})`
+  });
+
+  const finalBill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(primaryBill.id);
+  return {
+    message: `Successfully merged ${billsToMerge.length} pending bills into single invoice #${finalBill.bill_number} (₹${finalBill.net_payable})`,
+    merged: true,
+    bill: finalBill
+  };
 }
 
 /**
@@ -2033,6 +2212,7 @@ module.exports = {
   restorePaymentTransaction,
   permanentlyDeletePayment,
   parseCustomDays,
-  formatCustomDaysSummary
+  formatCustomDaysSummary,
+  mergePendingBillsForCustomer
 };
 
