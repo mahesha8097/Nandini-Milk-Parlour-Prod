@@ -256,9 +256,11 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_date TEXT NOT NULL,
   payment_method TEXT NOT NULL CHECK(payment_method IN ('CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'OTHER')),
   reference_number TEXT,
-  notes TEXT,
   created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
-  recorded_by_user_id INTEGER REFERENCES users(id)
+  updated_at TEXT,
+  recorded_by_user_id INTEGER REFERENCES users(id),
+  is_deleted INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT
 );
 
 -- 11. Customer Continuous Ledger

@@ -168,6 +168,16 @@ if (isProduction && process.env.DATABASE_URL) {
 
         try {
           await pool.query(`
+            ALTER TABLE payments ADD COLUMN IF NOT EXISTS updated_at TEXT;
+            ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_deleted INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE payments ADD COLUMN IF NOT EXISTS deleted_at TEXT;
+          `);
+        } catch (e) {
+          console.warn('Postgres payments columns init note:', e.message);
+        }
+
+        try {
+          await pool.query(`
             CREATE TABLE IF NOT EXISTS delivery_corrections (
               id SERIAL PRIMARY KEY,
               delivery_id INTEGER,
@@ -597,7 +607,10 @@ if (isProduction && process.env.DATABASE_URL) {
         reference_number TEXT,
         notes TEXT,
         created_at TEXT NOT NULL,
-        recorded_by_user_id INTEGER REFERENCES users(id)
+        updated_at TEXT,
+        recorded_by_user_id INTEGER REFERENCES users(id),
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at TEXT
       );
 
       -- Continuous Customer Ledger
@@ -1066,6 +1079,21 @@ if (isProduction && process.env.DATABASE_URL) {
       } catch (err) {
         console.warn(`Migration note for ${tbl}.agent_id:`, err.message);
       }
+    }
+
+    try {
+      const pCols = db.prepare('PRAGMA table_info(payments)').all();
+      if (!pCols.some(c => c.name === 'updated_at')) {
+        db.prepare('ALTER TABLE payments ADD COLUMN updated_at TEXT').run();
+      }
+      if (!pCols.some(c => c.name === 'is_deleted')) {
+        db.prepare('ALTER TABLE payments ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0').run();
+      }
+      if (!pCols.some(c => c.name === 'deleted_at')) {
+        db.prepare('ALTER TABLE payments ADD COLUMN deleted_at TEXT').run();
+      }
+    } catch (pErr) {
+      console.warn('Migration note for SQLite payments columns:', pErr.message);
     }
 
     // Indices for multi-agent query performance
