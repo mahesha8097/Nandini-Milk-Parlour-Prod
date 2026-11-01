@@ -11,7 +11,7 @@ router.get('/', requireAdmin, async (req, res) => {
     const currentMonth = today.slice(0, 7);
     const agentId = req.agentId || 1;
 
-    // Calculate start of current week (Monday)
+    // Calculate start of current week (Monday in local IST time)
     const now = new Date();
     const dayOfWeek = now.getDay();
     const distanceToMonday = (dayOfWeek + 6) % 7;
@@ -19,21 +19,50 @@ router.get('/', requireAdmin, async (req, res) => {
     monday.setDate(now.getDate() - distanceToMonday);
     const weekStartStr = getLocalDateString(monday);
 
-    // 1. Top-Level / Today's Metrics
-    const todayDeliveries = await db.prepare(`
+    // 1. Deliveries & Sales Metrics across Daily, Weekly, Monthly
+    const dayDeliveries = await db.prepare(`
       SELECT 
         COUNT(*) as total_deliveries,
         SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END) as completed_deliveries,
         SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_deliveries,
         SUM(CASE WHEN status = 'SKIPPED' THEN 1 ELSE 0 END) as skipped_deliveries,
-        SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as today_sales_amount,
-        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Milk' OR product_name_snapshot LIKE '%Milk%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as today_milk_quantity_litres,
-        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as today_curd_quantity_litres
+        SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as sales_amount,
+        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Milk' OR product_name_snapshot LIKE '%Milk%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as milk_quantity_litres,
+        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as curd_quantity_litres,
+        SUM(CASE WHEN status = 'DELIVERED' AND category_snapshot NOT IN ('Milk', 'Curd') AND product_name_snapshot NOT LIKE '%Milk%' AND product_name_snapshot NOT LIKE '%Curd%' THEN total_amount ELSE 0 END) as other_sales_amount
       FROM deliveries
       WHERE delivery_date = ? AND COALESCE(agent_id, 1) = ?
     `).get(today, agentId);
 
-    // 2. Customer Summary
+    const weekDeliveries = await db.prepare(`
+      SELECT 
+        COUNT(*) as total_deliveries,
+        SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END) as completed_deliveries,
+        SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_deliveries,
+        SUM(CASE WHEN status = 'SKIPPED' THEN 1 ELSE 0 END) as skipped_deliveries,
+        SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as sales_amount,
+        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Milk' OR product_name_snapshot LIKE '%Milk%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as milk_quantity_litres,
+        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as curd_quantity_litres,
+        SUM(CASE WHEN status = 'DELIVERED' AND category_snapshot NOT IN ('Milk', 'Curd') AND product_name_snapshot NOT LIKE '%Milk%' AND product_name_snapshot NOT LIKE '%Curd%' THEN total_amount ELSE 0 END) as other_sales_amount
+      FROM deliveries
+      WHERE delivery_date >= ? AND delivery_date <= ? AND COALESCE(agent_id, 1) = ?
+    `).get(weekStartStr, today, agentId);
+
+    const monthDeliveries = await db.prepare(`
+      SELECT 
+        COUNT(*) as total_deliveries,
+        SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END) as completed_deliveries,
+        SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_deliveries,
+        SUM(CASE WHEN status = 'SKIPPED' THEN 1 ELSE 0 END) as skipped_deliveries,
+        SUM(CASE WHEN status = 'DELIVERED' THEN total_amount ELSE 0 END) as sales_amount,
+        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Milk' OR product_name_snapshot LIKE '%Milk%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as milk_quantity_litres,
+        SUM(CASE WHEN status = 'DELIVERED' AND (category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%') THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as curd_quantity_litres,
+        SUM(CASE WHEN status = 'DELIVERED' AND category_snapshot NOT IN ('Milk', 'Curd') AND product_name_snapshot NOT LIKE '%Milk%' AND product_name_snapshot NOT LIKE '%Curd%' THEN total_amount ELSE 0 END) as other_sales_amount
+      FROM deliveries
+      WHERE delivery_date LIKE ? AND COALESCE(agent_id, 1) = ?
+    `).get(`${currentMonth}%`, agentId);
+
+    // 2. Customer Summary (Active Customers standing balance)
     const customerStats = await db.prepare(`
       SELECT
         COUNT(*) as total_customers,
@@ -48,29 +77,48 @@ router.get('/', requireAdmin, async (req, res) => {
       WHERE status = 'ACTIVE' AND COALESCE(agent_id, 1) = ?
     `).get(agentId);
 
-    // 3. Payments Summary
-    const todayPayments = await db.prepare(`
+    // 3. Payments Collections across Daily, Weekly, Monthly
+    const dayPayments = await db.prepare(`
       SELECT 
-        SUM(amount) as today_collection,
-        SUM(CASE WHEN payment_type = 'ADVANCE_PAYMENT' THEN amount ELSE 0 END) as today_advance_collection,
-        SUM(CASE WHEN payment_type = 'POSTPAID_BILL_PAYMENT' THEN amount ELSE 0 END) as today_postpaid_collection
+        SUM(amount) as total_collection,
+        SUM(CASE WHEN payment_type = 'ADVANCE_PAYMENT' THEN amount ELSE 0 END) as advance_collection,
+        SUM(CASE WHEN payment_type = 'POSTPAID_BILL_PAYMENT' THEN amount ELSE 0 END) as postpaid_collection,
+        SUM(CASE WHEN payment_type = 'DIRECT_PAYMENT' THEN amount ELSE 0 END) as direct_collection
       FROM payments
-      WHERE payment_date = ? AND COALESCE(agent_id, 1) = ?
+      WHERE payment_date = ? AND COALESCE(agent_id, 1) = ? AND (is_deleted = 0 OR is_deleted IS NULL)
     `).get(today, agentId);
+
+    const weekPayments = await db.prepare(`
+      SELECT 
+        SUM(amount) as total_collection,
+        SUM(CASE WHEN payment_type = 'ADVANCE_PAYMENT' THEN amount ELSE 0 END) as advance_collection,
+        SUM(CASE WHEN payment_type = 'POSTPAID_BILL_PAYMENT' THEN amount ELSE 0 END) as postpaid_collection,
+        SUM(CASE WHEN payment_type = 'DIRECT_PAYMENT' THEN amount ELSE 0 END) as direct_collection
+      FROM payments
+      WHERE payment_date >= ? AND payment_date <= ? AND COALESCE(agent_id, 1) = ? AND (is_deleted = 0 OR is_deleted IS NULL)
+    `).get(weekStartStr, today, agentId);
 
     const monthPayments = await db.prepare(`
-      SELECT SUM(amount) as month_collection
+      SELECT 
+        SUM(amount) as total_collection,
+        SUM(CASE WHEN payment_type = 'ADVANCE_PAYMENT' THEN amount ELSE 0 END) as advance_collection,
+        SUM(CASE WHEN payment_type = 'POSTPAID_BILL_PAYMENT' THEN amount ELSE 0 END) as postpaid_collection,
+        SUM(CASE WHEN payment_type = 'DIRECT_PAYMENT' THEN amount ELSE 0 END) as direct_collection
       FROM payments
-      WHERE payment_date LIKE ? AND COALESCE(agent_id, 1) = ?
+      WHERE payment_date LIKE ? AND COALESCE(agent_id, 1) = ? AND (is_deleted = 0 OR is_deleted IS NULL)
     `).get(`${currentMonth}%`, agentId);
 
-    // 4. Expenses Summary
-    const todayExpenses = await db.prepare(`
-      SELECT SUM(amount) as today_expense FROM expenses WHERE expense_date = ? AND COALESCE(agent_id, 1) = ?
+    // 4. Expenses across Daily, Weekly, Monthly
+    const dayExpenses = await db.prepare(`
+      SELECT SUM(amount) as total_expense FROM expenses WHERE expense_date = ? AND COALESCE(agent_id, 1) = ?
     `).get(today, agentId);
 
+    const weekExpenses = await db.prepare(`
+      SELECT SUM(amount) as total_expense FROM expenses WHERE expense_date >= ? AND expense_date <= ? AND COALESCE(agent_id, 1) = ?
+    `).get(weekStartStr, today, agentId);
+
     const monthExpenses = await db.prepare(`
-      SELECT SUM(amount) as month_expense FROM expenses WHERE expense_date LIKE ? AND COALESCE(agent_id, 1) = ?
+      SELECT SUM(amount) as total_expense FROM expenses WHERE expense_date LIKE ? AND COALESCE(agent_id, 1) = ?
     `).get(`${currentMonth}%`, agentId);
 
     // 5. Active Delivery Boys count
@@ -78,28 +126,7 @@ router.get('/', requireAdmin, async (req, res) => {
       SELECT COUNT(*) as count FROM users WHERE role = 'DELIVERY_BOY' AND is_active = 1 AND COALESCE(agent_id, 1) = ?
     `).get(agentId);
 
-    // 6. Sales Overview by Periods (Today, This Week, This Month)
-    const weekSales = await db.prepare(`
-      SELECT 
-        SUM(total_amount) as total_amount,
-        SUM(CASE WHEN category_snapshot = 'Milk' OR product_name_snapshot LIKE '%Milk%' THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as milk_litres,
-        SUM(CASE WHEN category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%' THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as curd_litres,
-        SUM(CASE WHEN category_snapshot NOT IN ('Milk', 'Curd') AND product_name_snapshot NOT LIKE '%Milk%' AND product_name_snapshot NOT LIKE '%Curd%' THEN total_amount ELSE 0 END) as other_sales_amount
-      FROM deliveries
-      WHERE delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED' AND COALESCE(agent_id, 1) = ?
-    `).get(weekStartStr, today, agentId);
-
-    const monthSales = await db.prepare(`
-      SELECT 
-        SUM(total_amount) as total_amount,
-        SUM(CASE WHEN category_snapshot = 'Milk' OR product_name_snapshot LIKE '%Milk%' THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as milk_litres,
-        SUM(CASE WHEN category_snapshot = 'Curd' OR product_name_snapshot LIKE '%Curd%' THEN (unit_volume_litres_snapshot * quantity) ELSE 0 END) as curd_litres,
-        SUM(CASE WHEN category_snapshot NOT IN ('Milk', 'Curd') AND product_name_snapshot NOT LIKE '%Milk%' AND product_name_snapshot NOT LIKE '%Curd%' THEN total_amount ELSE 0 END) as other_sales_amount
-      FROM deliveries
-      WHERE delivery_date LIKE ? AND status = 'DELIVERED' AND COALESCE(agent_id, 1) = ?
-    `).get(`${currentMonth}%`, agentId);
-
-    // 7. Recent Activity (Latest 10 deliveries, payments, or bills)
+    // 6. Recent Activity (Latest deliveries & payments)
     const recentDeliveries = await db.prepare(`
       SELECT d.*, c.name as customer_name
       FROM deliveries d
@@ -113,65 +140,116 @@ router.get('/', requireAdmin, async (req, res) => {
       SELECT p.*, c.name as customer_name
       FROM payments p
       JOIN customers c ON p.customer_id = c.id
-      WHERE COALESCE(p.agent_id, 1) = ?
+      WHERE COALESCE(p.agent_id, 1) = ? AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
       ORDER BY p.id DESC
       LIMIT 5
     `).all(agentId);
 
+    // Helper to package period stats cleanly
+    const buildPeriodStats = (label, dateRange, del, pay, exp) => {
+      const totalDel = Number(del?.total_deliveries) || 0;
+      const compDel = Number(del?.completed_deliveries) || 0;
+      const pendDel = Number(del?.pending_deliveries) || 0;
+      const skipDel = Number(del?.skipped_deliveries) || 0;
+      const rate = totalDel > 0 ? parseFloat(((compDel / totalDel) * 100).toFixed(1)) : 0;
+      const totalSales = Number(del?.sales_amount) || 0;
+      const milkLitres = Number(del?.milk_quantity_litres) || 0;
+      const curdLitres = Number(del?.curd_quantity_litres) || 0;
+      const otherSales = Number(del?.other_sales_amount) || 0;
+      const totalCollection = Number(pay?.total_collection) || 0;
+      const advanceCollection = Number(pay?.advance_collection) || 0;
+      const postpaidCollection = Number(pay?.postpaid_collection) || 0;
+      const directCollection = Number(pay?.direct_collection) || 0;
+      const totalExpense = Number(exp?.total_expense) || 0;
+      const netCashflow = totalCollection - totalExpense;
+
+      return {
+        label,
+        dateRange,
+        sales: totalSales,
+        milkLitres: parseFloat(milkLitres.toFixed(2)),
+        curdLitres: parseFloat(curdLitres.toFixed(2)),
+        otherSales: parseFloat(otherSales.toFixed(2)),
+        totalDeliveries: totalDel,
+        completedDeliveries: compDel,
+        pendingDeliveries: pendDel,
+        skippedDeliveries: skipDel,
+        deliverySuccessRate: rate,
+        totalCollection,
+        advanceCollection,
+        postpaidCollection,
+        directCollection,
+        totalExpenses: totalExpense,
+        netCashflow
+      };
+    };
+
+    const dailyPeriod = buildPeriodStats('Daily (Today)', today, dayDeliveries, dayPayments, dayExpenses);
+    const weeklyPeriod = buildPeriodStats('Weekly (This Week)', `${weekStartStr} to ${today}`, weekDeliveries, weekPayments, weekExpenses);
+    const monthlyPeriod = buildPeriodStats('Monthly (This Month)', currentMonth, monthDeliveries, monthPayments, monthExpenses);
+
     res.json({
+      // Backwards-compatible today overview
       todayOverview: {
-        todaySales: todayDeliveries?.today_sales_amount || 0,
-        todayMilkLitres: todayDeliveries?.today_milk_quantity_litres || 0,
-        todayCurdLitres: todayDeliveries?.today_curd_quantity_litres || 0,
-        totalDeliveries: todayDeliveries?.total_deliveries || 0,
-        completedDeliveries: todayDeliveries?.completed_deliveries || 0,
-        pendingDeliveries: todayDeliveries?.pending_deliveries || 0,
-        skippedDeliveries: todayDeliveries?.skipped_deliveries || 0,
-        todayCollection: todayPayments?.today_collection || 0,
-        todayExpense: todayExpenses?.today_expense || 0
+        todaySales: dailyPeriod.sales,
+        todayMilkLitres: dailyPeriod.milkLitres,
+        todayCurdLitres: dailyPeriod.curdLitres,
+        totalDeliveries: dailyPeriod.totalDeliveries,
+        completedDeliveries: dailyPeriod.completedDeliveries,
+        pendingDeliveries: dailyPeriod.pendingDeliveries,
+        skippedDeliveries: dailyPeriod.skippedDeliveries,
+        todayCollection: dailyPeriod.totalCollection,
+        todayExpense: dailyPeriod.totalExpenses
       },
       customerOverview: {
-        totalCustomers: customerStats?.total_customers || 0,
-        houseCustomers: customerStats?.total_house_customers || 0,
-        bulkCustomers: customerStats?.total_bulk_customers || 0,
-        prepaidCustomers: customerStats?.prepaid_customers || 0,
-        postpaidCustomers: customerStats?.postpaid_customers || 0,
-        totalAdvanceBalance: customerStats?.total_advance_balance || 0,
-        totalPendingBalance: customerStats?.total_pending_balance || 0,
-        customersWithPending: customerStats?.customers_with_pending || 0
+        totalCustomers: Number(customerStats?.total_customers) || 0,
+        houseCustomers: Number(customerStats?.total_house_customers) || 0,
+        bulkCustomers: Number(customerStats?.total_bulk_customers) || 0,
+        prepaidCustomers: Number(customerStats?.prepaid_customers) || 0,
+        postpaidCustomers: Number(customerStats?.postpaid_customers) || 0,
+        totalAdvanceBalance: Number(customerStats?.total_advance_balance) || 0,
+        totalPendingBalance: Number(customerStats?.total_pending_balance) || 0,
+        customersWithPending: Number(customerStats?.customers_with_pending) || 0
       },
       paymentOverview: {
-        todayCollection: todayPayments?.today_collection || 0,
-        todayAdvance: todayPayments?.today_advance_collection || 0,
-        todayPostpaid: todayPayments?.today_postpaid_collection || 0,
-        monthCollection: monthPayments?.month_collection || 0,
-        pendingAmount: customerStats?.total_pending_balance || 0,
-        advanceBalance: customerStats?.total_advance_balance || 0
+        todayCollection: dailyPeriod.totalCollection,
+        todayAdvance: dailyPeriod.advanceCollection,
+        todayPostpaid: dailyPeriod.postpaidCollection,
+        monthCollection: monthlyPeriod.totalCollection,
+        pendingAmount: Number(customerStats?.total_pending_balance) || 0,
+        advanceBalance: Number(customerStats?.total_advance_balance) || 0
       },
       expenseOverview: {
-        todayExpenses: todayExpenses?.today_expense || 0,
-        monthExpenses: monthExpenses?.month_expense || 0
+        todayExpenses: dailyPeriod.totalExpenses,
+        monthExpenses: monthlyPeriod.totalExpenses
       },
       salesPeriods: {
         today: {
-          totalSales: todayDeliveries?.today_sales_amount || 0,
-          milkLitres: todayDeliveries?.today_milk_quantity_litres || 0,
-          curdLitres: todayDeliveries?.today_curd_quantity_litres || 0
+          totalSales: dailyPeriod.sales,
+          milkLitres: dailyPeriod.milkLitres,
+          curdLitres: dailyPeriod.curdLitres,
+          otherSales: dailyPeriod.otherSales
         },
         week: {
-          totalSales: weekSales?.total_amount || 0,
-          milkLitres: weekSales?.milk_litres || 0,
-          curdLitres: weekSales?.curd_litres || 0,
-          otherSales: weekSales?.other_sales_amount || 0
+          totalSales: weeklyPeriod.sales,
+          milkLitres: weeklyPeriod.milkLitres,
+          curdLitres: weeklyPeriod.curdLitres,
+          otherSales: weeklyPeriod.otherSales
         },
         month: {
-          totalSales: monthSales?.total_amount || 0,
-          milkLitres: monthSales?.milk_litres || 0,
-          curdLitres: monthSales?.curd_litres || 0,
-          otherSales: monthSales?.other_sales_amount || 0
+          totalSales: monthlyPeriod.sales,
+          milkLitres: monthlyPeriod.milkLitres,
+          curdLitres: monthlyPeriod.curdLitres,
+          otherSales: monthlyPeriod.otherSales
         }
       },
-      activeDeliveryBoysCount: activeDboys?.count || 0,
+      // New complete daily, weekly, monthly section data
+      periods: {
+        daily: dailyPeriod,
+        weekly: weeklyPeriod,
+        monthly: monthlyPeriod
+      },
+      activeDeliveryBoysCount: Number(activeDboys?.count) || 0,
       recentActivity: {
         deliveries: recentDeliveries,
         payments: recentPayments
