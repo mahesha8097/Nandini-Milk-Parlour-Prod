@@ -154,6 +154,92 @@ export default function CustomerProfileModal({
     }
   };
 
+  // Weekly Billing States in Customer Profile
+  const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [weeklyDates, setWeeklyDates] = useState(() => {
+    const today = new Date();
+    const day = today.getDay(); // 0 is Sun, 1 is Mon
+    const diffToMonday = (day + 6) % 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    return {
+      startDate: monday.toISOString().slice(0, 10),
+      endDate: sunday.toISOString().slice(0, 10),
+      forceRegenerate: true
+    };
+  });
+  const [weeklyBasis, setWeeklyBasis] = useState('DELIVERIES'); // 'DELIVERIES' or 'SUBSCRIPTION'
+  const [weeklyGenerating, setWeeklyGenerating] = useState(false);
+
+  const setWeeklyPreset = (type) => {
+    const today = new Date();
+    const day = today.getDay();
+    const diffToMonday = (day + 6) % 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - diffToMonday);
+
+    if (type === 'this_week') {
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      setWeeklyDates(prev => ({
+        ...prev,
+        startDate: monday.toISOString().slice(0, 10),
+        endDate: sunday.toISOString().slice(0, 10)
+      }));
+    } else if (type === 'last_week') {
+      const prevMon = new Date(monday);
+      prevMon.setDate(monday.getDate() - 7);
+      const prevSun = new Date(prevMon);
+      prevSun.setDate(prevMon.getDate() + 6);
+      setWeeklyDates(prev => ({
+        ...prev,
+        startDate: prevMon.toISOString().slice(0, 10),
+        endDate: prevSun.toISOString().slice(0, 10)
+      }));
+    } else if (type === 'next_7_days') {
+      const nextEnd = new Date(today);
+      nextEnd.setDate(today.getDate() + 6);
+      setWeeklyDates(prev => ({
+        ...prev,
+        startDate: today.toISOString().slice(0, 10),
+        endDate: nextEnd.toISOString().slice(0, 10)
+      }));
+    }
+  };
+
+  const handleGenerateWeeklyBill = async (e) => {
+    if (e) e.preventDefault();
+    if (!weeklyDates.startDate || !weeklyDates.endDate) {
+      alert('Please select both start date and end date');
+      return;
+    }
+    try {
+      setWeeklyGenerating(true);
+      const res = await api.post('/bills/generate-weekly', {
+        customerId: customerId,
+        customer_id: customerId,
+        startDate: weeklyDates.startDate,
+        endDate: weeklyDates.endDate,
+        billingBasis: weeklyBasis,
+        forceRegenerate: weeklyDates.forceRegenerate
+      });
+      alert(res.message || 'Weekly bill generated successfully!');
+      setShowWeeklyModal(false);
+      await fetchCustomerProfile();
+      onRefreshList?.();
+      if (res.bill?.id) {
+        setSelectedBillId(res.bill.id);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to generate weekly bill');
+    } finally {
+      setWeeklyGenerating(false);
+    }
+  };
+
   const fetchCustomerProfile = async () => {
     if (!customerId) return;
     try {
@@ -466,6 +552,28 @@ export default function CustomerProfileModal({
             borderRadius: 'var(--radius-md)',
             alignItems: 'center'
           }}>
+            {customer.billing_type === 'WEEKLY' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('bills');
+                  setShowWeeklyModal(true);
+                }}
+                className="btn btn-primary btn-sm"
+                style={{
+                  fontSize: '0.8rem',
+                  fontWeight: '800',
+                  background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                  borderColor: '#4338ca',
+                  color: '#ffffff',
+                  boxShadow: '0 2px 4px rgba(79, 70, 229, 0.25)'
+                }}
+                title="Generate weekly bill for this customer"
+              >
+                <Receipt size={14} /> 🗓️ Generate Weekly Bill
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setShowBillGeneratorModal(true)}
@@ -538,7 +646,7 @@ export default function CustomerProfileModal({
               { id: 'subscriptions', label: `Subscriptions (${profile.subscriptions?.length || 0})`, icon: Calendar },
               { id: 'coupons', label: `Coupons (${profile.coupon_books?.length || 0})`, icon: Ticket },
               { id: 'deliveries', label: `Deliveries (${profile.deliveries?.length || 0})`, icon: Truck },
-              { id: 'bills', label: `Monthly Bills (${profile.bills?.length || 0})`, icon: Receipt },
+              { id: 'bills', label: customer.billing_type === 'WEEKLY' ? `Weekly Bills (${profile.bills?.length || 0})` : `Monthly Bills (${profile.bills?.length || 0})`, icon: Receipt },
               { id: 'payments', label: `Payments (${profile.payments?.length || 0})`, icon: CreditCard },
               { id: 'ledger', label: 'Ledger History', icon: FileText }
             ].map((tab) => {
@@ -1219,7 +1327,9 @@ export default function CustomerProfileModal({
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <h4 style={{ fontSize: '0.9rem', margin: 0 }}>Monthly Invoices & Bills</h4>
+                  <h4 style={{ fontSize: '0.9rem', margin: 0 }}>
+                    {customer.billing_type === 'WEEKLY' ? 'Weekly Invoices & Bills' : 'Monthly Invoices & Bills'}
+                  </h4>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', padding: '3px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                     <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: '700' }}>Month:</span>
                     <select
@@ -1244,6 +1354,22 @@ export default function CustomerProfileModal({
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowWeeklyModal(true)}
+                    className="btn btn-sm"
+                    style={{
+                      background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
+                      borderColor: '#4338ca',
+                      color: '#ffffff',
+                      fontWeight: '800',
+                      boxShadow: '0 2px 4px rgba(79, 70, 229, 0.25)'
+                    }}
+                    title="Generate a weekly bill for delivered milk or scheduled days in a specific date range"
+                  >
+                    <Receipt size={14} />
+                    🗓️ Generate Weekly Bill
+                  </button>
                   <button
                     type="button"
                     onClick={() => setShowBillGeneratorModal(true)}
@@ -1290,17 +1416,27 @@ export default function CustomerProfileModal({
 
               {profile.bills?.length === 0 ? (
                 <EmptyState
-                  title="No monthly bills generated"
-                  description="Click 'Bill Delivered Milk (Till Today)' to calculate delivered milk against customer advance, or 'Full Month Advance Bill' for scheduled days."
+                  title={customer.billing_type === 'WEEKLY' ? 'No weekly bills generated' : 'No monthly bills generated'}
+                  description={customer.billing_type === 'WEEKLY'
+                    ? "Click 'Generate Weekly Bill' to calculate delivered milk or scheduled days for the week and generate invoice."
+                    : "Click 'Bill Delivered Milk (Till Today)' to calculate delivered milk against customer advance, or 'Full Month Advance Bill' for scheduled days."}
                   action={
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       <button
                         type="button"
-                        onClick={() => setShowBillGeneratorModal(true)}
+                        onClick={() => setShowWeeklyModal(true)}
                         className="btn btn-primary btn-sm"
-                        style={{ background: 'linear-gradient(135deg, #1e40af, #2563eb)', borderColor: '#1d4ed8', fontWeight: '800' }}
+                        style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', borderColor: '#4338ca', fontWeight: '800' }}
                       >
-                        <Receipt size={14} /> 🧾 Interactive Calendar Bill Generator
+                        <Receipt size={14} /> 🗓️ Generate Weekly Bill
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowBillGeneratorModal(true)}
+                        className="btn btn-outline btn-sm"
+                        style={{ fontWeight: '700' }}
+                      >
+                        <Receipt size={14} /> 🧾 Interactive Calendar
                       </button>
                       <button onClick={() => handleGenerateOrRecalculateBill(billingMonth, 'DELIVERIES')} className="btn btn-outline btn-sm" disabled={billLoading} style={{ color: '#16a34a', borderColor: '#bbf7d0' }}>
                         <Truck size={14} /> Bill Delivered Milk (Till Today)
@@ -1318,7 +1454,7 @@ export default function CustomerProfileModal({
                       <thead>
                         <tr>
                           <th>Bill #</th>
-                          <th>Month</th>
+                          <th>Period</th>
                           <th>Type</th>
                           <th>Gross</th>
                           <th>Adv Used</th>
@@ -1331,7 +1467,11 @@ export default function CustomerProfileModal({
                         {profile.bills.map((b) => (
                           <tr key={b.id}>
                             <td style={{ fontWeight: '700', color: 'var(--primary)' }}>{b.bill_number}</td>
-                            <td>{b.billing_month}</td>
+                            <td>
+                              {b.billing_type === 'WEEKLY' && b.start_date && b.end_date
+                                ? `${b.start_date.slice(5)} to ${b.end_date.slice(5)}`
+                                : b.billing_month}
+                            </td>
                             <td>
                               {b.notes?.includes('Delivered Milk') || (b.total_deliveries_count > 0 && b.total_deliveries_count < 28) ? (
                                 <span className="badge" style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
@@ -1367,23 +1507,54 @@ export default function CustomerProfileModal({
                                 >
                                   <Eye size={13} />
                                 </button>
+                                {b.billing_type === 'WEEKLY' ? (
+                                  <button
+                                    onClick={() => handleRecalculateSpecificBill(b.id, 'AUTO')}
+                                    className="btn btn-outline btn-sm"
+                                    style={{ padding: '4px 8px', color: '#4f46e5', borderColor: '#c7d2fe' }}
+                                    title="Recalculate Weekly Bill"
+                                    disabled={billLoading}
+                                  >
+                                    <RotateCcw size={13} />
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => handleRecalculateSpecificBill(b.id, 'DELIVERIES')}
+                                      className="btn btn-outline btn-sm"
+                                      style={{ padding: '4px 8px', color: '#16a34a', borderColor: '#bbf7d0' }}
+                                      title="Recalculate as Delivered Milk Till Today (deduct delivered milk from advance)"
+                                      disabled={billLoading}
+                                    >
+                                      <Truck size={13} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleRecalculateSpecificBill(b.id, 'SUBSCRIPTION')}
+                                      className="btn btn-outline btn-sm"
+                                      style={{ padding: '4px 8px' }}
+                                      title="Recalculate as Full Month Advance Bill"
+                                      disabled={billLoading}
+                                    >
+                                      <RotateCcw size={13} />
+                                    </button>
+                                  </>
+                                )}
                                 <button
-                                  onClick={() => handleRecalculateSpecificBill(b.id, 'DELIVERIES')}
+                                  onClick={async () => {
+                                    if (!window.confirm(`Are you sure you want to permanently delete Bill #${b.bill_number}? The customer's advance and pending balances will be restored.`)) return;
+                                    try {
+                                      await api.delete(`/bills/${b.id}`);
+                                      await fetchCustomerProfile();
+                                      onRefreshList?.();
+                                    } catch (err) {
+                                      alert(err.message || 'Failed to delete bill');
+                                    }
+                                  }}
                                   className="btn btn-outline btn-sm"
-                                  style={{ padding: '4px 8px', color: '#16a34a', borderColor: '#bbf7d0' }}
-                                  title="Recalculate as Delivered Milk Till Today (deduct delivered milk from advance)"
-                                  disabled={billLoading}
+                                  style={{ padding: '4px 8px', color: '#dc2626', borderColor: '#fecaca' }}
+                                  title="Delete Bill"
                                 >
-                                  <Truck size={13} />
-                                </button>
-                                <button
-                                  onClick={() => handleRecalculateSpecificBill(b.id, 'SUBSCRIPTION')}
-                                  className="btn btn-outline btn-sm"
-                                  style={{ padding: '4px 8px' }}
-                                  title="Recalculate as Full Month Advance Bill"
-                                  disabled={billLoading}
-                                >
-                                  <RotateCcw size={13} />
+                                  <Trash2 size={13} />
                                 </button>
                               </div>
                             </td>
@@ -1593,6 +1764,135 @@ export default function CustomerProfileModal({
                 }}
                 isModal={true}
               />
+            </Modal>
+          )}
+
+          {/* Weekly Bill Generator Modal */}
+          {showWeeklyModal && (
+            <Modal
+              isOpen={showWeeklyModal}
+              onClose={() => setShowWeeklyModal(false)}
+              title={`🗓️ Generate Weekly Bill — ${customer.name || 'Customer'}`}
+              maxWidth="520px"
+            >
+              <form onSubmit={handleGenerateWeeklyBill} style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '4px' }}>
+                <div style={{ background: '#e0e7ff', padding: '10px 14px', borderRadius: '8px', fontSize: '0.82rem', color: '#3730a3' }}>
+                  <strong>Weekly Billing Period:</strong> Select the date range to calculate the weekly bill. Weekly invoice number format: <code>WB-YYYYMMDD-XXXX</code>.
+                </div>
+
+                {/* Presets */}
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                    QUICK PRESETS
+                  </label>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyPreset('this_week')}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: '0.76rem', padding: '4px 8px' }}
+                    >
+                      This Week (Mon–Sun)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyPreset('last_week')}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: '0.76rem', padding: '4px 8px' }}
+                    >
+                      Last Week
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyPreset('next_7_days')}
+                      className="btn btn-outline btn-sm"
+                      style={{ fontSize: '0.76rem', padding: '4px 8px' }}
+                    >
+                      7 Days from Today
+                    </button>
+                  </div>
+                </div>
+
+                {/* Date range inputs */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '700' }}>Start Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={weeklyDates.startDate}
+                      onChange={(e) => setWeeklyDates(prev => ({ ...prev, startDate: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: '700' }}>End Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={weeklyDates.endDate}
+                      onChange={(e) => setWeeklyDates(prev => ({ ...prev, endDate: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Calculation basis */}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: '700' }}>Calculation Basis</label>
+                  <div style={{ display: 'flex', gap: '14px', marginTop: '4px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name="weeklyBasis"
+                        value="DELIVERIES"
+                        checked={weeklyBasis === 'DELIVERIES'}
+                        onChange={() => setWeeklyBasis('DELIVERIES')}
+                      />
+                      Delivered Milk (Actual)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name="weeklyBasis"
+                        value="SUBSCRIPTION"
+                        checked={weeklyBasis === 'SUBSCRIPTION'}
+                        onChange={() => setWeeklyBasis('SUBSCRIPTION')}
+                      />
+                      Scheduled Days (Advance)
+                    </label>
+                  </div>
+                </div>
+
+                {/* Force regenerate */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', cursor: 'pointer', marginTop: '2px' }}>
+                  <input
+                    type="checkbox"
+                    checked={weeklyDates.forceRegenerate}
+                    onChange={(e) => setWeeklyDates(prev => ({ ...prev, forceRegenerate: e.target.checked }))}
+                  />
+                  <span>Recalculate & overwrite if a weekly bill already exists for this period</span>
+                </label>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowWeeklyModal(false)}
+                    className="btn btn-outline btn-sm"
+                    disabled={weeklyGenerating}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-sm"
+                    disabled={weeklyGenerating}
+                    style={{ background: 'linear-gradient(135deg, #4f46e5, #6366f1)', borderColor: '#4338ca', fontWeight: '800' }}
+                  >
+                    {weeklyGenerating ? 'Generating...' : '🗓️ Generate Weekly Bill'}
+                  </button>
+                </div>
+              </form>
             </Modal>
           )}
         </div>

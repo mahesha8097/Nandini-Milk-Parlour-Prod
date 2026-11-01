@@ -381,22 +381,27 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
 // Generate Weekly Bill (Admin only - accepts startDate, endDate, customer_id, forceRegenerate)
 router.post('/generate-weekly', requireAdmin, async (req, res) => {
   try {
-    const { startDate, endDate, customer_id, forceRegenerate } = req.body;
+    const { startDate, endDate, customer_id, customerId, forceRegenerate, billingBasis } = req.body;
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'Start date and end date are required for weekly billing' });
     }
 
     const { generateWeeklyBillForCustomer, generateWeeklyBillsForPeriod } = require('../services/billingService');
 
-    if (customer_id) {
-      const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
+    const targetCustomerId = customer_id || customerId;
+
+    if (targetCustomerId) {
+      const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(targetCustomerId);
       if (!customer) {
         return res.status(404).json({ error: 'Customer not found' });
       }
 
-      const bill = await generateWeeklyBillForCustomer(customer, startDate, endDate, Boolean(forceRegenerate));
+      const bill = await generateWeeklyBillForCustomer(customer, startDate, endDate, {
+        forceRegenerate: Boolean(forceRegenerate),
+        billingBasis: billingBasis || 'AUTO'
+      });
       if (!bill) {
-        return res.status(400).json({ error: `No delivered records found for ${customer.name} between ${startDate} and ${endDate}` });
+        return res.status(400).json({ error: `No active subscriptions or delivered records found for ${customer.name} between ${startDate} and ${endDate}` });
       }
 
       return res.json({

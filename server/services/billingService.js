@@ -223,7 +223,20 @@ async function reconcileCustomerPastMonths(customerId, targetMonth) {
     return false;
   });
 
-  const totalPaymentsAmount = pastPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  // Account for bills already marked PAID or settled offline with paid_amount where no separate payment record exists
+  const recordedBillIds = new Set(pastPayments.filter(p => p.bill_id).map(p => p.bill_id));
+  let extraPaidFromBills = 0;
+  for (const b of pastBills) {
+    if (!recordedBillIds.has(b.id)) {
+      if (b.status === 'PAID') {
+        extraPaidFromBills += Number(b.gross_amount || 0);
+      } else if (Number(b.paid_amount || 0) > 0) {
+        extraPaidFromBills += Number(b.paid_amount);
+      }
+    }
+  }
+
+  const totalPaymentsAmount = parseFloat((pastPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0) + extraPaidFromBills).toFixed(2));
   const totalPastGrossBilled = pastBills.reduce((sum, b) => sum + Number(b.gross_amount || 0), 0);
 
   const netBalance = parseFloat((totalPaymentsAmount - totalPastGrossBilled).toFixed(2));
@@ -947,10 +960,13 @@ async function generateWeeklyBillNumber(startDateStr) {
 /**
  * Generates Weekly Bill based on actual deliveries recorded for that customer between startDate and endDate.
  */
-async function generateWeeklyBillForCustomer(customer, startDate, endDate, forceRegenerate = false) {
+async function generateWeeklyBillForCustomer(customer, startDate, endDate, optionsOrForce = false) {
   if (customer.billing_type === 'COUPON') {
     return null; // Coupon customers pay via coupon books
   }
+
+  const forceRegenerate = typeof optionsOrForce === 'object' ? Boolean(optionsOrForce.forceRegenerate) : Boolean(optionsOrForce);
+  const billingBasis = typeof optionsOrForce === 'object' ? (optionsOrForce.billingBasis || 'AUTO') : 'AUTO';
 
   const billingMonthStr = `${startDate} to ${endDate}`;
 
@@ -974,61 +990,167 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
     deliveryParams.push(existingBillId);
   }
 
-  const deliveries = await db.prepare(`
-    SELECT d.* FROM deliveries d
-    WHERE d.customer_id = ? 
-      AND d.delivery_date >= ? AND d.delivery_date <= ? 
-      AND d.status = 'DELIVERED'
-      AND NOT EXISTS (
-        SELECT 1 FROM bills b
-        WHERE b.customer_id = d.customer_id
-          AND b.status != 'CANCELLED'
-          ${excludeExistingClause}
-          AND b.start_date IS NOT NULL 
-          AND b.end_date IS NOT NULL
-          AND d.delivery_date >= b.start_date 
-          AND d.delivery_date <= b.end_date
-      )
-    ORDER BY d.delivery_date ASC
-  `).all(...deliveryParams);
-
-  if (!deliveries || deliveries.length === 0) {
-    return null; // No deliveries to bill
+  let deliveries = [];
+  if (billingBasis !== 'SUBSCRIPTION') {
+    deliveries = await db.prepare(`
+      SELECT d.* FROM deliveries d
+      WHERE d.customer_id = ? 
+        AND d.delivery_date >= ? AND d.delivery_date <= ? 
+        AND d.status = 'DELIVERED'
+        AND NOT EXISTS (
+          SELECT 1 FROM bills b
+          WHERE b.customer_id = d.customer_id
+            AND b.status != 'CANCELLED'
+            ${excludeExistingClause}
+            AND b.start_date IS NOT NULL 
+            AND b.end_date IS NOT NULL
+            AND d.delivery_date >= b.start_date 
+            AND d.delivery_date <= b.end_date
+        )
+      ORDER BY d.delivery_date ASC
+    `).all(...deliveryParams);
   }
 
   let totalProductSubtotal = 0;
   let totalDeliveryCharges = 0;
-
-  // Group delivered items by product variant for clean invoice presentation
   const productGroupMap = new Map();
+  let billNote = '';
+  let totalItemsCount = 0;
 
-  for (const del of deliveries) {
-    totalProductSubtotal += del.total_product_amount;
-    totalDeliveryCharges += del.delivery_charge_snapshot;
+  if (deliveries && deliveries.length > 0) {
+    totalItemsCount = deliveries.length;
+    billNote = `Weekly Delivered Milk Bill (${startDate} to ${endDate}, ${deliveries.length} deliveries taken)`;
 
-    const key = `${del.product_id}_${del.variant_snapshot || ''}`;
-    if (!productGroupMap.has(key)) {
-      productGroupMap.set(key, {
-        product_id: del.product_id,
-        product_name: del.product_name_snapshot,
-        category: del.category_snapshot,
-        variant_label: del.variant_snapshot,
-        quantity: 0,
-        total_quantity: 0,
-        unit_price: del.unit_price_snapshot,
-        product_subtotal: 0,
-        delivery_charges_total: 0,
-        total_line_amount: 0,
-        delivered_days_count: 0
-      });
+    for (const del of deliveries) {
+      totalProductSubtotal += del.total_product_amount;
+      totalDeliveryCharges += del.delivery_charge_snapshot;
+
+      const key = `${del.product_id}_${del.variant_snapshot || ''}`;
+      if (!productGroupMap.has(key)) {
+        productGroupMap.set(key, {
+          product_id: del.product_id,
+          product_name: del.product_name_snapshot,
+          category: del.category_snapshot,
+          variant_label: del.variant_snapshot,
+          quantity: 0,
+          total_quantity: 0,
+          unit_price: del.unit_price_snapshot,
+          product_subtotal: 0,
+          delivery_charges_total: 0,
+          total_line_amount: 0,
+          delivered_days_count: 0
+        });
+      }
+      const g = productGroupMap.get(key);
+      g.quantity += del.quantity;
+      g.total_quantity += del.quantity;
+      g.product_subtotal += del.total_product_amount;
+      g.delivery_charges_total += del.delivery_charge_snapshot;
+      g.total_line_amount += del.total_amount;
+      g.delivered_days_count += 1;
     }
-    const g = productGroupMap.get(key);
-    g.quantity += del.quantity;
-    g.total_quantity += del.quantity;
-    g.product_subtotal += del.total_product_amount;
-    g.delivery_charges_total += del.delivery_charge_snapshot;
-    g.total_line_amount += del.total_amount;
-    g.delivered_days_count += 1;
+  } else {
+    // If no deliveries found or SUBSCRIPTION basis requested, check active subscriptions
+    const subs = await db.prepare(`
+      SELECT s.*, p.name as product_name, p.category, p.variant_label, p.unit_volume_litres,
+             p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge
+      FROM subscriptions s
+      JOIN products p ON s.product_id = p.id
+      WHERE s.customer_id = ? AND s.is_active = 1
+        AND s.start_date <= ?
+        AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
+    `).all(customer.id, endDate, startDate);
+
+    if (!subs || subs.length === 0) {
+      return null; // Neither deliveries nor active subscriptions
+    }
+
+    const activeVacations = await db.prepare(`
+      SELECT start_date, end_date FROM customer_vacations
+      WHERE customer_id = ? AND status = 'ACTIVE'
+        AND start_date <= ? AND end_date >= ?
+    `).all(customer.id, endDate, startDate);
+
+    let currD = new Date(startDate);
+    const endD = new Date(endDate);
+    let scheduledDaysCount = 0;
+
+    while (currD <= endD) {
+      const dayDate = currD.toISOString().slice(0, 10);
+      const dow = currD.getDay();
+      const isVacation = activeVacations.some(v => v.start_date <= dayDate && v.end_date >= dayDate);
+
+      if (!isVacation) {
+        const daySubs = subs.filter(s => {
+          if (s.start_date > dayDate) return false;
+          if (s.end_date && s.end_date.trim() !== '' && s.end_date < dayDate) return false;
+          const customDows = (s.frequency === 'CUSTOM' || s.custom_days) ? parseCustomDays(s.custom_days) : null;
+          if (customDows && customDows.length > 0) return customDows.includes(dow);
+          if (s.frequency === 'ALTERNATE_DAYS') {
+            const startDayNum = parseInt(s.start_date.split('-')[2], 10) || 1;
+            const curDayNum = parseInt(dayDate.split('-')[2], 10) || 1;
+            return (curDayNum - startDayNum) % 2 === 0;
+          }
+          return true;
+        });
+
+        if (daySubs.length > 0) {
+          scheduledDaysCount++;
+          const dailyItems = daySubs.map(s => ({
+            productId: s.product_id,
+            productName: s.product_name,
+            category: s.category,
+            variantLabel: s.variant_label,
+            unitVolumeLitres: s.unit_volume_litres,
+            quantity: s.quantity,
+            sellingPrice: s.selling_price,
+            deliveryChargeType: s.delivery_charge_type,
+            fixedDeliveryCharge: s.fixed_delivery_charge
+          }));
+
+          const dayDelCharges = calculateDeliveryChargesForCustomerDay(customer, dailyItems);
+
+          for (const s of daySubs) {
+            const itemProdAmt = s.selling_price * s.quantity;
+            const itemDelCharge = dayDelCharges[s.product_id] || 0;
+            totalProductSubtotal += itemProdAmt;
+            totalDeliveryCharges += itemDelCharge;
+
+            const key = `${s.product_id}_${s.variant_label || ''}`;
+            if (!productGroupMap.has(key)) {
+              productGroupMap.set(key, {
+                product_id: s.product_id,
+                product_name: s.product_name,
+                category: s.category,
+                variant_label: s.variant_label,
+                quantity: 0,
+                total_quantity: 0,
+                unit_price: s.selling_price,
+                product_subtotal: 0,
+                delivery_charges_total: 0,
+                total_line_amount: 0,
+                delivered_days_count: 0
+              });
+            }
+            const g = productGroupMap.get(key);
+            g.quantity += s.quantity;
+            g.total_quantity += s.quantity;
+            g.product_subtotal += itemProdAmt;
+            g.delivery_charges_total += itemDelCharge;
+            g.total_line_amount += (itemProdAmt + itemDelCharge);
+            g.delivered_days_count += 1;
+          }
+        }
+      }
+      currD.setDate(currD.getDate() + 1);
+    }
+
+    if (scheduledDaysCount === 0) {
+      return null;
+    }
+
+    totalItemsCount = scheduledDaysCount;
+    billNote = `Weekly Advance Bill (${startDate} to ${endDate}, ${scheduledDaysCount} days scheduled)`;
   }
 
   const groupedItems = Array.from(productGroupMap.values()).map(g => ({
@@ -1101,9 +1223,9 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
           updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
-      deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
+      totalItemsCount, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(groupedItems), `Weekly Delivered Milk Bill (${startDate} to ${endDate})`,
+      JSON.stringify(groupedItems), billNote || `Weekly Bill (${startDate} to ${endDate})`,
       startDate, endDate,
       existing.id
     );
@@ -1126,9 +1248,9 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
     `).run(
       billNumber, customer.id, billingMonthStr, billDate, dueDate,
       startDate, endDate,
-      deliveries.length, totalProductSubtotal, totalDeliveryCharges, grossAmount,
+      totalItemsCount, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(groupedItems), `Weekly Delivered Milk Bill (${startDate} to ${endDate})`,
+      JSON.stringify(groupedItems), billNote || `Weekly Bill (${startDate} to ${endDate})`,
       customer.agent_id || 1
     );
     billId = info.lastInsertRowid;
