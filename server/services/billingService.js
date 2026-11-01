@@ -135,6 +135,9 @@ async function reconcileCustomerPastMonths(customerId, targetMonth) {
     return { surplusAdvance: 0, remainingUnpaidPastDues: 0 };
   }
 
+  const customer = await db.prepare('SELECT id, customer_category, billing_type FROM customers WHERE id = ?').get(customerId);
+  const isHouse = !customer || customer.customer_category === 'HOUSE';
+
   for (const b of pastBills) {
     // If the bill was an advance bill or had scheduled days
     if (b.billing_type === 'PREPAID' || b.notes?.includes('Advance Bill')) {
@@ -152,9 +155,20 @@ async function reconcileCustomerPastMonths(customerId, targetMonth) {
         let actualProdTotal = 0;
         let actualDelCharge = 0;
         for (const d of deliveredOnly) {
-          actualProdTotal += Number(d.total_product_amount || 0);
-          actualDelCharge += Number(d.delivery_charge_snapshot || 0);
-          actualGross += Number(d.total_amount || ((d.total_product_amount || 0) + (d.delivery_charge_snapshot || 0)));
+          const itemProdAmt = Number(d.total_product_amount !== undefined && d.total_product_amount !== null
+            ? d.total_product_amount
+            : (Number(d.unit_price_snapshot || 0) * Number(d.quantity || 0)));
+          let itemDelCharge = Number(d.delivery_charge_snapshot || 0);
+
+          if (isHouse && itemDelCharge === 0 && Number(d.quantity || 0) > 0) {
+            const vol = Number(d.unit_volume_litres_snapshot || 0.5);
+            const totalLitres = vol * Number(d.quantity);
+            itemDelCharge = totalLitres <= 0.5 ? 2.0 : parseFloat((totalLitres * 3.0).toFixed(2));
+          }
+
+          actualProdTotal += itemProdAmt;
+          actualDelCharge += itemDelCharge;
+          actualGross += parseFloat((itemProdAmt + itemDelCharge).toFixed(2));
         }
         actualGross = parseFloat(actualGross.toFixed(2));
         actualProdTotal = parseFloat(actualProdTotal.toFixed(2));
