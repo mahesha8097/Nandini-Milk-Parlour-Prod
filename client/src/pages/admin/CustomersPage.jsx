@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../api/client';
 import Modal from '../../components/common/Modal';
 import EmptyState from '../../components/common/EmptyState';
@@ -168,7 +168,55 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [profileInitialTab, setProfileInitialTab] = useState('overview');
 
+  // Preserve scroll position when editing customers
+  const lastEditedCustomerIdRef = useRef(null);
+  const scrollPosRef = useRef(null);
+
+  const captureScrollPosition = () => {
+    const mainContent = document.querySelector('.main-content');
+    if (mainContent && mainContent.scrollTop > 0) {
+      scrollPosRef.current = { target: mainContent, top: mainContent.scrollTop };
+      return;
+    }
+    scrollPosRef.current = {
+      target: window,
+      top: window.scrollY || document.documentElement.scrollTop || 0
+    };
+  };
+
+  const scrollToCustomerOrRestore = (customerId) => {
+    const targetId = customerId || lastEditedCustomerIdRef.current;
+    const executeScroll = () => {
+      let el = null;
+      if (targetId) {
+        el = document.getElementById(`customer-row-${targetId}`) || document.getElementById(`customer-card-${targetId}`);
+      }
+
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        el.style.transition = 'background-color 0.4s ease';
+        const prevBg = el.style.backgroundColor;
+        el.style.backgroundColor = 'rgba(56, 189, 248, 0.2)';
+        setTimeout(() => {
+          el.style.backgroundColor = prevBg || '';
+        }, 1500);
+      } else if (scrollPosRef.current) {
+        if (scrollPosRef.current.target === window) {
+          window.scrollTo({ top: scrollPosRef.current.top, behavior: 'instant' });
+        } else if (scrollPosRef.current.target) {
+          scrollPosRef.current.target.scrollTop = scrollPosRef.current.top;
+        }
+      }
+    };
+
+    requestAnimationFrame(executeScroll);
+    setTimeout(executeScroll, 50);
+    setTimeout(executeScroll, 150);
+  };
+
   const handleOpenProfile = (customerId, tab = 'overview') => {
+    captureScrollPosition();
+    lastEditedCustomerIdRef.current = customerId;
     setProfileInitialTab(tab);
     setSelectedCustomerId(customerId);
   };
@@ -254,16 +302,20 @@ export default function CustomersPage({ initialOpenAdd = false }) {
     }
   };
 
-  const fetchCustomers = async () => {
+  const fetchCustomers = async (showLoadingSpinner = true) => {
     try {
-      setLoading(true);
+      if (showLoadingSpinner) {
+        setLoading(true);
+      }
       setError('');
       const res = await api.get('/customers');
       setCustomers(res || []);
     } catch (err) {
       setError(err.message || 'Unable to load customers.');
     } finally {
-      setLoading(false);
+      if (showLoadingSpinner) {
+        setLoading(false);
+      }
     }
   };
 
@@ -498,6 +550,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   };
 
   const handleOpenEdit = (customer) => {
+    captureScrollPosition();
+    lastEditedCustomerIdRef.current = customer.id;
     setEditingCustomer(customer);
     const adv = customer.advance_balance !== undefined ? customer.advance_balance : customer.initial_advance || 0;
     let currentDboy = customer.delivery_boy_id ? String(customer.delivery_boy_id) : '';
@@ -609,8 +663,25 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           : 0
       };
 
+      const savedCustomerId = editingCustomer ? editingCustomer.id : null;
+
       if (editingCustomer) {
-        await api.put(`/customers/${editingCustomer.id}`, cleanedPayload);
+        const updated = await api.put(`/customers/${editingCustomer.id}`, cleanedPayload);
+        // Optimistically update customers in state without unmounting DOM:
+        setCustomers((prev) =>
+          prev.map((c) => {
+            if (c.id !== savedCustomerId) return c;
+            const matchedZone = zones.find((z) => String(z.id) === String(cleanedPayload.zone_id));
+            const matchedDboy = deliveryBoys.find((b) => String(b.id) === String(cleanedPayload.delivery_boy_id));
+            return {
+              ...c,
+              ...cleanedPayload,
+              ...(updated || {}),
+              zone_name: matchedZone ? matchedZone.name : (cleanedPayload.zone_id ? c.zone_name : null),
+              delivery_boy_name: matchedDboy ? matchedDboy.name : (cleanedPayload.delivery_boy_id ? c.delivery_boy_name : null)
+            };
+          })
+        );
       } else {
         await api.post('/customers', {
           ...cleanedPayload,
@@ -619,7 +690,12 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       }
 
       setIsAddModalOpen(false);
-      fetchCustomers();
+      // Silent refresh so loading indicator doesn't unmount the customer list!
+      await fetchCustomers(false);
+
+      if (savedCustomerId) {
+        scrollToCustomerOrRestore(savedCustomerId);
+      }
     } catch (err) {
       setFormError(err.message || 'Changes were not saved. Please try again.');
     } finally {
@@ -1264,7 +1340,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                   </thead>
                   <tbody>
                     {filteredActiveZoneCustomers.map((c) => (
-                      <tr key={c.id}>
+                      <tr key={c.id} id={`customer-row-${c.id}`}>
                         <td style={{ textAlign: 'center' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                             <input
@@ -1410,6 +1486,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 {filteredActiveZoneCustomers.map((c) => (
                   <div
                     key={c.id}
+                    id={`customer-card-${c.id}`}
                     className="mobile-data-card"
                     onClick={() => handleOpenProfile(c.id, 'overview')}
                     style={{ cursor: 'pointer' }}
@@ -1677,7 +1754,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                   </thead>
                   <tbody>
                     {filteredFlatCustomers.map((c) => (
-                      <tr key={c.id}>
+                      <tr key={c.id} id={`customer-row-${c.id}`}>
                         <td style={{ textAlign: 'center' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                             <input
@@ -1851,6 +1928,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                 {filteredFlatCustomers.map((c) => (
                   <div
                     key={c.id}
+                    id={`customer-card-${c.id}`}
                     className="mobile-data-card"
                     onClick={() => handleOpenProfile(c.id, 'overview')}
                     style={{ cursor: 'pointer' }}
@@ -2006,8 +2084,11 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           customerId={selectedCustomerId}
           isOpen={Boolean(selectedCustomerId)}
           initialTab={profileInitialTab}
-          onClose={() => setSelectedCustomerId(null)}
-          onRefreshList={fetchCustomers}
+          onClose={() => {
+            setSelectedCustomerId(null);
+            scrollToCustomerOrRestore(lastEditedCustomerIdRef.current);
+          }}
+          onRefreshList={() => fetchCustomers(false)}
           onEditCustomer={(cust) => handleOpenEdit(cust)}
         />
       )}
@@ -2015,7 +2096,10 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       {/* Add / Edit Customer Modal */}
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          scrollToCustomerOrRestore();
+        }}
         title={editingCustomer ? 'Edit Customer' : 'Add New Customer'}
       >
         <form onSubmit={handleSaveCustomer}>
@@ -2350,7 +2434,14 @@ export default function CustomersPage({ initialOpenAdd = false }) {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
-            <button type="button" onClick={() => setIsAddModalOpen(false)} className="btn btn-outline">
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddModalOpen(false);
+                scrollToCustomerOrRestore();
+              }}
+              className="btn btn-outline"
+            >
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
