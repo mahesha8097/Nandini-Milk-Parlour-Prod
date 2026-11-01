@@ -108,6 +108,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
 
   const [loading, setLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [whatsappDirectUrl, setWhatsappDirectUrl] = useState('');
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
@@ -339,6 +340,29 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         selectedDays: defaultDayInfo.selectedDays
       }]);
     }
+
+    // Auto-load saved custom calendar schedule if a bill was already generated/saved for this customer and month
+    api.get(`/bills?customer_id=${custId}&month=${targetMonth}&billing_type=PREPAID`)
+      .then(res => {
+        const bills = Array.isArray(res) ? res : (res?.data || []);
+        if (bills.length > 0 && bills[0].items_json) {
+          try {
+            const parsed = typeof bills[0].items_json === 'string' ? JSON.parse(bills[0].items_json) : bills[0].items_json;
+            if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
+              const savedDays = parsed.selected_days.map(Number);
+              const pad = (n) => String(n).padStart(2, '0');
+              setItems(prev => prev.map(it => ({
+                ...it,
+                days: savedDays.length,
+                startDate: `${targetMonth}-${pad(savedDays[0])}`,
+                endDate: `${targetMonth}-${pad(savedDays[savedDays.length - 1])}`,
+                selectedDays: savedDays
+              })));
+            }
+          } catch (e) {}
+        }
+      })
+      .catch(() => {});
   };
 
   const handleMonthChange = (newMonth) => {
@@ -383,6 +407,30 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         endDate: dayInfo.endDate,
         selectedDays: dayInfo.selectedDays
       })));
+    }
+
+    if (selectedCustomerId) {
+      api.get(`/bills?customer_id=${selectedCustomerId}&month=${newMonth}&billing_type=PREPAID`)
+        .then(res => {
+          const bills = Array.isArray(res) ? res : (res?.data || []);
+          if (bills.length > 0 && bills[0].items_json) {
+            try {
+              const parsed = typeof bills[0].items_json === 'string' ? JSON.parse(bills[0].items_json) : bills[0].items_json;
+              if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
+                const savedDays = parsed.selected_days.map(Number);
+                const pad = (n) => String(n).padStart(2, '0');
+                setItems(prev => prev.map(it => ({
+                  ...it,
+                  days: savedDays.length,
+                  startDate: `${newMonth}-${pad(savedDays[0])}`,
+                  endDate: `${newMonth}-${pad(savedDays[savedDays.length - 1])}`,
+                  selectedDays: savedDays
+                })));
+              }
+            } catch (e) {}
+          }
+        })
+        .catch(() => {});
     }
   };
 
@@ -1008,9 +1056,56 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
   const currentTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // -------------------------------------------------------------
+  // SAVE ADVANCE BILL & DELIVERY SCHEDULE HANDLER
+  // -------------------------------------------------------------
+  const handleSaveBillAndSchedule = async (silent = false) => {
+    if (!selectedCustomer) return false;
+    try {
+      setSavingSchedule(true);
+      const allSelectedDays = new Set();
+      const allOffDays = new Set();
+      for (let d = 1; d <= defaultMonthDays; d++) {
+        const hasMilkOnDay = items.some(it => (it.selectedDays || []).includes(d));
+        if (hasMilkOnDay) allSelectedDays.add(d);
+        else allOffDays.add(d);
+      }
+
+      const payload = {
+        customer_id: selectedCustomer.id,
+        billing_month: selectedMonth,
+        selected_days: Array.from(allSelectedDays).sort((a, b) => a - b),
+        off_days: Array.from(allOffDays).sort((a, b) => a - b),
+        items: calculatedItems,
+        gross_amount: grossTotalBill,
+        product_subtotal: totalMilkSubtotal,
+        delivery_charges_total: totalDeliveryCharges,
+        advance_adjusted: advanceAdjusted,
+        net_payable: netPayable,
+        notes: `Monthly Advance Bill (${selectedMonth}, ${scheduledMilkDaysCount} active milk days scheduled${noMilkDaysCount > 0 ? `, ${noMilkDaysCount} days off` : ''})`
+      };
+
+      await api.post('/bills/save-advance-schedule', payload);
+      if (!silent) {
+        setToastMsg(`✅ Saved! ${scheduledMilkDaysCount} milk days scheduled (₹${grossTotalBill.toFixed(2)}). Delivery schedule updated.`);
+        setTimeout(() => setToastMsg(''), 5000);
+      }
+      return true;
+    } catch (err) {
+      console.error('Failed to save bill schedule:', err);
+      if (!silent) {
+        alert('Failed to save bill schedule: ' + (err.message || 'Unknown error'));
+      }
+      return false;
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  // -------------------------------------------------------------
   // PRINT 1-SHEET INVOICE HANDLER
   // -------------------------------------------------------------
   const handlePrint = () => {
+    handleSaveBillAndSchedule(true);
     const printElement = document.getElementById('printable-invoice-content');
     if (!printElement) return;
 
@@ -1102,6 +1197,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
   // -------------------------------------------------------------
   const handleShareWhatsApp = async () => {
     if (!selectedCustomer) return;
+    await handleSaveBillAndSchedule(true);
     const phone = selectedCustomer.phone || '';
     if (!phone) {
       alert('Customer does not have a phone number');
@@ -1367,6 +1463,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
   const handleDownloadImage = async () => {
     const invoiceElement = document.getElementById('printable-invoice-content');
     if (!invoiceElement) return;
+    await handleSaveBillAndSchedule(true);
 
     let prevWidth = '';
     let prevMinWidth = '';
@@ -2769,6 +2866,25 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
           Invoice Preview — {invoiceNumber}
         </h2>
         <div className="btn-group" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => handleSaveBillAndSchedule(false)}
+            className="btn btn-sm"
+            disabled={savingSchedule || !selectedCustomer}
+            style={{
+              background: '#059669',
+              color: '#ffffff',
+              borderColor: '#047857',
+              fontWeight: '800',
+              padding: '8px 14px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            title="Save monthly advance bill and update delivery calendar"
+          >
+            <Check size={16} /> {savingSchedule ? 'Saving Schedule...' : 'Save Bill & Delivery Schedule'}
+          </button>
           <button
             onClick={handleDownloadImage}
             className="btn btn-outline btn-sm"

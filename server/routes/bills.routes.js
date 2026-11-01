@@ -89,6 +89,273 @@ router.post('/generate-advance-monthly', requireAdmin, async (req, res) => {
   }
 });
 
+// Save Monthly Advance Bill & Delivery Schedule (Admin only - custom calendar days & off-days)
+router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
+  try {
+    const {
+      customer_id,
+      billing_month,
+      selected_days,
+      off_days,
+      items,
+      gross_amount,
+      product_subtotal,
+      delivery_charges_total,
+      advance_adjusted,
+      net_payable,
+      notes
+    } = req.body;
+
+    if (!customer_id || !billing_month) {
+      return res.status(400).json({ error: 'Customer ID and billing month are required' });
+    }
+
+    const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const [yearStr, monthStr] = billing_month.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+
+    const scheduledCount = Array.isArray(selected_days) ? selected_days.length : daysInMonth;
+    const finalGross = parseFloat(Number(gross_amount || 0).toFixed(2));
+    const finalProdSubtotal = parseFloat(Number(product_subtotal || 0).toFixed(2));
+    const finalDelCharges = parseFloat(Number(delivery_charges_total || 0).toFixed(2));
+    const finalAdvAdj = parseFloat(Number(advance_adjusted || 0).toFixed(2));
+    const finalNet = parseFloat(Number(net_payable !== undefined ? net_payable : (finalGross - finalAdvAdj)).toFixed(2));
+
+    const billDate = `${billing_month}-01`;
+    const dueDate = `${billing_month}-05`;
+
+    // Check if a bill already exists for this customer and month
+    const existingBill = await db.prepare(`
+      SELECT * FROM bills
+      WHERE customer_id = ? AND billing_month = ? AND billing_type = 'PREPAID'
+      ORDER BY id DESC LIMIT 1
+    `).get(customer.id, billing_month);
+
+    let billStatus = 'PENDING';
+    if (finalNet === 0) {
+      billStatus = finalAdvAdj > 0 ? 'ADVANCE_PAID' : 'PAID';
+    } else if (finalAdvAdj > 0) {
+      billStatus = 'PARTIALLY_PAID';
+    } else {
+      billStatus = 'PENDING';
+    }
+
+    const itemsJsonPayload = JSON.stringify({
+      items: items || [],
+      selected_days: selected_days || [],
+      off_days: off_days || [],
+      scheduled_days_count: scheduledCount,
+      gross_amount: finalGross,
+      product_subtotal: finalProdSubtotal,
+      delivery_charges_total: finalDelCharges
+    });
+
+    const billNotes = notes || `Monthly Advance Bill (${billing_month}, ${scheduledCount} active days, ${(off_days || []).length} off days)`;
+
+    let savedBillId = null;
+
+    if (existingBill) {
+      const oldNet = parseFloat(existingBill.net_payable) || 0;
+      const netDiff = parseFloat((finalNet - oldNet).toFixed(2));
+
+      await db.prepare(`
+        UPDATE bills
+        SET total_deliveries_count = ?,
+            product_subtotal = ?,
+            delivery_charges_total = ?,
+            gross_amount = ?,
+            advance_adjusted = ?,
+            net_payable = ?,
+            status = ?,
+            items_json = ?,
+            notes = ?,
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(
+        scheduledCount,
+        finalProdSubtotal,
+        finalDelCharges,
+        finalGross,
+        finalAdvAdj,
+        finalNet,
+        billStatus,
+        itemsJsonPayload,
+        billNotes,
+        existingBill.id
+      );
+      savedBillId = existingBill.id;
+
+      if (netDiff !== 0) {
+        await db.prepare(`
+          UPDATE customers
+          SET pending_balance = MAX(0, pending_balance + ?), updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(netDiff, customer.id);
+      }
+    } else {
+      const billNumber = `NB-${billing_month.replace('-', '')}-${customer.id.toString().padStart(4, '0')}`;
+
+      const insertRes = await db.prepare(`
+        INSERT INTO bills (
+          bill_number, customer_id, billing_month, billing_type, bill_date, due_date,
+          total_deliveries_count, product_subtotal, delivery_charges_total, gross_amount,
+          previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
+          items_json, notes, agent_id, created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, 'PREPAID', ?, ?,
+          ?, ?, ?, ?,
+          0, ?, ?, 0, ?, 'FINALIZED',
+          ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `).run(
+        billNumber,
+        customer.id,
+        billing_month,
+        billDate,
+        dueDate,
+        scheduledCount,
+        finalProdSubtotal,
+        finalDelCharges,
+        finalGross,
+        finalAdvAdj,
+        finalNet,
+        billStatus,
+        itemsJsonPayload,
+        billNotes,
+        customer.agent_id || req.agentId || 1
+      );
+      savedBillId = insertRes.lastInsertRowid;
+
+      if (finalNet > 0) {
+        await db.prepare(`
+          UPDATE customers
+          SET pending_balance = pending_balance + ?, updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(finalNet, customer.id);
+      }
+    }
+
+    // Persist OFF days into daily_delivery_requirements & customer_vacations
+    const subs = await db.prepare(`
+      SELECT * FROM subscriptions WHERE customer_id = ? AND is_active = 1
+    `).all(customer.id);
+
+    if (off_days && Array.isArray(off_days) && off_days.length > 0) {
+      for (const d of off_days) {
+        const dateStr = `${billing_month}-${pad(d)}`;
+        for (const sub of subs) {
+          const existingReq = await db.prepare(`
+            SELECT id FROM daily_delivery_requirements
+            WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
+          `).get(customer.id, sub.product_id, dateStr);
+
+          if (existingReq) {
+            await db.prepare(`
+              UPDATE daily_delivery_requirements
+              SET requirement_type = 'SKIP_DELIVERY',
+                  normal_quantity = ?,
+                  required_quantity = 0,
+                  effective_quantity = 0,
+                  reason = ?,
+                  status = 'ACTIVE',
+                  updated_at = datetime('now', 'localtime')
+              WHERE id = ?
+            `).run(sub.quantity, 'No Milk Required (Monthly Advance Calendar)', existingReq.id);
+          } else {
+            await db.prepare(`
+              INSERT INTO daily_delivery_requirements (
+                customer_id, product_id, subscription_id, delivery_date, requirement_type,
+                normal_quantity, required_quantity, additional_quantity, effective_quantity,
+                reason, status, created_by, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, 'SKIP_DELIVERY', ?, 0, 0, 0, ?, 'ACTIVE', ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+            `).run(customer.id, sub.product_id, sub.id, dateStr, sub.quantity, 'No Milk Required (Monthly Advance Calendar)', req.user?.id || null);
+          }
+
+          // If delivery row exists, update to SKIPPED
+          await db.prepare(`
+            UPDATE deliveries
+            SET status = 'SKIPPED', total_product_amount = 0, delivery_charge_snapshot = 0, total_amount = 0,
+                notes = 'No Milk Required (Monthly Advance Calendar)', updated_at = datetime('now', 'localtime')
+            WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
+          `).run(customer.id, sub.product_id, dateStr);
+        }
+      }
+
+      // Group off days into continuous segments for customer_vacations
+      const sortedOff = [...new Set(off_days.map(Number))].sort((a, b) => a - b);
+      const segments = [];
+      let sStart = sortedOff[0];
+      let sEnd = sortedOff[0];
+      for (let i = 1; i < sortedOff.length; i++) {
+        if (sortedOff[i] === sEnd + 1) {
+          sEnd = sortedOff[i];
+        } else {
+          segments.push({ start: sStart, end: sEnd });
+          sStart = sortedOff[i];
+          sEnd = sortedOff[i];
+        }
+      }
+      segments.push({ start: sStart, end: sEnd });
+
+      // Clean up previous calendar vacations for this month to avoid duplicates
+      await db.prepare(`
+        UPDATE customer_vacations
+        SET status = 'CANCELLED', updated_at = datetime('now', 'localtime')
+        WHERE customer_id = ? AND status = 'ACTIVE'
+          AND start_date >= ? AND end_date <= ?
+          AND reason LIKE '%Monthly Advance Calendar%'
+      `).run(customer.id, `${billing_month}-01`, `${billing_month}-${pad(daysInMonth)}`);
+
+      for (const seg of segments) {
+        const segStartDate = `${billing_month}-${pad(seg.start)}`;
+        const segEndDate = `${billing_month}-${pad(seg.end)}`;
+        const resumeDateObj = new Date(year, month - 1, seg.end + 1);
+        const resumeDate = `${resumeDateObj.getFullYear()}-${pad(resumeDateObj.getMonth() + 1)}-${pad(resumeDateObj.getDate())}`;
+
+        await db.prepare(`
+          INSERT INTO customer_vacations (
+            customer_id, start_date, end_date, resume_date, reason, status,
+            agent_id, created_by, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 'No Milk Required (Monthly Advance Calendar)', 'ACTIVE', ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        `).run(customer.id, segStartDate, segEndDate, resumeDate, customer.agent_id || 1, req.user?.id || null);
+      }
+    }
+
+    // Remove any previous calendar SKIP requirements for active days
+    if (selected_days && Array.isArray(selected_days) && selected_days.length > 0) {
+      for (const d of selected_days) {
+        const dateStr = `${billing_month}-${pad(d)}`;
+        await db.prepare(`
+          DELETE FROM daily_delivery_requirements
+          WHERE customer_id = ? AND delivery_date = ?
+            AND requirement_type = 'SKIP_DELIVERY'
+            AND reason LIKE '%Monthly Advance Calendar%'
+        `).run(customer.id, dateStr);
+      }
+    }
+
+    const savedBill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(savedBillId);
+    const freshCustomer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer.id);
+
+    res.json({
+      success: true,
+      message: `Advance bill and ${scheduledCount}-day schedule saved successfully for ${customer.name}`,
+      bill: savedBill,
+      customer: freshCustomer
+    });
+  } catch (err) {
+    console.error('Save advance schedule error:', err);
+    res.status(500).json({ error: err.message || 'Failed to save advance schedule and bill' });
+  }
+});
+
 // Generate Weekly Bill (Admin only - accepts startDate, endDate, customer_id, forceRegenerate)
 router.post('/generate-weekly', requireAdmin, async (req, res) => {
   try {

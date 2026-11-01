@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
 
 const isProduction = process.env.USE_LOCAL_SQLITE === 'true'
   ? false

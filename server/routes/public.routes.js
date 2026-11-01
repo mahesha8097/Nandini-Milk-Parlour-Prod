@@ -204,11 +204,41 @@ router.get('/statement', async (req, res) => {
     // Fetch custom requirements / vacations if any
     const customReqs = await db.prepare(`
       SELECT * FROM daily_delivery_requirements
-      WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ?
+      WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ? AND status = 'ACTIVE'
     `).all(customer.id, startDate, endDate);
     const reqsByDate = {};
     for (const req of customReqs) {
-      reqsByDate[req.delivery_date] = req;
+      if (!reqsByDate[req.delivery_date]) {
+        reqsByDate[req.delivery_date] = [];
+      }
+      reqsByDate[req.delivery_date].push(req);
+    }
+
+    // Fetch active customer vacations
+    const activeVacations = await db.prepare(`
+      SELECT * FROM customer_vacations
+      WHERE customer_id = ? AND status = 'ACTIVE'
+        AND start_date <= ? AND end_date >= ?
+    `).all(customer.id, endDate, startDate);
+
+    // Also check if the bill saved custom selected_days or off_days
+    let billSelectedDays = null;
+    let billOffDays = null;
+    if (bill && bill.items_json) {
+      try {
+        const parsed = typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json;
+        if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+          billSelectedDays = new Set(parsed.selected_days.map(Number));
+        }
+        if (parsed.off_days && Array.isArray(parsed.off_days)) {
+          billOffDays = new Set(parsed.off_days.map(Number));
+        }
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].selectedDays) {
+          const allD = new Set();
+          parsed.forEach(it => (it.selectedDays || []).forEach(d => allD.add(Number(d))));
+          billSelectedDays = allD;
+        }
+      } catch (e) {}
     }
 
     const daysList = [];
@@ -221,7 +251,6 @@ router.get('/statement', async (req, res) => {
       let projectedGross = 0;
       let projectedProductSubtotal = 0;
       let projectedDeliveryCharges = 0;
-      let scheduledDaysCount = 0;
       let scheduledItemsCount = 0;
 
       // Loop days of month descending
@@ -238,33 +267,37 @@ router.get('/statement', async (req, res) => {
           continue;
         }
 
-        scheduledDaysCount++;
         const actualItems = deliveriesByDate[dateStr];
-        const customReq = reqsByDate[dateStr];
-        const isCustomSkip = customReq && customReq.quantity === 0;
+        const dayReqs = reqsByDate[dateStr] || [];
+
+        // Check if this calendar day is an OFF / Paused day:
+        const isVacationDay = activeVacations.some(v => v.start_date <= dateStr && v.end_date >= dateStr);
+        const isBillOffDay = (billOffDays && billOffDays.has(d)) || (billSelectedDays && !billSelectedDays.has(d));
+        const isReqSkip = dayReqs.some(r => r.requirement_type === 'SKIP_DELIVERY' || Number(r.required_quantity) === 0 || Number(r.effective_quantity) === 0);
+
+        const isCustomSkip = isBillOffDay || isVacationDay || isReqSkip;
 
         if (actualItems && actualItems.length > 0) {
           const anyDelivered = actualItems.some(it => it.status === 'DELIVERED');
-          const allSkipped = actualItems.every(it => it.status === 'SKIPPED');
+          const allSkipped = isCustomSkip || actualItems.every(it => it.status === 'SKIPPED');
           const timeStr = actualItems[0].deliveredTime;
 
-          // For PREPAID: count scheduled items and amount for active days (excluding skipped/paused)
-          const totalItemsCount = actualItems.reduce((acc, it) => {
+          const totalItemsCount = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.quantity || 0);
           }, 0);
 
-          const totalDayProductAmt = actualItems.reduce((acc, it) => {
+          const totalDayProductAmt = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.productAmount || 0);
           }, 0);
 
-          const totalDayDelCharge = actualItems.reduce((acc, it) => {
+          const totalDayDelCharge = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.deliveryCharge || 0);
           }, 0);
 
-          const totalAmount = actualItems.reduce((acc, it) => {
+          const totalAmount = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.totalAmount || 0);
           }, 0);
@@ -282,14 +315,29 @@ router.get('/statement', async (req, res) => {
             totalAmount: totalAmount,
             deliveryCharge: totalDayDelCharge,
             isProjected: false,
-            items: actualItems
+            items: isCustomSkip
+              ? actualItems.map(it => ({ ...it, status: 'SKIPPED', quantity: 0, totalAmount: 0, deliveryCharge: 0, notes: 'No Milk Required' }))
+              : actualItems
           });
         } else {
           // Scheduled projected day under prepaid plan
           const isUpcoming = dateStr > todayStr;
           
           const rawItems = activeSubsOnDay.map(sub => {
-            const qty = isCustomSkip ? 0 : (customReq ? customReq.quantity : sub.quantity);
+            const specificReq = dayReqs.find(r => r.product_id === sub.product_id);
+            let itemQty = sub.quantity;
+            if (isCustomSkip) {
+              itemQty = 0;
+            } else if (specificReq) {
+              if (specificReq.requirement_type === 'SKIP_DELIVERY' || Number(specificReq.required_quantity) === 0 || Number(specificReq.effective_quantity) === 0) {
+                itemQty = 0;
+              } else if (specificReq.requirement_type === 'CHANGE_QUANTITY') {
+                itemQty = specificReq.required_quantity || sub.quantity;
+              } else if (specificReq.requirement_type === 'ADD_EXTRA_QUANTITY') {
+                itemQty = sub.quantity + (specificReq.additional_quantity || 0);
+              }
+            }
+
             return {
               id: `sub-${sub.id}-${dateStr}`,
               subscriptionId: sub.id,
@@ -298,7 +346,7 @@ router.get('/statement', async (req, res) => {
               category: sub.category || 'Milk',
               variantLabel: sub.variant_label,
               unitVolumeLitres: sub.unit_volume_litres || 0.5,
-              quantity: qty,
+              quantity: itemQty,
               unitPrice: sub.selling_price || 0,
               sellingPrice: sub.selling_price || 0,
               deliveryChargeType: sub.delivery_charge_type || 'MILK_RULE',
@@ -331,8 +379,8 @@ router.get('/statement', async (req, res) => {
               productAmount,
               deliveryCharge,
               totalAmount: lineTotal,
-              status: isCustomSkip ? 'SKIPPED' : (isUpcoming ? 'SCHEDULED' : 'PENDING'),
-              notes: isCustomSkip ? 'Paused / Vacation' : (isUpcoming ? 'Scheduled Daily Delivery' : ''),
+              status: (isCustomSkip || item.quantity === 0) ? 'SKIPPED' : (isUpcoming ? 'SCHEDULED' : 'PENDING'),
+              notes: (isCustomSkip || item.quantity === 0) ? 'No Milk Required / Paused' : (isUpcoming ? 'Scheduled Daily Delivery' : ''),
               deliveredTime: null
             };
           });
@@ -360,12 +408,15 @@ router.get('/statement', async (req, res) => {
         }
       }
 
-      // Calculate scheduled items & monthly projection
+      // Calculate scheduled items & monthly projection strictly for active days
       for (const d of daysList) {
-        scheduledItemsCount += d.totalItems;
-        projectedGross += d.totalAmount;
+        if (d.status !== 'SKIPPED') {
+          scheduledItemsCount += d.totalItems;
+          projectedGross += d.totalAmount;
+        }
       }
 
+      const scheduledDaysCount = daysList.filter(d => d.status !== 'SKIPPED' && d.totalItems > 0).length;
       const totalDeliveredDays = daysList.filter(d => d.status === 'DELIVERED' && d.totalItems > 0).length;
       const totalDeliveredItems = daysList.filter(d => d.status === 'DELIVERED').reduce((acc, d) => acc + d.totalItems, 0);
 
@@ -416,7 +467,7 @@ router.get('/statement', async (req, res) => {
         } : null,
         summary: {
           billingType: 'PREPAID',
-          totalScheduledDays: scheduledDaysCount,
+          totalScheduledDays: (bill && bill.total_deliveries_count) ? bill.total_deliveries_count : scheduledDaysCount,
           totalScheduledItems: scheduledItemsCount,
           totalDeliveredDays,
           totalDeliveredItems,

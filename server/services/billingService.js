@@ -412,10 +412,48 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   let totalProductSubtotal = 0;
   let totalDeliveryCharges = 0;
 
+  // Check for active vacations or custom requirements for this customer in this month
+  const activeVacations = await db.prepare(`
+    SELECT start_date, end_date FROM customer_vacations
+    WHERE customer_id = ? AND status = 'ACTIVE'
+      AND start_date <= ? AND end_date >= ?
+  `).all(customer.id, monthEnd, monthStart);
+
+  const customReqs = await db.prepare(`
+    SELECT * FROM daily_delivery_requirements
+    WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ? AND status = 'ACTIVE'
+  `).all(customer.id, monthStart, monthEnd);
+
+  const reqMap = new Map();
+  for (const r of customReqs) {
+    reqMap.set(`${r.delivery_date}_${r.product_id}`, r);
+  }
+
+  let savedSelectedDays = null;
+  let savedOffDays = null;
+  if (existing && existing.items_json) {
+    try {
+      const parsed = typeof existing.items_json === 'string' ? JSON.parse(existing.items_json) : existing.items_json;
+      if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+        savedSelectedDays = new Set(parsed.selected_days.map(Number));
+      }
+      if (parsed.off_days && Array.isArray(parsed.off_days)) {
+        savedOffDays = new Set(parsed.off_days.map(Number));
+      }
+    } catch (e) {}
+  }
+
   // Day-by-day calculation across the billing month
   for (let d = 1; d <= daysInMonth; d++) {
     const dayDate = `${billingMonth}-${d.toString().padStart(2, '0')}`;
     const dow = new Date(bYear, bMonth - 1, d).getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+
+    // Check if day is paused / off:
+    const isVacation = activeVacations.some(v => v.start_date <= dayDate && v.end_date >= dayDate);
+    const isSavedOff = (savedOffDays && savedOffDays.has(d)) || (savedSelectedDays && !savedSelectedDays.has(d));
+    if (isVacation || isSavedOff) {
+      continue;
+    }
 
     // Filter subscriptions active on this specific calendar day
     const daySubs = subs.filter(s => {
@@ -423,7 +461,13 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       if (s.start_date > dayDate) return false;
       if (s.end_date && s.end_date.trim() !== '' && s.end_date < dayDate) return false;
 
-      // 2. Frequency & custom days check
+      // 2. Daily delivery requirement check (skip if quantity is 0 or SKIP_DELIVERY)
+      const r = reqMap.get(`${dayDate}_${s.product_id}`);
+      if (r && (r.requirement_type === 'SKIP_DELIVERY' || Number(r.required_quantity) === 0 || Number(r.effective_quantity) === 0)) {
+        return false;
+      }
+
+      // 3. Frequency & custom days check
       const b = subBreakdown[s.id];
       if (b && b.customDows && b.customDows.length > 0) {
         return b.customDows.includes(dow);
@@ -549,7 +593,16 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   let billId = existing ? existing.id : null;
 
   const scheduledDaysCount = activeBreakdowns.reduce((max, b) => Math.max(max, b.days_active_in_month), 0);
+  const totalDeliveriesCount = (savedSelectedDays && savedSelectedDays.size > 0) ? scheduledDaysCount : daysInMonth;
   const notesText = `Monthly Advance Bill (${billingMonth}, ${scheduledDaysCount} scheduled days${activeBreakdowns[0]?.custom_days ? `: ${activeBreakdowns[0].custom_days}` : ''})`;
+
+  // Ensure items_json is an Array so existing consumers and tests (items[0]) stay 100% compatible
+  activeBreakdowns.forEach(b => {
+    b.selected_days = savedSelectedDays ? Array.from(savedSelectedDays).sort((a, b) => a - b) : null;
+    b.off_days = savedOffDays ? Array.from(savedOffDays).sort((a, b) => a - b) : null;
+    b.scheduled_days_count = scheduledDaysCount;
+  });
+  const itemsJsonPayload = JSON.stringify(activeBreakdowns);
 
   if (existing && forceRegenerate) {
     await db.prepare(`
@@ -559,9 +612,9 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
           paid_amount = ?, status = ?, items_json = ?, notes = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
-      daysInMonth, totalProductSubtotal, totalDeliveryCharges, grossAmount,
+      totalDeliveriesCount, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(activeBreakdowns), notesText,
+      itemsJsonPayload, notesText,
       existing.id
     );
     billId = existing.id;
@@ -582,9 +635,9 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
 
     const info = await insertStmt.run(
       billNumber, customer.id, billingMonth, billDate, dueDate,
-      daysInMonth, totalProductSubtotal, totalDeliveryCharges, grossAmount,
+      totalDeliveriesCount, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
-      JSON.stringify(activeBreakdowns), notesText,
+      itemsJsonPayload, notesText,
       customer.agent_id || 1
     );
     billId = info.lastInsertRowid;
