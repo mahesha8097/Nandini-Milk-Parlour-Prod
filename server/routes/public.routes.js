@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { calculateDeliveryChargesForCustomerDay } = require('../services/deliveryChargeService');
+const { parseCustomDays } = require('../services/billingService');
 
 // Helper to format date like "16 Jul 2026, Thursday"
 function formatDeliveryDate(dateStr) {
@@ -89,25 +90,25 @@ router.get('/statement', async (req, res) => {
       targetMonth = new Date().toISOString().slice(0, 7);
     }
 
-    const isPrepaid = customer.billing_type === 'PREPAID';
-    const isPostpaid = customer.billing_type === 'POSTPAID' || customer.customer_category === 'BULK_HOTEL';
-
     // If bill was not provided by ID, find the appropriate bill for this customer and month
     if (!bill) {
-      if (isPrepaid) {
-        bill = await db.prepare(`
-          SELECT * FROM bills 
-          WHERE customer_id = ? AND billing_month = ? AND billing_type = 'PREPAID'
-          ORDER BY id DESC LIMIT 1
-        `).get(customer.id, targetMonth);
-      } else {
-        bill = await db.prepare(`
-          SELECT * FROM bills 
-          WHERE customer_id = ? AND billing_month = ?
-          ORDER BY id DESC LIMIT 1
-        `).get(customer.id, targetMonth);
-      }
+      bill = await db.prepare(`
+        SELECT * FROM bills 
+        WHERE customer_id = ? AND billing_month = ?
+        ORDER BY id DESC LIMIT 1
+      `).get(customer.id, targetMonth);
     }
+
+    const isPrepaid = customer.billing_type === 'PREPAID';
+    const isPostpaid = customer.billing_type === 'POSTPAID' || customer.customer_category === 'BULK_HOTEL';
+    const hasScheduledBill = Boolean(
+      bill && (
+        bill.billing_type === 'PREPAID' ||
+        (bill.notes && bill.notes.includes('Advance Bill')) ||
+        (bill.items_json && (bill.items_json.includes('selected_days') || bill.items_json.includes('selectedDays')))
+      )
+    );
+    const isAdvanceCalendar = isPrepaid || hasScheduledBill;
 
     // Get Business Profile for the parlour
     const agentId = customer.agent_id || (bill && bill.agent_id) || 1;
@@ -227,16 +228,26 @@ router.get('/statement', async (req, res) => {
     if (bill && bill.items_json) {
       try {
         const parsed = typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json;
-        if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
-          billSelectedDays = new Set(parsed.selected_days.map(Number));
-        }
-        if (parsed.off_days && Array.isArray(parsed.off_days)) {
-          billOffDays = new Set(parsed.off_days.map(Number));
-        }
-        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].selectedDays) {
-          const allD = new Set();
-          parsed.forEach(it => (it.selectedDays || []).forEach(d => allD.add(Number(d))));
-          billSelectedDays = allD;
+        if (parsed) {
+          if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+            billSelectedDays = new Set(parsed.selected_days.map(Number));
+          }
+          if (parsed.off_days && Array.isArray(parsed.off_days)) {
+            billOffDays = new Set(parsed.off_days.map(Number));
+          }
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            if (parsed[0].selected_days && Array.isArray(parsed[0].selected_days)) {
+              billSelectedDays = new Set(parsed[0].selected_days.map(Number));
+            }
+            if (parsed[0].off_days && Array.isArray(parsed[0].off_days)) {
+              billOffDays = new Set(parsed[0].off_days.map(Number));
+            }
+            if (parsed[0].selectedDays) {
+              const allD = new Set();
+              parsed.forEach(it => (it.selectedDays || []).forEach(d => allD.add(Number(d))));
+              if (allD.size > 0 && !billSelectedDays) billSelectedDays = allD;
+            }
+          }
         }
       } catch (e) {}
     }
@@ -244,10 +255,10 @@ router.get('/statement', async (req, res) => {
     const daysList = [];
 
     // =========================================================================
-    // CASE A: PREPAID CUSTOMER
+    // CASE A: ADVANCE / SCHEDULED CALENDAR CUSTOMER (Prepaid or custom schedule)
     // Bill & Statement strictly based on SCHEDULED DAYS in active subscription
     // =========================================================================
-    if (isPrepaid) {
+    if (isAdvanceCalendar) {
       let projectedGross = 0;
       let projectedProductSubtotal = 0;
       let projectedDeliveryCharges = 0;
@@ -256,14 +267,34 @@ router.get('/statement', async (req, res) => {
       // Loop days of month descending
       for (let d = daysInMonth; d >= 1; d--) {
         const dateStr = `${targetMonth}-${String(d).padStart(2, '0')}`;
+        const dow = new Date(year, month - 1, d).getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
         
         // Check if customer had active subscriptions on this date
-        const activeSubsOnDay = subscriptions.filter(s =>
-          s.start_date <= dateStr && (!s.end_date || s.end_date === '' || s.end_date >= dateStr)
-        );
+        const activeSubsOnDay = subscriptions.filter(s => {
+          if (s.start_date > dateStr) return false;
+          if (s.end_date && s.end_date.trim() !== '' && s.end_date < dateStr) return false;
 
-        // If customer was NOT subscribed on this date, skip it!
-        if (activeSubsOnDay.length === 0) {
+          // Check custom days and frequency
+          const customDows = (s.frequency === 'CUSTOM' || s.custom_days) ? parseCustomDays(s.custom_days) : null;
+          if (customDows && customDows.length > 0) {
+            return customDows.includes(dow);
+          }
+          if (s.frequency === 'ALTERNATE_DAYS' || s.frequency === 'ALTERNATE') {
+            const startDayNum = parseInt(s.start_date.split('-')[2], 10) || 1;
+            return (d - startDayNum) % 2 === 0;
+          }
+          if (s.frequency === 'WEEKDAYS') {
+            return dow >= 1 && dow <= 5;
+          }
+          if (s.frequency === 'WEEKENDS') {
+            return dow === 0 || dow === 6;
+          }
+          return true;
+        });
+
+        // Check if customer was subscribed at all in this month up to dateStr
+        const anySubInMonth = subscriptions.some(s => s.start_date <= dateStr && (!s.end_date || s.end_date === '' || s.end_date >= dateStr));
+        if (!anySubInMonth && (!deliveriesByDate[dateStr] || deliveriesByDate[dateStr].length === 0)) {
           continue;
         }
 
@@ -274,8 +305,9 @@ router.get('/statement', async (req, res) => {
         const isVacationDay = activeVacations.some(v => v.start_date <= dateStr && v.end_date >= dateStr);
         const isBillOffDay = (billOffDays && billOffDays.has(d)) || (billSelectedDays && !billSelectedDays.has(d));
         const isReqSkip = dayReqs.some(r => r.requirement_type === 'SKIP_DELIVERY' || Number(r.required_quantity) === 0 || Number(r.effective_quantity) === 0);
+        const isFrequencyOff = (activeSubsOnDay.length === 0 && anySubInMonth);
 
-        const isCustomSkip = isBillOffDay || isVacationDay || isReqSkip;
+        const isCustomSkip = isBillOffDay || isVacationDay || isReqSkip || isFrequencyOff;
 
         if (actualItems && actualItems.length > 0) {
           const anyDelivered = actualItems.some(it => it.status === 'DELIVERED');
@@ -323,7 +355,11 @@ router.get('/statement', async (req, res) => {
           // Scheduled projected day under prepaid plan
           const isUpcoming = dateStr > todayStr;
           
-          const rawItems = activeSubsOnDay.map(sub => {
+          const subSource = (activeSubsOnDay && activeSubsOnDay.length > 0)
+            ? activeSubsOnDay
+            : subscriptions.filter(s => s.start_date <= dateStr && (!s.end_date || s.end_date === '' || s.end_date >= dateStr));
+
+          const rawItems = subSource.map(sub => {
             const specificReq = dayReqs.find(r => r.product_id === sub.product_id);
             let itemQty = sub.quantity;
             if (isCustomSkip) {

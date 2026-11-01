@@ -342,22 +342,29 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
     }
 
     // Auto-load saved custom calendar schedule if a bill was already generated/saved for this customer and month
-    api.get(`/bills?customer_id=${custId}&month=${targetMonth}&billing_type=PREPAID`)
+    api.get(`/bills?customer_id=${custId}&month=${targetMonth}`)
       .then(res => {
         const bills = Array.isArray(res) ? res : (res?.data || []);
         if (bills.length > 0 && bills[0].items_json) {
           try {
             const parsed = typeof bills[0].items_json === 'string' ? JSON.parse(bills[0].items_json) : bills[0].items_json;
-            if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
-              const savedDays = parsed.selected_days.map(Number);
-              const pad = (n) => String(n).padStart(2, '0');
-              setItems(prev => prev.map(it => ({
-                ...it,
-                days: savedDays.length,
-                startDate: `${targetMonth}-${pad(savedDays[0])}`,
-                endDate: `${targetMonth}-${pad(savedDays[savedDays.length - 1])}`,
-                selectedDays: savedDays
-              })));
+            if (parsed) {
+              let savedDays = null;
+              if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
+                savedDays = parsed.selected_days.map(Number);
+              } else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.selected_days) {
+                savedDays = parsed[0].selected_days.map(Number);
+              }
+              if (savedDays) {
+                const pad = (n) => String(n).padStart(2, '0');
+                setItems(prev => prev.map(it => ({
+                  ...it,
+                  days: savedDays.length,
+                  startDate: `${targetMonth}-${pad(savedDays[0])}`,
+                  endDate: `${targetMonth}-${pad(savedDays[savedDays.length - 1])}`,
+                  selectedDays: savedDays
+                })));
+              }
             }
           } catch (e) {}
         }
@@ -410,22 +417,29 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
     }
 
     if (selectedCustomerId) {
-      api.get(`/bills?customer_id=${selectedCustomerId}&month=${newMonth}&billing_type=PREPAID`)
+      api.get(`/bills?customer_id=${selectedCustomerId}&month=${newMonth}`)
         .then(res => {
           const bills = Array.isArray(res) ? res : (res?.data || []);
           if (bills.length > 0 && bills[0].items_json) {
             try {
               const parsed = typeof bills[0].items_json === 'string' ? JSON.parse(bills[0].items_json) : bills[0].items_json;
-              if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
-                const savedDays = parsed.selected_days.map(Number);
-                const pad = (n) => String(n).padStart(2, '0');
-                setItems(prev => prev.map(it => ({
-                  ...it,
-                  days: savedDays.length,
-                  startDate: `${newMonth}-${pad(savedDays[0])}`,
-                  endDate: `${newMonth}-${pad(savedDays[savedDays.length - 1])}`,
-                  selectedDays: savedDays
-                })));
+              if (parsed) {
+                let savedDays = null;
+                if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
+                  savedDays = parsed.selected_days.map(Number);
+                } else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.selected_days) {
+                  savedDays = parsed[0].selected_days.map(Number);
+                }
+                if (savedDays) {
+                  const pad = (n) => String(n).padStart(2, '0');
+                  setItems(prev => prev.map(it => ({
+                    ...it,
+                    days: savedDays.length,
+                    startDate: `${newMonth}-${pad(savedDays[0])}`,
+                    endDate: `${newMonth}-${pad(savedDays[savedDays.length - 1])}`,
+                    selectedDays: savedDays
+                  })));
+                }
               }
             } catch (e) {}
           }

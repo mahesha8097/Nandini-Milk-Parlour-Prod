@@ -434,11 +434,21 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
   if (existing && existing.items_json) {
     try {
       const parsed = typeof existing.items_json === 'string' ? JSON.parse(existing.items_json) : existing.items_json;
-      if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
-        savedSelectedDays = new Set(parsed.selected_days.map(Number));
-      }
-      if (parsed.off_days && Array.isArray(parsed.off_days)) {
-        savedOffDays = new Set(parsed.off_days.map(Number));
+      if (parsed) {
+        if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+          savedSelectedDays = new Set(parsed.selected_days.map(Number));
+        }
+        if (parsed.off_days && Array.isArray(parsed.off_days)) {
+          savedOffDays = new Set(parsed.off_days.map(Number));
+        }
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (parsed[0].selected_days && Array.isArray(parsed[0].selected_days)) {
+            savedSelectedDays = new Set(parsed[0].selected_days.map(Number));
+          }
+          if (parsed[0].off_days && Array.isArray(parsed[0].off_days)) {
+            savedOffDays = new Set(parsed[0].off_days.map(Number));
+          }
+        }
       }
     } catch (e) {}
   }
@@ -1885,6 +1895,8 @@ module.exports = {
   updatePaymentTransaction,
   deletePaymentTransaction,
   restorePaymentTransaction,
-  permanentlyDeletePayment
+  permanentlyDeletePayment,
+  parseCustomDays,
+  formatCustomDaysSummary
 };
 

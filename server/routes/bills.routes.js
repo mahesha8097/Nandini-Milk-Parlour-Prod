@@ -131,10 +131,12 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
     const billDate = `${billing_month}-01`;
     const dueDate = `${billing_month}-05`;
 
+    const customerBillingType = customer.billing_type || 'PREPAID';
+
     // Check if a bill already exists for this customer and month
     const existingBill = await db.prepare(`
       SELECT * FROM bills
-      WHERE customer_id = ? AND billing_month = ? AND billing_type = 'PREPAID'
+      WHERE customer_id = ? AND billing_month = ?
       ORDER BY id DESC LIMIT 1
     `).get(customer.id, billing_month);
 
@@ -147,17 +149,24 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
       billStatus = 'PENDING';
     }
 
-    const itemsJsonPayload = JSON.stringify({
-      items: items || [],
-      selected_days: selected_days || [],
-      off_days: off_days || [],
-      scheduled_days_count: scheduledCount,
-      gross_amount: finalGross,
-      product_subtotal: finalProdSubtotal,
-      delivery_charges_total: finalDelCharges
+    let itemsArray = Array.isArray(items) && items.length > 0 ? [...items] : [];
+    if (itemsArray.length === 0) {
+      itemsArray = [{
+        customer_id: customer.id,
+        billing_month,
+        gross_amount: finalGross,
+        product_subtotal: finalProdSubtotal,
+        delivery_charges_total: finalDelCharges
+      }];
+    }
+    itemsArray.forEach(it => {
+      it.selected_days = selected_days || [];
+      it.off_days = off_days || [];
+      it.scheduled_days_count = scheduledCount;
     });
+    const itemsJsonPayload = JSON.stringify(itemsArray);
 
-    const billNotes = notes || `Monthly Advance Bill (${billing_month}, ${scheduledCount} active days, ${(off_days || []).length} off days)`;
+    const billNotes = notes || `${customerBillingType === 'PREPAID' ? 'Monthly Advance Bill' : 'Monthly Bill'} (${billing_month}, ${scheduledCount} active days, ${(off_days || []).length} off days)`;
 
     let savedBillId = null;
 
@@ -209,7 +218,7 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
           previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
           items_json, notes, agent_id, created_at, updated_at
         ) VALUES (
-          ?, ?, ?, 'PREPAID', ?, ?,
+          ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
           0, ?, ?, 0, ?, 'FINALIZED',
           ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
@@ -218,6 +227,7 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
         billNumber,
         customer.id,
         billing_month,
+        customerBillingType,
         billDate,
         dueDate,
         scheduledCount,
@@ -247,10 +257,22 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
       SELECT * FROM subscriptions WHERE customer_id = ? AND is_active = 1
     `).all(customer.id);
 
+    // Collect product items to apply skip requirements to
+    const productList = [];
+    subs.forEach(s => productList.push({ product_id: s.product_id, quantity: s.quantity, sub_id: s.id }));
+    if (Array.isArray(items)) {
+      items.forEach(it => {
+        const pId = it.productId || it.product_id;
+        if (pId && !productList.some(p => p.product_id === pId)) {
+          productList.push({ product_id: pId, quantity: it.quantity || 1, sub_id: null });
+        }
+      });
+    }
+
     if (off_days && Array.isArray(off_days) && off_days.length > 0) {
       for (const d of off_days) {
         const dateStr = `${billing_month}-${pad(d)}`;
-        for (const sub of subs) {
+        for (const sub of productList) {
           const existingReq = await db.prepare(`
             SELECT id FROM daily_delivery_requirements
             WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
