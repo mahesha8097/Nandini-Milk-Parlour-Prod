@@ -20,7 +20,9 @@ import {
   Clock,
   Ticket,
   Search,
-  X
+  X,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 
 export default function BillsPage() {
@@ -264,6 +266,23 @@ export default function BillsPage() {
     });
   }, [bills, searchQuery]);
 
+  const handleExportMonthlyBillingExcel = async () => {
+    try {
+      const targetMonth = monthFilter || new Date().toISOString().slice(0, 7);
+      const blob = await api.getBlob(`/reports/monthly-billing-sheet?month=${targetMonth}`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Nandini_Customer_Monthly_Billing_and_Payments_${targetMonth}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message || 'Failed to download monthly billing Excel sheet');
+    }
+  };
+
   return (
     <div className="page-wrapper">
       <div className="page-header">
@@ -275,6 +294,15 @@ export default function BillsPage() {
           <p className="page-subtitle">Monthly automated billing, advance deduction reconciliation, and invoice generation</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleExportMonthlyBillingExcel}
+            className="btn btn-outline btn-sm"
+            style={{ background: 'linear-gradient(135deg, #059669 0%, #047857 100%)', color: '#ffffff', borderColor: '#059669', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}
+            title="Download complete Excel workbook of customer subscriptions, advance & postpaid payments, and dues"
+          >
+            <FileSpreadsheet size={16} />
+            Export {monthFilter} Master Excel
+          </button>
           <button
             onClick={() => {
               setQuickWeekRange('last_week');

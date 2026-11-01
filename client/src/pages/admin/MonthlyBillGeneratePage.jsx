@@ -20,7 +20,8 @@ import {
   ChevronDown,
   Building2,
   MapPin,
-  Route as RouteIcon
+  Route as RouteIcon,
+  FileSpreadsheet
 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import { getLocalDateString } from '../../utils/dateUtils';
@@ -1446,6 +1447,28 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
     }
   };
 
+  const handleExportMonthlyExcel = async () => {
+    try {
+      setLoading(true);
+      const targetMonth = selectedMonth || getLocalDateString().slice(0, 7);
+      const blob = await api.getBlob(`/reports/monthly-billing-sheet?month=${targetMonth}`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Nandini_Customer_Monthly_Billing_and_Payments_${targetMonth}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setToastMsg(`Downloaded monthly billing Excel sheet for ${targetMonth}!`);
+      setTimeout(() => setToastMsg(''), 4000);
+    } catch (err) {
+      alert(err.message || 'Failed to download monthly billing Excel sheet');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Calendar Grid Helper for Modal
   const renderCalendarDaysGrid = () => {
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -1773,8 +1796,17 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={handleAddItem} className="btn btn-outline btn-sm" style={{ flex: 1 }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={handleExportMonthlyExcel}
+              className="btn btn-outline btn-sm"
+              style={{ background: 'linear-gradient(135deg, #059669 0%, #047857 100%)', color: '#fff', fontWeight: 800, border: 'none', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
+              title="Download Complete Monthly Billing & Payments Master Excel Sheet for this Month"
+            >
+              <FileSpreadsheet size={15} /> Export Month Excel
+            </button>
+            <button onClick={handleAddItem} className="btn btn-outline btn-sm">
               <Plus size={15} /> Add Product
             </button>
             <button onClick={loadInitialData} className="btn btn-outline btn-sm" disabled={loading} title="Reload Data">

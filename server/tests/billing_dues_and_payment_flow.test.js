@@ -178,8 +178,25 @@ async function runTests() {
     const duesCheck = await calculateCustomerPendingDues(testCustId);
     console.log(`[TEST 8] calculateCustomerPendingDues returned totalUnpaid: ₹${duesCheck.totalUnpaid} ✓`);
 
+    // TEST 9: Recalculate bill (recalculateSingleBill) executes cleanly for weekly bills
+    const { recalculateSingleBill } = require('../services/billingService');
+    const recalculated = await recalculateSingleBill(bill1.id);
+    assert.ok(recalculated, 'recalculateSingleBill must successfully recalculate weekly bill');
+    console.log(`[TEST 9] recalculateSingleBill cleanly recalculated weekly bill #${recalculated.bill_number} without SQL errors ✓`);
+
+    // TEST 10: Regression check: No untyped "? IS NULL" expressions in billingService.js
+    const fs = require('fs');
+    const path = require('path');
+    const billingCode = fs.readFileSync(path.join(__dirname, '../services/billingService.js'), 'utf8');
+    assert.strictEqual(
+      /\?\s+IS\s+NULL/i.test(billingCode),
+      false,
+      'PostgreSQL regression: No "? IS NULL" untyped parameter expressions allowed in billingService.js'
+    );
+    console.log('[TEST 10] Verified zero "? IS NULL" untyped parameter expressions in billingService.js ✓');
+
     console.log('\n================================================================');
-    console.log(' ALL 8 BILLING DUES & PAYMENT FLOW TESTS PASSED SUCCESSFULLY! ✓');
+    console.log(' ALL 10 BILLING DUES & PAYMENT FLOW TESTS PASSED SUCCESSFULLY! ✓');
     console.log('================================================================\n');
   } finally {
     // Cleanup test data

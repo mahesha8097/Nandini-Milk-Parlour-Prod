@@ -137,6 +137,39 @@ router.get('/', requireAdmin, async (req, res) => {
         `).all(sDate, eDate, agentId);
         break;
 
+      case 'MONTHLY_BILLING_SHEET':
+        title = `Nandini_Customer_Monthly_Billing_and_Payments_${currentMonth}`;
+        const { compileMonthlyBillingData: compileSheetData, buildMonthlyBillingWorkbook: buildSheetWb } = require('../services/monthlyBillingExcelService');
+        if (format === 'excel') {
+          const { workbook } = await buildSheetWb(currentMonth, agentId);
+          const buffer = await workbook.xlsx.writeBuffer();
+          res.setHeader('Content-Disposition', `attachment; filename="${title}.xlsx"`);
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          return res.send(buffer);
+        }
+        const compiled = await compileSheetData(currentMonth, agentId);
+        data = compiled.customers.map(c => ({
+          'Sl No': c.slNo,
+          'Flat / Unit': c.flatNo,
+          'Customer Name': c.name,
+          'Phone': c.phone,
+          'Route': c.route,
+          'Category': c.category,
+          'Billing Type': c.billingType,
+          'Active Subscriptions': c.subscriptionsSummary,
+          'Daily Milk (L)': c.dailyLiters,
+          'Active Days': c.activeDaysCount,
+          'Monthly Subscription Bill (₹)': c.projectedMonthlyBill,
+          'Delivered Value (₹)': c.deliveredTotalAmount,
+          'Advance Paid (₹)': c.advancePaidInMonth,
+          'Direct Paid (₹)': c.directPaidInMonth,
+          'Total Paid in Month (₹)': c.totalPaidInMonth,
+          'Pending Balance (₹)': c.pendingBalance,
+          'Advance Balance (₹)': c.advanceBalance,
+          'Payment Status': c.paymentStatus
+        }));
+        break;
+
       default:
         return res.status(400).json({ error: 'Valid report type is required' });
     }
@@ -165,6 +198,33 @@ router.get('/', requireAdmin, async (req, res) => {
   }
 });
 
+// Dedicated endpoint to stream or download the Customer Monthly Billing & Payment Reconciliation Master Excel Sheet
+router.get('/monthly-billing-sheet', requireAdmin, async (req, res) => {
+  try {
+    const { month, format } = req.query;
+    const targetMonth = month || getLocalDateString().slice(0, 7);
+    const agentId = req.agentId || 1;
+
+    const { buildMonthlyBillingWorkbook, compileMonthlyBillingData } = require('../services/monthlyBillingExcelService');
+
+    if (format === 'json') {
+      const data = await compileMonthlyBillingData(targetMonth, agentId);
+      return res.json(data);
+    }
+
+    const { workbook } = await buildMonthlyBillingWorkbook(targetMonth, agentId);
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const fileName = `Nandini_Customer_Monthly_Billing_and_Payments_${targetMonth}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buffer);
+  } catch (err) {
+    console.error('Monthly billing sheet error:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate monthly billing sheet' });
+  }
+});
+
 const {
   getKolkataDateString,
   generateDailyReportData,
@@ -178,6 +238,7 @@ const {
 const AVAILABLE_REPORT_TYPES = [
   { id: 'DAILY_DELIVERY', label: 'Daily Delivery Report', description: 'Consolidated daily milk, curd, route/zone, payments & ledger breakdown', category: 'Operations', supportedPeriods: ['PRESET', 'SPECIFIC_DATE'] },
   { id: 'MONTHLY_BUSINESS', label: 'Monthly Business Report', description: 'Comprehensive monthly sales, milk volume, collections, expenses & net profit', category: 'Executive', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE'] },
+  { id: 'MONTHLY_BILLING_SHEET', label: '📊 Monthly Billing & Customer Payments Master Sheet (.xlsx)', description: 'Multi-tab Excel sheet detailing active subscriptions, expected advance & postpaid billing, collections & dues', category: 'Finance', supportedPeriods: ['MONTH'] },
   { id: 'DAILY_SALES', label: 'Daily Sales & Revenue', description: 'Day-by-day order counts, delivery charges & billed product totals', category: 'Sales', supportedPeriods: ['PRESET', 'CUSTOM_RANGE', 'SPECIFIC_DATE'] },
   { id: 'MONTHLY_SALES', label: 'Monthly Sales Summary', description: 'Multi-month overview of completed deliveries and total revenue', category: 'Sales', supportedPeriods: ['PRESET'] },
   { id: 'PRODUCT_SALES', label: 'Product-wise Sales & Volume', description: 'Litres delivered, packet counts, and sales revenue per product variant', category: 'Sales', supportedPeriods: ['PRESET', 'MONTH', 'CUSTOM_RANGE'] },

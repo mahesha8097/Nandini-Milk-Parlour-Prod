@@ -26,7 +26,8 @@ import {
   Info,
   Sliders,
   Building,
-  AlertCircle
+  AlertCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 
@@ -185,6 +186,19 @@ export default function ReportsPage() {
   const handleExportExcel = async () => {
     try {
       setExporting(true);
+      if (standardReportType === 'MONTHLY_BILLING_SHEET') {
+        const targetMonth = standardStartDate ? standardStartDate.slice(0, 7) : getLocalDateString().slice(0, 7);
+        const blob = await api.getBlob(`/reports/monthly-billing-sheet?month=${targetMonth}`);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Nandini_Customer_Monthly_Billing_and_Payments_${targetMonth}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        return;
+      }
       const params = new URLSearchParams();
       params.append('type', standardReportType);
       params.append('startDate', standardStartDate);
@@ -323,6 +337,7 @@ export default function ReportsPage() {
   ];
 
   const standardReportTypes = [
+    { id: 'MONTHLY_BILLING_SHEET', label: '📊 Monthly Billing & Payments Master Sheet', icon: FileSpreadsheet },
     { id: 'DAILY_SALES', label: 'Daily Sales Report', icon: TrendingUp },
     { id: 'MONTHLY_SALES', label: 'Monthly Sales Summary', icon: Calendar },
     { id: 'PRODUCT_SALES', label: 'Product-wise Sales', icon: ShoppingBag },

@@ -123,8 +123,13 @@ async function calculateCustomerPendingDues(customerId, { excludeBillId = null, 
   }
 
   if (upToBillDate) {
-    query += ` AND (bill_date < ? OR (bill_date = ? AND id < ?))`;
-    params.push(upToBillDate, upToBillDate, excludeBillId || 99999999);
+    if (excludeBillId) {
+      query += ` AND (bill_date < ? OR (bill_date = ? AND id < ?))`;
+      params.push(upToBillDate, upToBillDate, Number(excludeBillId));
+    } else {
+      query += ` AND bill_date < ?`;
+      params.push(upToBillDate);
+    }
   }
 
   query += ` ORDER BY bill_date ASC, id ASC`;
@@ -483,6 +488,12 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
   // Fetch actual delivered records for this customer in billingMonth,
   // excluding any dates that are already billed in other active bills
   const existingBillId = existing ? existing.id : null;
+  const excludeExistingClause = existingBillId ? 'AND b.id != ?' : '';
+  const deliveryParams = [customer.id, `${billingMonth}%`];
+  if (existingBillId) {
+    deliveryParams.push(existingBillId);
+  }
+
   const deliveries = await db.prepare(`
     SELECT d.* FROM deliveries d
     WHERE d.customer_id = ? 
@@ -492,14 +503,14 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
         SELECT 1 FROM bills b
         WHERE b.customer_id = d.customer_id
           AND b.status != 'CANCELLED'
-          AND (? IS NULL OR b.id != ?)
+          ${excludeExistingClause}
           AND b.start_date IS NOT NULL 
           AND b.end_date IS NOT NULL
           AND d.delivery_date >= b.start_date 
           AND d.delivery_date <= b.end_date
       )
     ORDER BY d.delivery_date ASC
-  `).all(customer.id, `${billingMonth}%`, existingBillId, existingBillId);
+  `).all(...deliveryParams);
 
   if (!deliveries || deliveries.length === 0) {
     return null; // No deliveries to bill
@@ -730,6 +741,12 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
   // Fetch actual delivered records between startDate and endDate,
   // excluding any dates that are already billed in other active bills
   const existingBillId = existing ? existing.id : null;
+  const excludeExistingClause = existingBillId ? 'AND b.id != ?' : '';
+  const deliveryParams = [customer.id, startDate, endDate];
+  if (existingBillId) {
+    deliveryParams.push(existingBillId);
+  }
+
   const deliveries = await db.prepare(`
     SELECT d.* FROM deliveries d
     WHERE d.customer_id = ? 
@@ -739,14 +756,14 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, force
         SELECT 1 FROM bills b
         WHERE b.customer_id = d.customer_id
           AND b.status != 'CANCELLED'
-          AND (? IS NULL OR b.id != ?)
+          ${excludeExistingClause}
           AND b.start_date IS NOT NULL 
           AND b.end_date IS NOT NULL
           AND d.delivery_date >= b.start_date 
           AND d.delivery_date <= b.end_date
       )
     ORDER BY d.delivery_date ASC
-  `).all(customer.id, startDate, endDate, existingBillId, existingBillId);
+  `).all(...deliveryParams);
 
   if (!deliveries || deliveries.length === 0) {
     return null; // No deliveries to bill
