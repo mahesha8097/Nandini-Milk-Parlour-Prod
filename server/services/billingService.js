@@ -511,11 +511,33 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
   `).all(customer.id, monthEnd, monthStart);
 
-  if (!subs || subs.length === 0) {
+  // Fetch actual delivered records for this customer in billingMonth
+  const deliveredDeliveries = await db.prepare(`
+    SELECT d.*, 
+           COALESCE(d.product_name_snapshot, p.name) as product_name,
+           COALESCE(d.category_snapshot, p.category) as category,
+           COALESCE(d.variant_snapshot, p.variant_label) as variant_label,
+           COALESCE(d.unit_volume_litres_snapshot, p.unit_volume_litres, 0.5) as unit_volume_litres,
+           COALESCE(d.unit_price_snapshot, p.selling_price) as selling_price,
+           p.delivery_charge_type, p.fixed_delivery_charge
+    FROM deliveries d
+    LEFT JOIN products p ON d.product_id = p.id
+    WHERE d.customer_id = ?
+      AND d.delivery_date >= ? AND d.delivery_date <= ?
+      AND d.status = 'DELIVERED'
+    ORDER BY d.delivery_date ASC, d.id ASC
+  `).all(customer.id, monthStart, monthEnd);
+
+  if ((!subs || subs.length === 0) && (!deliveredDeliveries || deliveredDeliveries.length === 0)) {
     if (existing && forceRegenerate) {
       return await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
     }
-    return null; // No active subscription in this month
+    return null; // No active subscription or deliveries in this month
+  }
+
+  // If no active subscriptions remain but customer had completed deliveries in this month:
+  if (!subs || subs.length === 0) {
+    return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
   }
 
   // Track breakdowns per subscription
@@ -540,8 +562,22 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       activeDaysCount: 0,
       totalQuantity: 0,
       productSubtotal: 0,
-      deliveryChargesTotal: 0
+      deliveryChargesTotal: 0,
+      activeDates: [],
+      isDelivered: false
     };
+  }
+
+  // Track breakdowns for delivered deliveries not covered by active subscriptions
+  const delBreakdown = {};
+
+  // Group delivered deliveries by date
+  const delByDate = new Map();
+  for (const del of deliveredDeliveries) {
+    if (!delByDate.has(del.delivery_date)) {
+      delByDate.set(del.delivery_date, []);
+    }
+    delByDate.get(del.delivery_date).push(del);
   }
 
   let totalProductSubtotal = 0;
@@ -593,72 +629,157 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     const dayDate = `${billingMonth}-${d.toString().padStart(2, '0')}`;
     const dow = new Date(bYear, bMonth - 1, d).getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
 
-    // Check if day is paused / off:
-    const isVacation = activeVacations.some(v => v.start_date <= dayDate && v.end_date >= dayDate);
-    const isSavedOff = (savedOffDays && savedOffDays.has(d)) || (savedSelectedDays && !savedSelectedDays.has(d));
-    if (isVacation || isSavedOff) {
-      continue;
-    }
+    const dayDels = delByDate.get(dayDate) || [];
 
-    // Filter subscriptions active on this specific calendar day
-    const daySubs = subs.filter(s => {
-      // 1. Date range check
-      if (s.start_date > dayDate) return false;
-      if (s.end_date && s.end_date.trim() !== '' && s.end_date < dayDate) return false;
+    if (dayDels.length > 0) {
+      // 1. Deliveries were ALREADY DELIVERED to customer on this day!
+      for (const del of dayDels) {
+        const itemProductAmt = Number(del.total_product_amount != null ? del.total_product_amount : (del.selling_price * del.quantity));
+        const itemDelCharge = Number(del.delivery_charge_snapshot != null ? del.delivery_charge_snapshot : (del.total_amount - itemProductAmt));
+        totalProductSubtotal += itemProductAmt;
+        totalDeliveryCharges += itemDelCharge;
 
-      // 2. Daily delivery requirement check (skip if quantity is 0 or SKIP_DELIVERY)
-      const r = reqMap.get(`${dayDate}_${s.product_id}`);
-      if (r && (r.requirement_type === 'SKIP_DELIVERY' || Number(r.required_quantity) === 0 || Number(r.effective_quantity) === 0)) {
-        return false;
+        // Check if there is an active subscription on this date matching this delivery
+        const matchingSub = subs.find(s =>
+          s.product_id === del.product_id &&
+          Number(s.quantity) === Number(del.quantity) &&
+          s.start_date <= dayDate &&
+          (!s.end_date || s.end_date === '' || s.end_date >= dayDate)
+        );
+
+        if (matchingSub && subBreakdown[matchingSub.id]) {
+          const b = subBreakdown[matchingSub.id];
+          b.activeDaysCount += 1;
+          b.totalQuantity += Number(del.quantity);
+          b.productSubtotal += itemProductAmt;
+          b.deliveryChargesTotal += itemDelCharge;
+          b.activeDates.push(dayDate);
+        } else {
+          // Delivered delivery on a day not covered by matching subscription (e.g. before start_date or different qty)
+          const delKey = `${del.product_id}_${del.quantity}`;
+          if (!delBreakdown[delKey]) {
+            delBreakdown[delKey] = {
+              productId: del.product_id,
+              productName: del.product_name,
+              category: del.category,
+              variantLabel: del.variant_label,
+              quantityPerDay: Number(del.quantity),
+              unitPrice: Number(del.selling_price),
+              startDate: dayDate,
+              endDate: dayDate,
+              frequency: 'DELIVERED',
+              customDaysSummary: 'Delivered',
+              activeDaysCount: 0,
+              totalQuantity: 0,
+              productSubtotal: 0,
+              deliveryChargesTotal: 0,
+              activeDates: [],
+              isDelivered: true
+            };
+          }
+          const b = delBreakdown[delKey];
+          b.activeDaysCount += 1;
+          b.totalQuantity += Number(del.quantity);
+          b.productSubtotal += itemProductAmt;
+          b.deliveryChargesTotal += itemDelCharge;
+          b.activeDates.push(dayDate);
+          b.endDate = dayDate;
+        }
+      }
+    } else {
+      // 2. No deliveries recorded for this day yet -> Use subscription projection
+      const isVacation = activeVacations.some(v => v.start_date <= dayDate && v.end_date >= dayDate);
+      const isSavedOff = (savedOffDays && savedOffDays.has(d)) || (savedSelectedDays && !savedSelectedDays.has(d));
+      if (isVacation || isSavedOff) {
+        continue;
       }
 
-      // 3. Frequency & custom days check
-      const b = subBreakdown[s.id];
-      if (b && b.customDows && b.customDows.length > 0) {
-        return b.customDows.includes(dow);
-      }
-      if (s.frequency === 'ALTERNATE_DAYS') {
-        const startDayNum = parseInt(s.start_date.split('-')[2], 10) || 1;
-        return (d - startDayNum) % 2 === 0;
-      }
-      return true; // DAILY
-    });
+      // Filter subscriptions active on this specific calendar day
+      const daySubs = subs.filter(s => {
+        // 1. Date range check
+        if (s.start_date > dayDate) return false;
+        if (s.end_date && s.end_date.trim() !== '' && s.end_date < dayDate) return false;
 
-    if (daySubs.length === 0) continue;
+        // 2. Daily delivery requirement check (skip if quantity is 0 or SKIP_DELIVERY)
+        const r = reqMap.get(`${dayDate}_${s.product_id}`);
+        if (r && (r.requirement_type === 'SKIP_DELIVERY' || Number(r.required_quantity) === 0 || Number(r.effective_quantity) === 0)) {
+          return false;
+        }
 
-    const dailyItems = daySubs.map(s => ({
-      subscriptionId: s.id,
-      productId: s.product_id,
-      productName: s.product_name,
-      category: s.category,
-      variantLabel: s.variant_label,
-      unitVolumeLitres: s.unit_volume_litres,
-      quantity: s.quantity,
-      sellingPrice: s.selling_price,
-      deliveryChargeType: s.delivery_charge_type,
-      fixedDeliveryCharge: s.fixed_delivery_charge
-    }));
+        // 3. Frequency & custom days check
+        const b = subBreakdown[s.id];
+        if (b && b.customDows && b.customDows.length > 0) {
+          return b.customDows.includes(dow);
+        }
+        if (s.frequency === 'ALTERNATE_DAYS') {
+          const startDayNum = parseInt(s.start_date.split('-')[2], 10) || 1;
+          return (d - startDayNum) % 2 === 0;
+        }
+        return true; // DAILY
+      });
 
-    const calculatedDaily = calculateDeliveryChargesForCustomerDay(customer.customer_category, dailyItems);
+      if (daySubs.length === 0) continue;
 
-    for (const item of calculatedDaily) {
-      const itemProductAmt = item.sellingPrice * item.quantity;
-      const itemDelCharge = item.deliveryCharge || 0;
-      totalProductSubtotal += itemProductAmt;
-      totalDeliveryCharges += itemDelCharge;
+      const dailyItems = daySubs.map(s => ({
+        subscriptionId: s.id,
+        productId: s.product_id,
+        productName: s.product_name,
+        category: s.category,
+        variantLabel: s.variant_label,
+        unitVolumeLitres: s.unit_volume_litres,
+        quantity: s.quantity,
+        sellingPrice: s.selling_price,
+        deliveryChargeType: s.delivery_charge_type,
+        fixedDeliveryCharge: s.fixed_delivery_charge
+      }));
 
-      const b = subBreakdown[item.subscriptionId];
-      if (b) {
-        b.activeDaysCount += 1;
-        b.totalQuantity += item.quantity;
-        b.productSubtotal += itemProductAmt;
-        b.deliveryChargesTotal += itemDelCharge;
+      const calculatedDaily = calculateDeliveryChargesForCustomerDay(customer.customer_category, dailyItems);
+
+      for (const item of calculatedDaily) {
+        const itemProductAmt = item.sellingPrice * item.quantity;
+        const itemDelCharge = item.deliveryCharge || 0;
+        totalProductSubtotal += itemProductAmt;
+        totalDeliveryCharges += itemDelCharge;
+
+        const b = subBreakdown[item.subscriptionId];
+        if (b) {
+          b.activeDaysCount += 1;
+          b.totalQuantity += item.quantity;
+          b.productSubtotal += itemProductAmt;
+          b.deliveryChargesTotal += itemDelCharge;
+          b.activeDates.push(dayDate);
+        }
       }
     }
   }
 
-  // Filter to subscriptions that actually had active days in this month
-  const activeBreakdowns = Object.values(subBreakdown)
+  // Combine delivered breakdowns and subscription breakdowns
+  const deliveredList = Object.values(delBreakdown)
+    .filter(b => b.activeDaysCount > 0)
+    .map(b => ({
+      product_id: b.productId,
+      product_name: b.productName,
+      category: b.category,
+      variant_label: b.variantLabel,
+      quantity_per_day: b.quantityPerDay,
+      unit_price: b.unitPrice,
+      days_active_in_month: b.activeDaysCount,
+      delivered_days_count: b.activeDaysCount,
+      days_in_month: daysInMonth,
+      effective_start: b.startDate,
+      effective_end: b.endDate || b.startDate,
+      frequency: 'DELIVERED',
+      custom_days: `Delivered (${b.startDate.slice(5)} to ${b.endDate.slice(5)})`,
+      total_quantity: b.totalQuantity,
+      product_subtotal: parseFloat(b.productSubtotal.toFixed(2)),
+      delivery_charges_total: parseFloat(b.deliveryChargesTotal.toFixed(2)),
+      total_line_amount: parseFloat((b.productSubtotal + b.deliveryChargesTotal).toFixed(2)),
+      is_delivered: true,
+      selected_days: b.activeDates.map(dt => parseInt(dt.split('-')[2], 10)).sort((a, b) => a - b),
+      activeDates: b.activeDates
+    }));
+
+  const subList = Object.values(subBreakdown)
     .filter(b => b.activeDaysCount > 0)
     .map(b => ({
       product_id: b.productId,
@@ -676,8 +797,13 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       total_quantity: b.totalQuantity,
       product_subtotal: parseFloat(b.productSubtotal.toFixed(2)),
       delivery_charges_total: parseFloat(b.deliveryChargesTotal.toFixed(2)),
-      total_line_amount: parseFloat((b.productSubtotal + b.deliveryChargesTotal).toFixed(2))
+      total_line_amount: parseFloat((b.productSubtotal + b.deliveryChargesTotal).toFixed(2)),
+      is_delivered: false,
+      selected_days: savedSelectedDays ? Array.from(savedSelectedDays).sort((a, b) => a - b) : null,
+      activeDates: b.activeDates
     }));
+
+  const activeBreakdowns = [...deliveredList, ...subList];
 
   if (activeBreakdowns.length === 0) {
     if (existing && forceRegenerate) {
@@ -723,8 +849,8 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     advanceToAdjust = currentAdvance;
   }
 
-  const netPayable = parseFloat((grossAmount - advanceToAdjust).toFixed(2));
-  const paidAmount = 0;
+  const paidAmount = (existing && forceRegenerate) ? Number(existing.paid_amount || 0) : 0;
+  const netPayable = parseFloat(Math.max(0, grossAmount - advanceToAdjust - paidAmount).toFixed(2));
   
   let billStatus = 'GENERATED';
   if (netPayable === 0) {
@@ -740,15 +866,30 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
 
   let billId = existing ? existing.id : null;
 
-  const scheduledDaysCount = activeBreakdowns.reduce((max, b) => Math.max(max, b.days_active_in_month), 0);
+  const allActiveDatesSet = new Set();
+  activeBreakdowns.forEach(b => {
+    (b.activeDates || []).forEach(d => allActiveDatesSet.add(d));
+  });
+  const scheduledDaysCount = allActiveDatesSet.size || activeBreakdowns.reduce((max, b) => Math.max(max, b.days_active_in_month), 0);
   const totalDeliveriesCount = (savedSelectedDays && savedSelectedDays.size > 0) ? scheduledDaysCount : daysInMonth;
-  const notesText = `Monthly Advance Bill (${billingMonth}, ${scheduledDaysCount} scheduled days${activeBreakdowns[0]?.custom_days ? `: ${activeBreakdowns[0].custom_days}` : ''})`;
+
+  const delDaysCount = deliveredList.reduce((sum, b) => sum + (b.days_active_in_month || 0), 0);
+  const subDaysCount = subList.reduce((sum, b) => sum + (b.days_active_in_month || 0), 0);
+  let notesText = `Monthly Advance Bill (${billingMonth}, ${scheduledDaysCount} days)`;
+  if (delDaysCount > 0 && subDaysCount > 0) {
+    notesText = `Monthly Advance Bill (${billingMonth}, ${scheduledDaysCount} days: ${delDaysCount} days delivered + ${subDaysCount} days scheduled)`;
+  } else if (activeBreakdowns[0]?.custom_days) {
+    notesText += `: ${activeBreakdowns[0].custom_days}`;
+  }
+
+  const billStartDate = activeBreakdowns.reduce((min, b) => (!min || (b.effective_start && b.effective_start < min)) ? b.effective_start : min, monthStart);
+  const billEndDate = monthEnd;
 
   // Ensure items_json is an Array so existing consumers and tests (items[0]) stay 100% compatible
   activeBreakdowns.forEach(b => {
-    b.selected_days = savedSelectedDays ? Array.from(savedSelectedDays).sort((a, b) => a - b) : null;
+    b.selected_days = savedSelectedDays ? Array.from(savedSelectedDays).sort((a, b) => a - b) : (b.selected_days || null);
     b.off_days = savedOffDays ? Array.from(savedOffDays).sort((a, b) => a - b) : null;
-    b.scheduled_days_count = scheduledDaysCount;
+    b.scheduled_days_count = b.days_active_in_month || scheduledDaysCount;
   });
   const itemsJsonPayload = JSON.stringify(activeBreakdowns);
 
@@ -757,12 +898,13 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       UPDATE bills
       SET total_deliveries_count = ?, product_subtotal = ?, delivery_charges_total = ?,
           gross_amount = ?, previous_due = ?, advance_adjusted = ?, net_payable = ?,
-          paid_amount = ?, status = ?, items_json = ?, notes = ?, updated_at = datetime('now', 'localtime')
+          paid_amount = ?, status = ?, items_json = ?, notes = ?, start_date = ?, end_date = ?,
+          updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
       totalDeliveriesCount, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
-      itemsJsonPayload, notesText,
+      itemsJsonPayload, notesText, billStartDate, billEndDate,
       existing.id
     );
     billId = existing.id;
@@ -772,12 +914,12 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
         bill_number, customer_id, billing_month, billing_type, bill_date, due_date,
         total_deliveries_count, product_subtotal, delivery_charges_total, gross_amount,
         previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
-        items_json, notes, agent_id, created_at, updated_at
+        items_json, notes, start_date, end_date, agent_id, created_at, updated_at
       ) VALUES (
         ?, ?, ?, 'PREPAID', ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, 'FINALIZED',
-        ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+        ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
       )
     `);
 
@@ -785,7 +927,7 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
       billNumber, customer.id, billingMonth, billDate, dueDate,
       totalDeliveriesCount, totalProductSubtotal, totalDeliveryCharges, grossAmount,
       previousDue, advanceToAdjust, netPayable, paidAmount, billStatus,
-      itemsJsonPayload, notesText,
+      itemsJsonPayload, notesText, billStartDate, billEndDate,
       customer.agent_id || 1
     );
     billId = info.lastInsertRowid;
@@ -1989,10 +2131,33 @@ async function calculateAdvanceProjectionForMonth(billingMonth, agentId = null) 
         AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
     `).all(customer.id, monthEnd, monthStart);
 
-    if (!subs || subs.length === 0) continue;
+    // Also fetch completed deliveries in this billingMonth for this customer
+    const deliveredDeliveries = await db.prepare(`
+      SELECT d.*, 
+             COALESCE(d.product_name_snapshot, p.name) as product_name,
+             COALESCE(d.category_snapshot, p.category) as category,
+             COALESCE(d.variant_snapshot, p.variant_label) as variant_label,
+             COALESCE(d.unit_volume_litres_snapshot, p.unit_volume_litres, 0.5) as unit_volume_litres,
+             COALESCE(d.unit_price_snapshot, p.selling_price) as selling_price,
+             p.delivery_charge_type, p.fixed_delivery_charge
+      FROM deliveries d
+      LEFT JOIN products p ON d.product_id = p.id
+      WHERE d.customer_id = ?
+        AND d.delivery_date >= ? AND d.delivery_date <= ?
+        AND d.status = 'DELIVERED'
+      ORDER BY d.delivery_date ASC, d.id ASC
+    `).all(customer.id, monthStart, monthEnd);
+
+    if ((!subs || subs.length === 0) && (!deliveredDeliveries || deliveredDeliveries.length === 0)) continue;
+
+    const delByDate = new Map();
+    for (const del of deliveredDeliveries) {
+      if (!delByDate.has(del.delivery_date)) delByDate.set(del.delivery_date, []);
+      delByDate.get(del.delivery_date).push(del);
+    }
 
     const subBreakdown = {};
-    for (const s of subs) {
+    for (const s of (subs || [])) {
       subBreakdown[s.id] = {
         subscriptionId: s.id,
         productId: s.product_id,
@@ -2015,42 +2180,67 @@ async function calculateAdvanceProjectionForMonth(billingMonth, agentId = null) 
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dayDate = `${billingMonth}-${d.toString().padStart(2, '0')}`;
-      const daySubs = subs.filter(s => s.start_date <= dayDate && (!s.end_date || s.end_date === '' || s.end_date >= dayDate));
-      if (daySubs.length === 0) continue;
+      const dayDels = delByDate.get(dayDate) || [];
 
-      const dailyItems = daySubs.map(s => ({
-        subscriptionId: s.id,
-        productId: s.product_id,
-        productName: s.product_name,
-        category: s.category,
-        variantLabel: s.variant_label,
-        unitVolumeLitres: s.unit_volume_litres,
-        quantity: s.quantity,
-        sellingPrice: s.selling_price,
-        deliveryChargeType: s.delivery_charge_type,
-        fixedDeliveryCharge: s.fixed_delivery_charge
-      }));
+      if (dayDels.length > 0) {
+        for (const del of dayDels) {
+          const itemProdAmt = Number(del.total_product_amount != null ? del.total_product_amount : (del.selling_price * del.quantity));
+          const itemDelCharge = Number(del.delivery_charge_snapshot != null ? del.delivery_charge_snapshot : (del.total_amount - itemProdAmt));
+          totalProductSubtotal += itemProdAmt;
+          totalDeliveryCharges += itemDelCharge;
 
-      const calculatedDaily = calculateDeliveryChargesForCustomerDay(customer.customer_category, dailyItems);
+          const matchingSub = (subs || []).find(s =>
+            s.product_id === del.product_id &&
+            Number(s.quantity) === Number(del.quantity) &&
+            s.start_date <= dayDate &&
+            (!s.end_date || s.end_date === '' || s.end_date >= dayDate)
+          );
+          if (matchingSub && subBreakdown[matchingSub.id]) {
+            const b = subBreakdown[matchingSub.id];
+            b.activeDaysCount += 1;
+            b.totalQuantity += Number(del.quantity);
+            b.productSubtotal += itemProdAmt;
+            b.deliveryChargesTotal += itemDelCharge;
+          }
+        }
+      } else {
+        const daySubs = (subs || []).filter(s => s.start_date <= dayDate && (!s.end_date || s.end_date === '' || s.end_date >= dayDate));
+        if (daySubs.length === 0) continue;
 
-      for (const item of calculatedDaily) {
-        const itemProductAmt = item.sellingPrice * item.quantity;
-        const itemDelCharge = item.deliveryCharge || 0;
-        totalProductSubtotal += itemProductAmt;
-        totalDeliveryCharges += itemDelCharge;
+        const dailyItems = daySubs.map(s => ({
+          subscriptionId: s.id,
+          productId: s.product_id,
+          productName: s.product_name,
+          category: s.category,
+          variantLabel: s.variant_label,
+          unitVolumeLitres: s.unit_volume_litres,
+          quantity: s.quantity,
+          sellingPrice: s.selling_price,
+          deliveryChargeType: s.delivery_charge_type,
+          fixedDeliveryCharge: s.fixed_delivery_charge
+        }));
 
-        const b = subBreakdown[item.subscriptionId];
-        if (b) {
-          b.activeDaysCount += 1;
-          b.totalQuantity += item.quantity;
-          b.productSubtotal += itemProductAmt;
-          b.deliveryChargesTotal += itemDelCharge;
+        const calculatedDaily = calculateDeliveryChargesForCustomerDay(customer.customer_category, dailyItems);
+
+        for (const item of calculatedDaily) {
+          const itemProductAmt = item.sellingPrice * item.quantity;
+          const itemDelCharge = item.deliveryCharge || 0;
+          totalProductSubtotal += itemProductAmt;
+          totalDeliveryCharges += itemDelCharge;
+
+          const b = subBreakdown[item.subscriptionId];
+          if (b) {
+            b.activeDaysCount += 1;
+            b.totalQuantity += item.quantity;
+            b.productSubtotal += itemProductAmt;
+            b.deliveryChargesTotal += itemDelCharge;
+          }
         }
       }
     }
 
     const activeBreakdowns = Object.values(subBreakdown).filter(b => b.activeDaysCount > 0);
-    if (activeBreakdowns.length === 0) continue;
+    if (activeBreakdowns.length === 0 && deliveredDeliveries.length === 0) continue;
 
     totalProductSubtotal = parseFloat(totalProductSubtotal.toFixed(2));
     totalDeliveryCharges = parseFloat(totalDeliveryCharges.toFixed(2));

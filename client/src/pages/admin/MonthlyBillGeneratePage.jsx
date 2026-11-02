@@ -358,27 +358,39 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
           try {
             const parsed = typeof bills[0].items_json === 'string' ? JSON.parse(bills[0].items_json) : bills[0].items_json;
             if (parsed) {
-              let savedDays = null;
-              if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
-                savedDays = parsed.selected_days.map(Number);
-              } else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.selected_days) {
-                savedDays = parsed[0].selected_days.map(Number);
-              }
-              if (savedDays) {
-                const pad = (n) => String(n).padStart(2, '0');
-                setItems(prev => prev.map((it, idx) => {
-                  const savedItem = Array.isArray(parsed) ? parsed[idx] : null;
-                  const itemDays = (savedItem && (savedItem.selectedDays || savedItem.selected_days)) ? (savedItem.selectedDays || savedItem.selected_days) : savedDays;
-                  const itemDayQtys = savedItem?.dayQuantities || {};
+              const pad = (n) => String(n).padStart(2, '0');
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const mappedFromBill = parsed.map((savedItem, sIdx) => {
+                  const itemDays = (savedItem.selectedDays || savedItem.selected_days) || [];
+                  const itemDayQtys = savedItem.dayQuantities || {};
                   return {
-                    ...it,
-                    days: itemDays.length,
-                    startDate: `${targetMonth}-${pad(itemDays[0])}`,
-                    endDate: `${targetMonth}-${pad(itemDays[itemDays.length - 1])}`,
+                    productId: savedItem.product_id,
+                    productName: savedItem.product_name || 'Milk Product',
+                    variantLabel: savedItem.variant_label || 'Pkt',
+                    unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
+                    unitPrice: savedItem.unit_price || 0,
+                    quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
+                    category: savedItem.category || 'Milk',
+                    deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
+                    fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
+                    days: itemDays.length || savedItem.days_active_in_month || 0,
+                    startDate: savedItem.effective_start || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[0])}` : null),
+                    endDate: savedItem.effective_end || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
                     selectedDays: itemDays,
                     dayQuantities: itemDayQtys
                   };
-                }));
+                });
+                setItems(mappedFromBill);
+              } else if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+                const savedDays = parsed.selected_days.map(Number);
+                setItems(prev => prev.map((it) => ({
+                  ...it,
+                  days: savedDays.length,
+                  startDate: `${targetMonth}-${pad(savedDays[0])}`,
+                  endDate: `${targetMonth}-${pad(savedDays[savedDays.length - 1])}`,
+                  selectedDays: savedDays,
+                  dayQuantities: {}
+                })));
               }
             }
           } catch (e) {}
@@ -441,27 +453,39 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
             try {
               const parsed = typeof bills[0].items_json === 'string' ? JSON.parse(bills[0].items_json) : bills[0].items_json;
               if (parsed) {
-                let savedDays = null;
-                if (parsed.selected_days && Array.isArray(parsed.selected_days) && parsed.selected_days.length > 0) {
-                  savedDays = parsed.selected_days.map(Number);
-                } else if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.selected_days) {
-                  savedDays = parsed[0].selected_days.map(Number);
-                }
-                if (savedDays) {
-                  const pad = (n) => String(n).padStart(2, '0');
-                  setItems(prev => prev.map((it, idx) => {
-                    const savedItem = Array.isArray(parsed) ? parsed[idx] : null;
-                    const itemDays = (savedItem && (savedItem.selectedDays || savedItem.selected_days)) ? (savedItem.selectedDays || savedItem.selected_days) : savedDays;
-                    const itemDayQtys = savedItem?.dayQuantities || {};
+                const pad = (n) => String(n).padStart(2, '0');
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  const mappedFromBill = parsed.map((savedItem) => {
+                    const itemDays = (savedItem.selectedDays || savedItem.selected_days) || [];
+                    const itemDayQtys = savedItem.dayQuantities || {};
                     return {
-                      ...it,
-                      days: itemDays.length,
-                      startDate: `${newMonth}-${pad(itemDays[0])}`,
-                      endDate: `${newMonth}-${pad(itemDays[itemDays.length - 1])}`,
+                      productId: savedItem.product_id,
+                      productName: savedItem.product_name || 'Milk Product',
+                      variantLabel: savedItem.variant_label || 'Pkt',
+                      unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
+                      unitPrice: savedItem.unit_price || 0,
+                      quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
+                      category: savedItem.category || 'Milk',
+                      deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
+                      fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
+                      days: itemDays.length || savedItem.days_active_in_month || 0,
+                      startDate: savedItem.effective_start || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[0])}` : null),
+                      endDate: savedItem.effective_end || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
                       selectedDays: itemDays,
                       dayQuantities: itemDayQtys
                     };
-                  }));
+                  });
+                  setItems(mappedFromBill);
+                } else if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+                  const savedDays = parsed.selected_days.map(Number);
+                  setItems(prev => prev.map((it) => ({
+                    ...it,
+                    days: savedDays.length,
+                    startDate: `${newMonth}-${pad(savedDays[0])}`,
+                    endDate: `${newMonth}-${pad(savedDays[savedDays.length - 1])}`,
+                    selectedDays: savedDays,
+                    dayQuantities: {}
+                  })));
                 }
               }
             } catch (e) {}

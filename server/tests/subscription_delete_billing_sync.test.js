@@ -2,6 +2,7 @@ const assert = require('assert');
 const db = require('../config/db');
 const {
   generateBillForCustomer,
+  generateAdvanceBillForPrepaidCustomer,
   recalculateSingleBill,
   syncCustomerBillingAfterSubscriptionChange
 } = require('../services/billingService');
@@ -167,11 +168,64 @@ async function runTests() {
   assert.strictEqual(Number(recalcBill2.net_payable), expectedDeliveredTotal, `Recalculate must keep net_payable at ₹${expectedDeliveredTotal}`);
   console.log(`  ✓ Passed: recalculateSingleBill kept accurate delivered bill at ₹${recalcBill2.net_payable} ✓`);
 
+  // -------------------------------------------------------------
+  // TEST 5: Deleted subscription with completed deliveries + new subscription starting future date
+  // (Customer 720 scenario: Nov 1 & 2 delivered @ 2 pkts, subscription changed to 1 pkt from Nov 3)
+  // -------------------------------------------------------------
+  console.log('\n[TEST 5] Deleted subscription with delivered days + new subscription from tomorrow carries both delivered and scheduled milk');
+
+  const custRes3 = await db.prepare(`
+    INSERT INTO customers (name, phone, address, customer_category, billing_type, advance_balance, pending_balance, created_at, updated_at)
+    VALUES ('Delivered Plus Future Sub Cust', '9988776655', 'Whitefield', 'HOUSE', 'PREPAID', 0, 0, datetime('now', 'localtime'), datetime('now', 'localtime'))
+  `).run();
+  const custId3 = custRes3.lastInsertRowid;
+
+  // Insert 2 completed deliveries: Nov 1 and Nov 2 with 2 pkts each (500ml milk, unitPrice=32, delCharge=3, total=67/day -> 134)
+  const testMonth = '2026-11';
+  await db.prepare(`
+    INSERT INTO deliveries (
+      customer_id, product_id, delivery_date, quantity, unit_price_snapshot,
+      total_product_amount, delivery_charge_snapshot, total_amount, status,
+      product_name_snapshot, category_snapshot, variant_snapshot, unit_volume_litres_snapshot,
+      created_at, updated_at
+    ) VALUES 
+    (?, ?, '2026-11-01', 2, 32, 64, 3, 67, 'DELIVERED', 'Nandini Shubham Milk', 'Milk', '500 ml', 0.5, datetime('now', 'localtime'), datetime('now', 'localtime')),
+    (?, ?, '2026-11-02', 2, 32, 64, 3, 67, 'DELIVERED', 'Nandini Shubham Milk', 'Milk', '500 ml', 0.5, datetime('now', 'localtime'), datetime('now', 'localtime'))
+  `).run(custId3, product.id, custId3, product.id);
+
+  // New subscription starting Nov 3 for 1 pkt/day (28 days active in Nov)
+  await db.prepare(`
+    INSERT INTO subscriptions (customer_id, product_id, quantity, frequency, start_date, is_active, created_at, updated_at)
+    VALUES (?, ?, 1, 'DAILY', '2026-11-03', 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
+  `).run(custId3, product.id);
+
+  const testCust3 = await db.prepare('SELECT * FROM customers WHERE id = ?').get(custId3);
+  const bill3 = await generateAdvanceBillForPrepaidCustomer(testCust3, testMonth, true);
+
+  // Expected: 2 days delivered (₹134) + 28 days scheduled (28 * (unitPrice + 2))
+  const expectedSubGross = 28 * (Number(product.selling_price) + 2);
+  const expectedCombinedGross = 134 + expectedSubGross;
+  assert.strictEqual(Number(bill3.gross_amount), expectedCombinedGross, `Bill gross must combine delivered (₹134) + scheduled (₹${expectedSubGross}) = ₹${expectedCombinedGross}, got ₹${bill3.gross_amount}`);
+  assert.strictEqual(Number(bill3.net_payable), expectedCombinedGross, `Net payable must be ₹${expectedCombinedGross}`);
+  assert.strictEqual(bill3.start_date, '2026-11-01', 'Bill start_date must start from earliest delivered date 2026-11-01');
+  assert.strictEqual(bill3.end_date, '2026-11-30', 'Bill end_date must end on month end 2026-11-30');
+
+  const bill3Items = JSON.parse(bill3.items_json);
+  assert.strictEqual(bill3Items.length, 2, 'Must have 2 items: delivered line item + scheduled line item');
+  assert.strictEqual(bill3Items[0].is_delivered, true, 'Item 0 must be the delivered days');
+  assert.strictEqual(bill3Items[0].total_quantity, 4, 'Delivered quantity must be 4');
+  assert.strictEqual(bill3Items[1].total_quantity, 28, 'Scheduled quantity must be 28');
+
+  const refreshedCust3 = await db.prepare('SELECT * FROM customers WHERE id = ?').get(custId3);
+  assert.strictEqual(Number(refreshedCust3.pending_balance), expectedCombinedGross, `Customer pending_balance must be updated to ₹${expectedCombinedGross}`);
+  console.log(`  ✓ Passed: Combined delivered (₹134) + scheduled (₹952) = ₹${expectedCombinedGross} accurately reflected in bill and customer balance ✓`);
+
   // Clean up test records
-  await db.prepare('DELETE FROM deliveries WHERE customer_id IN (?, ?)').run(custId1, custId2);
-  await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?)').run(custId1, custId2);
-  await db.prepare('DELETE FROM customer_ledger WHERE customer_id IN (?, ?)').run(custId1, custId2);
-  await db.prepare('DELETE FROM customers WHERE id IN (?, ?)').run(custId1, custId2);
+  await db.prepare('DELETE FROM deliveries WHERE customer_id IN (?, ?, ?)').run(custId1, custId2, custId3);
+  await db.prepare('DELETE FROM subscriptions WHERE customer_id IN (?, ?, ?)').run(custId1, custId2, custId3);
+  await db.prepare('DELETE FROM bills WHERE customer_id IN (?, ?, ?)').run(custId1, custId2, custId3);
+  await db.prepare('DELETE FROM customer_ledger WHERE customer_id IN (?, ?, ?)').run(custId1, custId2, custId3);
+  await db.prepare('DELETE FROM customers WHERE id IN (?, ?, ?)').run(custId1, custId2, custId3);
 
   console.log('\n=== ALL SUBSCRIPTION DELETION & BILLING SYNC TESTS PASSED! ===');
 }

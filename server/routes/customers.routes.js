@@ -734,6 +734,15 @@ router.post('/:id/subscriptions', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Valid product, positive quantity, and start date are required' });
     }
 
+    // Automatically synchronize customer billing and pending balance
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const targetMonth = (createdSubs[0]?.start_date ? createdSubs[0].start_date.slice(0, 7) : new Date().toISOString().slice(0, 7));
+      await syncCustomerBillingAfterSubscriptionChange(customerId, targetMonth);
+    } catch (syncErr) {
+      console.warn('Sync customer billing after subscription add warning:', syncErr.message);
+    }
+
     // Return array if items array was supplied, else single object
     res.status(201).json(Array.isArray(items) ? createdSubs : createdSubs[0]);
   } catch (err) {
@@ -779,6 +788,15 @@ router.put('/:customerId/subscriptions/:subId', requireAdmin, async (req, res) =
       JOIN products p ON s.product_id = p.id
       WHERE s.id = ?
     `).get(subId);
+
+    // Automatically synchronize customer billing and pending balance
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const targetMonth = (updated?.start_date ? updated.start_date.slice(0, 7) : new Date().toISOString().slice(0, 7));
+      await syncCustomerBillingAfterSubscriptionChange(customerId, targetMonth);
+    } catch (syncErr) {
+      console.warn('Sync customer billing after subscription update warning:', syncErr.message);
+    }
 
     res.json(updated);
   } catch (err) {

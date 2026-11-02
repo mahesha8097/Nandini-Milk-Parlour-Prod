@@ -168,6 +168,9 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
 
     const billNotes = notes || `${customerBillingType === 'PREPAID' ? 'Monthly Advance Bill' : 'Monthly Bill'} (${billing_month}, ${scheduledCount} active days, ${(off_days || []).length} off days)`;
 
+    const billStartDate = `${billing_month}-01`;
+    const billEndDate = `${billing_month}-${pad(daysInMonth)}`;
+
     let savedBillId = null;
 
     if (existingBill) {
@@ -185,6 +188,8 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
             status = ?,
             items_json = ?,
             notes = ?,
+            start_date = ?,
+            end_date = ?,
             updated_at = datetime('now', 'localtime')
         WHERE id = ?
       `).run(
@@ -197,6 +202,8 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
         billStatus,
         itemsJsonPayload,
         billNotes,
+        billStartDate,
+        billEndDate,
         existingBill.id
       );
       savedBillId = existingBill.id;
@@ -216,12 +223,12 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
           bill_number, customer_id, billing_month, billing_type, bill_date, due_date,
           total_deliveries_count, product_subtotal, delivery_charges_total, gross_amount,
           previous_due, advance_adjusted, net_payable, paid_amount, status, lifecycle_stage,
-          items_json, notes, agent_id, created_at, updated_at
+          items_json, notes, start_date, end_date, agent_id, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
           0, ?, ?, 0, ?, 'FINALIZED',
-          ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+          ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
         )
       `).run(
         billNumber,
@@ -239,6 +246,8 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
         billStatus,
         itemsJsonPayload,
         billNotes,
+        billStartDate,
+        billEndDate,
         customer.agent_id || req.agentId || 1
       );
       savedBillId = insertRes.lastInsertRowid;
