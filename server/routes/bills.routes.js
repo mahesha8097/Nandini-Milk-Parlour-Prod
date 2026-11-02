@@ -209,11 +209,14 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
       savedBillId = existingBill.id;
 
       if (netDiff !== 0) {
+        const freshCust = await db.prepare('SELECT pending_balance FROM customers WHERE id = ?').get(customer.id);
+        const curBal = Number(freshCust?.pending_balance || 0);
+        const newBal = Math.max(0, parseFloat((curBal + netDiff).toFixed(2)));
         await db.prepare(`
           UPDATE customers
-          SET pending_balance = MAX(0, pending_balance + ?), updated_at = datetime('now', 'localtime')
+          SET pending_balance = ?, updated_at = datetime('now', 'localtime')
           WHERE id = ?
-        `).run(netDiff, customer.id);
+        `).run(newBal, customer.id);
       }
     } else {
       const billNumber = `NB-${billing_month.replace('-', '')}-${customer.id.toString().padStart(4, '0')}`;
@@ -608,11 +611,14 @@ router.post('/:id/cancel', requireAdmin, async (req, res) => {
     // Revert customer pending balance if applicable
     if (bill.net_payable > 0) {
       const unpaid = Math.max(0, bill.net_payable - bill.paid_amount);
+      const freshCust = await db.prepare('SELECT pending_balance FROM customers WHERE id = ?').get(bill.customer_id);
+      const curBal = Number(freshCust?.pending_balance || 0);
+      const newBal = Math.max(0, parseFloat((curBal - unpaid).toFixed(2)));
       await db.prepare(`
         UPDATE customers
-        SET pending_balance = MAX(0, pending_balance - ?), updated_at = datetime('now', 'localtime')
+        SET pending_balance = ?, updated_at = datetime('now', 'localtime')
         WHERE id = ?
-      `).run(unpaid, bill.customer_id);
+      `).run(newBal, bill.customer_id);
     }
 
     await db.prepare(`
@@ -715,11 +721,14 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       // Revert pending balance if net_payable was added
       if (bill.net_payable > 0 && bill.status !== 'CANCELLED') {
         const unpaid = Math.max(0, bill.net_payable - (bill.paid_amount || 0));
+        const freshCust = await db.prepare('SELECT pending_balance FROM customers WHERE id = ?').get(customer.id);
+        const curBal = Number(freshCust?.pending_balance || 0);
+        const newBal = Math.max(0, parseFloat((curBal - unpaid).toFixed(2)));
         await db.prepare(`
           UPDATE customers 
-          SET pending_balance = MAX(0, pending_balance - ?), updated_at = datetime('now', 'localtime')
+          SET pending_balance = ?, updated_at = datetime('now', 'localtime')
           WHERE id = ?
-        `).run(unpaid, customer.id);
+        `).run(newBal, customer.id);
       }
 
       // Restore advance balance if advance was deducted by this bill

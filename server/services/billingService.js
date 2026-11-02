@@ -433,11 +433,14 @@ async function syncCustomerBillingAfterSubscriptionChange(customerId, targetMont
     for (const b of existingBills) {
       if (b.net_payable > 0) {
         const unpaid = Math.max(0, b.net_payable - (b.paid_amount || 0));
+        const freshCust = await db.prepare('SELECT pending_balance FROM customers WHERE id = ?').get(customerId);
+        const curBal = Number(freshCust?.pending_balance || 0);
+        const newBal = Math.max(0, parseFloat((curBal - unpaid).toFixed(2)));
         await db.prepare(`
           UPDATE customers
-          SET pending_balance = MAX(0, pending_balance - ?), updated_at = datetime('now', 'localtime')
+          SET pending_balance = ?, updated_at = datetime('now', 'localtime')
           WHERE id = ?
-        `).run(unpaid, customerId);
+        `).run(newBal, customerId);
       }
 
       if (b.advance_adjusted > 0) {

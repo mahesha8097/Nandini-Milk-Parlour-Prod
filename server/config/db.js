@@ -49,6 +49,34 @@ if (isProduction && process.env.DATABASE_URL) {
               RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
             END;
             $$ LANGUAGE plpgsql IMMUTABLE;
+
+            CREATE OR REPLACE FUNCTION max(a double precision, b double precision)
+            RETURNS double precision AS $$
+            BEGIN
+              RETURN GREATEST(a, b);
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE;
+
+            CREATE OR REPLACE FUNCTION max(a numeric, b numeric)
+            RETURNS numeric AS $$
+            BEGIN
+              RETURN GREATEST(a, b);
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE;
+
+            CREATE OR REPLACE FUNCTION min(a double precision, b double precision)
+            RETURNS double precision AS $$
+            BEGIN
+              RETURN LEAST(a, b);
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE;
+
+            CREATE OR REPLACE FUNCTION min(a numeric, b numeric)
+            RETURNS numeric AS $$
+            BEGIN
+              RETURN LEAST(a, b);
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE;
           `);
         } catch (e) {
           console.warn('Postgres functions init note:', e.message);
