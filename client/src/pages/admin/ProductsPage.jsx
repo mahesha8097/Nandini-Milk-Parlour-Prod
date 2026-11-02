@@ -56,6 +56,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [applyToToday, setApplyToToday] = useState(true);
 
   // Delete Modal State
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -109,6 +110,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
 
   const handleOpenEdit = (p) => {
     setEditingProduct(p);
+    setApplyToToday(true);
 
     // Determine category selection
     const isStdCategory = STANDARD_CATEGORIES.includes(p.category);
@@ -279,7 +281,8 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       category: finalCategory,
       variant_label: finalVariant,
       unit_volume_litres: volInLitres,
-      selling_price: parseFloat(formData.selling_price)
+      selling_price: parseFloat(formData.selling_price),
+      apply_to_today: editingProduct ? applyToToday : false
     };
 
     try {
@@ -1075,9 +1078,35 @@ export default function ProductsPage({ initialOpenAdd = false }) {
           </div>
 
           {editingProduct && (
-            <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid #e2e8f0', marginBottom: '16px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              Note: Updating price now will apply ONLY to future deliveries. Previous recorded deliveries will retain their original prices.
-            </div>
+            <>
+              <div style={{
+                background: '#f0fdf4',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid #bbf7d0',
+                marginBottom: '12px'
+              }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={applyToToday}
+                    onChange={(e) => setApplyToToday(e.target.checked)}
+                    style={{ width: '18px', height: '18px', marginTop: '2px', accentColor: '#16a34a' }}
+                  />
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#166534', display: 'block' }}>
+                      Apply new price to today's deliveries as well
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#15803d', display: 'block', marginTop: '2px' }}>
+                      Check this if the rate changed today so today's customer deliveries and billing reflect this new price.
+                    </span>
+                  </div>
+                </label>
+              </div>
+              <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid #e2e8f0', marginBottom: '16px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Note: Previous past days' recorded deliveries (before today) will strictly retain their original prices to protect historical billing records.
+              </div>
+            </>
           )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>

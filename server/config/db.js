@@ -230,9 +230,21 @@ if (isProduction && process.env.DATABASE_URL) {
               created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
             );
             CREATE INDEX IF NOT EXISTS idx_email_logs_date ON email_report_logs(report_date, report_type);
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER REFERENCES users(id),
+              action TEXT NOT NULL,
+              entity TEXT NOT NULL,
+              entity_id INTEGER,
+              details TEXT,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
+            CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
           `);
         } catch (e) {
-          console.warn('Postgres delivery_corrections / vacations / email_logs init note:', e.message);
+          console.warn('Postgres delivery_corrections / vacations / email_logs / audit_logs init note:', e.message);
         }
 
         // Seed initial routes if none exist for agent 1

@@ -155,6 +155,7 @@ async function runTests() {
   // Assert exact cron execution path completes without throwing unhandled parameter errors
   const cronDispatchResult = await sendDailyReportEmail({
     targetDate: testDate,
+    recipientEmail: 'test-cron@example.com',
     triggerType: 'CRON',
     force: true
   });

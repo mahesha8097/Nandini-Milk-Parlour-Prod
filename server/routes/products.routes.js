@@ -138,7 +138,8 @@ router.post('/', requireAdmin, async (req, res) => {
       fixed_delivery_charge,
       image_url,
       is_active,
-      is_coupon_eligible
+      is_coupon_eligible,
+      apply_to_today
     } = req.body;
 
     if (!name || !category || !variant_label || selling_price === undefined) {
@@ -188,15 +189,19 @@ router.post('/', requireAdmin, async (req, res) => {
     const newProduct = await db.prepare('SELECT * FROM products WHERE id = ?').get(newProductId);
 
     // Audit log
-    await db.prepare(`
-      INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
-      VALUES (?, 'CREATE_PRODUCT', 'products', ?, ?, datetime('now', 'localtime'))
-    `).run(req.user.id, newProduct.id, `Created product: ${newProduct.name} (${newProduct.variant_label}) at ₹${newProduct.selling_price}`);
+    try {
+      await db.prepare(`
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+        VALUES (?, 'CREATE_PRODUCT', 'products', ?, ?, datetime('now', 'localtime'))
+      `).run(req.user?.id || null, newProduct.id, `Created product: ${newProduct.name} (${newProduct.variant_label}) at ₹${newProduct.selling_price}`);
+    } catch (auditErr) {
+      console.warn('Audit log write warning (CREATE_PRODUCT):', auditErr.message);
+    }
 
     res.status(201).json(newProduct);
   } catch (err) {
     console.error('Create product error:', err);
-    res.status(500).json({ error: 'Failed to create product' });
+    res.status(500).json({ error: err.message || 'Failed to create product' });
   }
 });
 
@@ -219,19 +224,43 @@ router.put('/:id', requireAdmin, async (req, res) => {
       fixed_delivery_charge,
       image_url,
       is_active,
-      is_coupon_eligible
+      is_coupon_eligible,
+      apply_to_today
     } = req.body;
 
+    const rawPrice = selling_price !== undefined ? selling_price : existing.selling_price;
+    const price = parseFloat(rawPrice);
+    if (isNaN(price) || price < 0) {
+      return res.status(400).json({ error: 'Valid selling price is required' });
+    }
+
+    const trimmedName = (name !== undefined ? name : existing.name).toString().trim();
+    const trimmedCategory = (category !== undefined ? category : existing.category).toString().trim();
+    const trimmedVariant = (variant_label !== undefined ? variant_label : existing.variant_label).toString().trim();
+
+    if (!trimmedName) {
+      return res.status(400).json({ error: 'Product name cannot be empty' });
+    }
+    if (!trimmedCategory) {
+      return res.status(400).json({ error: 'Product category cannot be empty' });
+    }
+    if (!trimmedVariant) {
+      return res.status(400).json({ error: 'Product variant cannot be empty' });
+    }
+
     let vol = unit_volume_litres !== undefined ? parseFloat(unit_volume_litres) : existing.unit_volume_litres;
+    if (isNaN(vol) || vol < 0) vol = 0;
     if (vol > 10) {
       vol = parseFloat((vol / 1000).toFixed(3));
     }
-    const chargeType = delivery_charge_type || existing.delivery_charge_type;
-    const fixedCharge = fixed_delivery_charge !== undefined ? parseFloat(fixed_delivery_charge) : existing.fixed_delivery_charge;
+
+    const chargeType = delivery_charge_type || existing.delivery_charge_type || 'NONE';
+    const fixedCharge = fixed_delivery_charge !== undefined ? parseFloat(fixed_delivery_charge) || 0 : (existing.fixed_delivery_charge || 0);
     const active = is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active;
     const couponEligible = is_coupon_eligible !== undefined
       ? (is_coupon_eligible ? 1 : 0)
-      : (existing.is_coupon_eligible !== undefined ? existing.is_coupon_eligible : (existing.category === 'Milk' ? 1 : 0));
+      : (existing.is_coupon_eligible !== undefined ? existing.is_coupon_eligible : (trimmedCategory.toLowerCase() === 'milk' ? 1 : 0));
+    const imageUrl = image_url !== undefined ? (image_url ? image_url.trim() : null) : existing.image_url;
 
     await db.prepare(`
       UPDATE products
@@ -240,45 +269,77 @@ router.put('/:id', requireAdmin, async (req, res) => {
           is_coupon_eligible = ?, image_url = ?, is_active = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
-      (name || existing.name).trim(),
-      (category || existing.category).trim(),
-      (variant_label || existing.variant_label).trim(),
+      trimmedName,
+      trimmedCategory,
+      trimmedVariant,
       vol,
       price,
       chargeType,
       fixedCharge,
       couponEligible,
-      image_url !== undefined ? image_url : existing.image_url,
+      imageUrl,
       active,
       productId
     );
 
-    // If selling price changed, automatically synchronize any upcoming PENDING deliveries (tomorrow onwards)
-    if (price !== existing.selling_price) {
+    // If selling price or product details changed, automatically synchronize any upcoming PENDING deliveries (tomorrow onwards)
+    const oldPrice = parseFloat(existing.selling_price);
+    const priceChanged = Math.abs(price - oldPrice) > 0.001;
+    const detailsChanged = trimmedName !== existing.name || trimmedVariant !== existing.variant_label || trimmedCategory !== existing.category;
+
+    if (priceChanged || detailsChanged) {
+      // 1. Synchronize upcoming PENDING deliveries (tomorrow onwards)
       await db.prepare(`
         UPDATE deliveries
-        SET unit_price_snapshot = ?,
+        SET product_name_snapshot = ?,
+            category_snapshot = ?,
+            variant_snapshot = ?,
+            unit_volume_litres_snapshot = ?,
+            unit_price_snapshot = ?,
             total_product_amount = (? * quantity),
             total_amount = ((? * quantity) + delivery_charge_snapshot),
             updated_at = datetime('now', 'localtime')
         WHERE product_id = ?
           AND status = 'PENDING'
           AND delivery_date > date('now', 'localtime')
-      `).run(price, price, price, productId);
+      `).run(trimmedName, trimmedCategory, trimmedVariant, vol, price, price, price, productId);
+
+      // 2. If apply_to_today is enabled, synchronize today's deliveries (both DELIVERED and PENDING)
+      const shouldApplyToToday = apply_to_today === true || apply_to_today === 'true' || apply_to_today === 1 || apply_to_today === '1';
+      if (shouldApplyToToday) {
+        await db.prepare(`
+          UPDATE deliveries
+          SET product_name_snapshot = ?,
+              category_snapshot = ?,
+              variant_snapshot = ?,
+              unit_volume_litres_snapshot = ?,
+              unit_price_snapshot = ?,
+              total_product_amount = (? * quantity),
+              total_amount = ((? * quantity) + delivery_charge_snapshot),
+              updated_at = datetime('now', 'localtime')
+          WHERE product_id = ?
+            AND delivery_date = date('now', 'localtime')
+            AND status IN ('DELIVERED', 'PENDING')
+        `).run(trimmedName, trimmedCategory, trimmedVariant, vol, price, price, price, productId);
+      }
     }
 
     const updated = await db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
 
     // Audit log
-    await db.prepare(`
-      INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
-      VALUES (?, 'UPDATE_PRODUCT', 'products', ?, ?, datetime('now', 'localtime'))
-    `).run(req.user.id, productId, `Updated product ID ${productId}: Price ₹${existing.selling_price} -> ₹${price}`);
+    try {
+      await db.prepare(`
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+        VALUES (?, 'UPDATE_PRODUCT', 'products', ?, ?, datetime('now', 'localtime'))
+      `).run(req.user?.id || null, productId, `Updated product ID ${productId}: ${trimmedName} (${trimmedVariant}) - Price ₹${oldPrice} -> ₹${price}`);
+    } catch (auditErr) {
+      console.warn('Audit log write warning (UPDATE_PRODUCT):', auditErr.message);
+    }
 
     res.json(updated);
   } catch (err) {
     console.error('Update product error:', err);
-    res.status(500).json({ error: 'Failed to update product' });
+    res.status(500).json({ error: err.message || 'Failed to update product' });
   }
 });
 
@@ -353,10 +414,14 @@ router.delete('/:id', requireAdmin, async (req, res) => {
     await db.prepare('DELETE FROM products WHERE id = ?').run(productId);
 
     // Audit log
-    await db.prepare(`
-      INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
-      VALUES (?, 'DELETE_PRODUCT', 'products', ?, ?, datetime('now', 'localtime'))
-    `).run(req.user.id, productId, `Deleted product: ${existing.name} (${existing.variant_label}) [ID: ${productId}]`);
+    try {
+      await db.prepare(`
+        INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at)
+        VALUES (?, 'DELETE_PRODUCT', 'products', ?, ?, datetime('now', 'localtime'))
+      `).run(req.user?.id || null, productId, `Deleted product: ${existing.name} (${existing.variant_label}) [ID: ${productId}]`);
+    } catch (auditErr) {
+      console.warn('Audit log write warning (DELETE_PRODUCT):', auditErr.message);
+    }
 
     res.json({ message: `Product "${existing.name}" deleted successfully` });
   } catch (err) {
