@@ -683,7 +683,7 @@ export default function CustomerProfileModal({
               className="btn btn-outline btn-sm"
               style={{ fontSize: '0.8rem', fontWeight: '700', color: '#92400e', borderColor: '#fde68a', background: '#fef3c7' }}
             >
-              <Ticket size={14} /> + Issue Coupon Book
+              <Ticket size={14} /> Issue Coupon Book
             </button>
 
             {onEditCustomer && (
@@ -903,7 +903,7 @@ export default function CustomerProfileModal({
                     className="btn btn-primary btn-sm"
                     style={{ background: '#d97706', borderColor: '#b45309', fontSize: '0.8rem' }}
                   >
-                    <PlusCircle size={14} /> {showIssueBook && !couponForm.is_leftover ? 'Close Form' : '+ Issue New Coupon Book'}
+                    <PlusCircle size={14} /> {showIssueBook && !couponForm.is_leftover ? 'Close Form' : 'Issue New Coupon Book'}
                   </button>
                 </div>
               </div>
@@ -1117,7 +1117,7 @@ export default function CustomerProfileModal({
                 <EmptyState
                   icon={Ticket}
                   title="No coupon books issued yet"
-                  description="When customer takes a new coupon book, click '+ Issue New Coupon Book' or 'Record Leftover (₹0)' to credit coupons."
+                  description="When customer takes a new coupon book, click 'Issue New Coupon Book' or 'Record Leftover (₹0)' to credit coupons."
                   action={
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button

@@ -1707,7 +1707,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     title="Add reminder to Google Calendar (mobile notification)"
                   >
                     <Calendar size={12} />
-                    <span>+ Google Cal</span>
+                    <span>Google Cal</span>
                   </a>
                 )}
               </div>
@@ -3186,89 +3186,113 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           margin: '0 auto',
           boxSizing: 'border-box'
         }}>
-          {/* 1. Top Bar: Back, Stop / Zone, Next/Prev Controls */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', paddingBottom: '6px', borderBottom: '1px solid #f1f5f9' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-              <button
-                type="button"
-                onClick={() => setSelectedCustomerId(null)}
-                style={{
-                  background: '#eff6ff',
-                  border: '1px solid #bfdbfe',
-                  borderRadius: '6px',
-                  color: '#1d4ed8',
-                  fontWeight: 800,
-                  fontSize: '0.78rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  padding: '5px 10px',
-                  cursor: 'pointer',
-                  flexShrink: 0
-                }}
-              >
-                <ArrowLeft size={14} />
-                <span>Back</span>
-              </button>
-
-              <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {/* 1. Top Bar: Stop opposite to Date, Back / Prev / Next below with slightly bigger icons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '10px', borderBottom: '1px solid #f1f5f9' }}>
+            {/* Top row: Stop info on the left, Date opposite in top right corner */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                 {currentCustomerIndex >= 0 && (
-                  <span style={{ color: '#2563eb' }}>
-                    Stop {currentCustomerIndex + 1}/{zoneDeliveryQueue.length} •{' '}
+                  <span style={{
+                    background: '#eff6ff',
+                    color: '#1d4ed8',
+                    border: '1.5px solid #bfdbfe',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                    whiteSpace: 'nowrap'
+                  }}>
+                    Stop {currentCustomerIndex + 1}/{zoneDeliveryQueue.length}
                   </span>
                 )}
-                <span>{activeZone.name}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569' }}>
+                  • {activeZone.name}
+                </span>
+              </div>
+
+              {/* Date in top right corner opposite to Stop */}
+              <div style={{
+                fontSize: '0.82rem',
+                color: '#475569',
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}>
+                {formatDisplayDate(selectedDate)}
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-              <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 700, marginRight: '4px' }}>
-                {formatDisplayDate(selectedDate)}
-              </span>
-              {prevCustomer && (
+            {/* Bottom row: Back / Previous on left, Next in the right corner */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
                   type="button"
-                  onClick={() => setSelectedCustomerId(prevCustomer.customer_id)}
+                  onClick={() => setSelectedCustomerId(null)}
                   style={{
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '6px',
-                    padding: '4px 8px',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    color: '#334155',
-                    cursor: 'pointer',
+                    background: '#eff6ff',
+                    border: '1.5px solid #bfdbfe',
+                    borderRadius: '8px',
+                    color: '#1d4ed8',
+                    fontWeight: 800,
+                    fontSize: '0.84rem',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '2px'
+                    gap: '6px',
+                    padding: '7px 14px',
+                    cursor: 'pointer',
+                    flexShrink: 0
                   }}
-                  title={`Prev: ${prevCustomer.customer_name} (${prevCustomer.flat_no || ''})`}
                 >
-                  <ChevronLeft size={14} />
-                  <span>Prev</span>
+                  <ArrowLeft size={16} />
+                  <span>Back</span>
                 </button>
-              )}
+
+                {prevCustomer && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCustomerId(prevCustomer.customer_id)}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1.5px solid #cbd5e1',
+                      borderRadius: '8px',
+                      padding: '7px 13px',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      color: '#334155',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                    title={`Prev: ${prevCustomer.customer_name} (${prevCustomer.flat_no || ''})`}
+                  >
+                    <ChevronLeft size={16} />
+                    <span>Previous</span>
+                  </button>
+                )}
+              </div>
+
               {nextCustomer && (
                 <button
                   type="button"
                   onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
                   style={{
                     background: '#eff6ff',
-                    border: '1px solid #93c5fd',
-                    borderRadius: '6px',
-                    padding: '4px 8px',
-                    fontSize: '0.75rem',
+                    border: '1.5px solid #93c5fd',
+                    borderRadius: '8px',
+                    padding: '7px 16px',
+                    fontSize: '0.84rem',
                     fontWeight: 800,
                     color: '#1d4ed8',
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '2px'
+                    gap: '6px'
                   }}
                   title={`Next: ${nextCustomer.customer_name} (${nextCustomer.flat_no || ''})`}
                 >
                   <span>Next</span>
-                  <ChevronRight size={14} />
+                  <ChevronRight size={16} />
                 </button>
               )}
             </div>
@@ -3492,7 +3516,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   onClick={() => handleOpenExtra(activeCustomer)}
                   style={{ marginLeft: '8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: '5px', fontWeight: 800, cursor: 'pointer', fontSize: '0.75rem' }}
                 >
-                  + Add Extra Product
+                  Add Extra Product
                 </button>
               </div>
             ) : (
@@ -3916,28 +3940,28 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               </div>
             )}
 
-            {/* Bottom Utilities Row: Extra Product, Skip, Revert */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {/* Bottom Utilities Row: Extra Product, Skip, Revert (slightly bigger and easy to tap) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', paddingTop: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
                   type="button"
                   onClick={() => handleOpenExtra(activeCustomer.items[0] || activeCustomer)}
                   style={{
                     background: '#fffbeb',
                     color: '#b45309',
-                    border: '1px solid #fde68a',
-                    fontWeight: 700,
-                    fontSize: '0.74rem',
-                    padding: '4px 8px',
-                    borderRadius: '5px',
+                    border: '1.5px solid #fde68a',
+                    fontWeight: 800,
+                    fontSize: '0.82rem',
+                    padding: '7px 14px',
+                    borderRadius: '8px',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '6px',
                     cursor: 'pointer'
                   }}
                 >
-                  <PlusCircle size={12} color="#d97706" />
-                  <span>+ Extra Product</span>
+                  <PlusCircle size={15} color="#d97706" />
+                  <span>Extra Product</span>
                 </button>
 
                 {activeCustomer.customer_category === 'BULK_HOTEL' && (
@@ -3947,11 +3971,11 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     style={{
                       background: '#f3e8ff',
                       color: '#7c3aed',
-                      border: '1px solid #d8b4fe',
-                      fontWeight: 700,
-                      fontSize: '0.74rem',
-                      padding: '4px 8px',
-                      borderRadius: '5px',
+                      border: '1.5px solid #d8b4fe',
+                      fontWeight: 800,
+                      fontSize: '0.82rem',
+                      padding: '7px 13px',
+                      borderRadius: '8px',
                       cursor: 'pointer'
                     }}
                   >
@@ -3960,20 +3984,20 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 )}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {activeCustomer.items.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') && (
                   <button
                     type="button"
                     onClick={() => handleOpenSkip(activeCustomer)}
                     style={{
-                      background: 'none',
+                      background: '#fff7ed',
                       color: '#c2410c',
-                      border: 'none',
-                      fontWeight: 700,
-                      fontSize: '0.74rem',
+                      border: '1.5px solid #ffedd5',
+                      fontWeight: 800,
+                      fontSize: '0.82rem',
                       cursor: 'pointer',
-                      padding: '4px 6px',
-                      textDecoration: 'underline'
+                      padding: '7px 12px',
+                      borderRadius: '8px'
                     }}
                   >
                     Skip Customer
@@ -3985,19 +4009,20 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     type="button"
                     onClick={() => handleRevertCustomer(activeCustomer)}
                     style={{
-                      background: 'none',
-                      color: '#d97706',
-                      border: 'none',
-                      fontWeight: 700,
-                      fontSize: '0.74rem',
+                      background: '#fffbeb',
+                      color: '#b45309',
+                      border: '1.5px solid #fde68a',
+                      fontWeight: 800,
+                      fontSize: '0.82rem',
                       cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '3px',
-                      padding: '4px 6px'
+                      gap: '6px',
+                      padding: '7px 14px',
+                      borderRadius: '8px'
                     }}
                   >
-                    <RotateCcw size={11} />
+                    <RotateCcw size={14} />
                     <span>Revert to Pending</span>
                   </button>
                 )}
