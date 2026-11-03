@@ -765,7 +765,7 @@ async function recalculateCustomerDayDeliveries(customerId, deliveryDate) {
     SELECT id, billing_type, paid_amount FROM bills WHERE customer_id = ? AND billing_month = ?
   `).get(customerId, billingMonth);
 
-  if (existingBill && !existingBill.paid_amount && existingBill.billing_type !== 'PREPAID') {
+  if (existingBill && !existingBill.paid_amount && existingBill.billing_type !== 'PREPAID' && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
     try {
       const { generateBillForCustomer } = require('../services/billingService');
       await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
@@ -1492,7 +1492,7 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
     if (targetDel && targetDel.status === 'DELIVERED') {
       const billingMonth = targetDate.slice(0, 7);
       const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
-      if (existingBill && existingBill.billing_type !== 'PREPAID') {
+      if (existingBill && existingBill.billing_type !== 'PREPAID' && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
         try {
           const { generateBillForCustomer } = require('../services/billingService');
           await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
@@ -1700,7 +1700,7 @@ router.post('/extra', verifyToken, async (req, res) => {
       SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?
     `).get(customer.id, billingMonth);
 
-    if (existingBill && existingBill.billing_type !== 'PREPAID') {
+    if (existingBill && existingBill.billing_type !== 'PREPAID' && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
       try {
         const { generateBillForCustomer } = require('../services/billingService');
         await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });

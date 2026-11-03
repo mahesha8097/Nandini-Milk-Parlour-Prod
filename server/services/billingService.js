@@ -389,8 +389,8 @@ async function syncCustomerBillingAfterSubscriptionChange(customerId, targetMont
   const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
   if (!customer) return null;
 
-  if (customer.billing_type === 'COUPON') {
-    return null; // Coupons handle their own balance
+  if (customer.billing_type === 'COUPON' || customer.billing_type === 'WEEKLY') {
+    return null; // Coupons and Weekly customers handle their own billing cycles
   }
 
   const daysInMonth = getDaysInMonth(currentMonthStr);
@@ -1781,6 +1781,11 @@ async function generateBillForCustomer(customer, billingMonth, { billingBasis = 
     return null;
   }
 
+  // Weekly billing customers are strictly billed on a weekly cycle (Mon-Sun), never on monthly bills
+  if (customer.billing_type === 'WEEKLY') {
+    return null;
+  }
+
   // 1. Bulk / Hotel customers strictly use delivered milk billing
   if (customer.customer_category === 'BULK_HOTEL') {
     return await generateDeliveredMilkBill(customer, billingMonth, forceRegenerate);
@@ -1864,7 +1869,7 @@ async function runMonthlyBillGeneration(targetMonth, options = {}) {
   const agentId = typeof options === 'object' && options.agentId ? options.agentId : null;
   const currentMonthStr = targetMonth || new Date().toISOString().slice(0, 7); // YYYY-MM
   
-  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE' AND (billing_type IS NULL OR billing_type != 'COUPON')`;
+  let custQuery = `SELECT * FROM customers WHERE status = 'ACTIVE' AND (billing_type IS NULL OR (billing_type != 'COUPON' AND billing_type != 'WEEKLY'))`;
   const custParams = [];
   if (agentId) {
     custQuery += ` AND agent_id = ?`;

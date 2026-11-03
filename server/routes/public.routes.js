@@ -92,8 +92,34 @@ router.get('/statement', async (req, res) => {
 
     // If bill was not provided by ID, find the appropriate bill for this customer:
     if (!bill) {
+      // 0. For WEEKLY customers: prioritize their weekly invoices
+      if (customer.billing_type === 'WEEKLY') {
+        if (targetMonth && targetMonth.includes(' to ')) {
+          bill = await db.prepare(`
+            SELECT * FROM bills 
+            WHERE customer_id = ? AND billing_type = 'WEEKLY' AND (billing_month = ? OR (start_date <= ? AND end_date >= ?))
+            ORDER BY id DESC LIMIT 1
+          `).get(customer.id, targetMonth, targetMonth.split(' to ')[1]?.trim() || '', targetMonth.split(' to ')[0]?.trim() || '');
+        }
+        if (!bill && targetMonth && typeof targetMonth === 'string' && targetMonth.length === 7) {
+          bill = await db.prepare(`
+            SELECT * FROM bills 
+            WHERE customer_id = ? AND billing_type = 'WEEKLY'
+              AND (billing_month LIKE ? OR start_date LIKE ? OR end_date LIKE ?)
+            ORDER BY id DESC LIMIT 1
+          `).get(customer.id, `%${targetMonth}%`, `${targetMonth}%`, `${targetMonth}%`);
+        }
+        if (!bill) {
+          bill = await db.prepare(`
+            SELECT * FROM bills 
+            WHERE customer_id = ? AND billing_type = 'WEEKLY'
+            ORDER BY id DESC LIMIT 1
+          `).get(customer.id);
+        }
+      }
+
       // 1. Try exact match on billing_month (for monthly bills or exact range)
-      if (targetMonth) {
+      if (!bill && targetMonth) {
         bill = await db.prepare(`
           SELECT * FROM bills 
           WHERE customer_id = ? AND billing_month = ?
@@ -154,6 +180,51 @@ router.get('/statement', async (req, res) => {
     if (!profile) {
       profile = await db.prepare('SELECT * FROM business_profile WHERE id = 1').get();
     }
+
+    // Fetch available bills for customer so they can toggle past weeks/months
+    const billRows = await db.prepare(`
+      SELECT id, bill_number, billing_month, billing_type, start_date, end_date,
+             gross_amount, net_payable, paid_amount, status
+      FROM bills
+      WHERE customer_id = ? AND status != 'CANCELLED'
+      ORDER BY id DESC
+      LIMIT 15
+    `).all(customer.id);
+
+    const availableBills = billRows.map(b => ({
+      id: b.id,
+      billNumber: b.bill_number,
+      billingMonth: b.billing_month,
+      period: b.billing_month || (b.start_date && b.end_date ? `${b.start_date} to ${b.end_date}` : ''),
+      startDate: b.start_date,
+      endDate: b.end_date,
+      grossAmount: Number(b.gross_amount || 0),
+      netPayable: Number(b.net_payable || 0),
+      paidAmount: Number(b.paid_amount || 0),
+      status: b.status,
+      billingType: b.billing_type,
+      isCurrent: Boolean(bill && bill.id === b.id)
+    }));
+
+    // Fetch verified payments for customer
+    const paymentRows = await db.prepare(`
+      SELECT id, receipt_number, amount, payment_date, payment_method, reference_number, notes, created_at
+      FROM payments
+      WHERE customer_id = ? AND (is_deleted = 0 OR is_deleted IS NULL)
+      ORDER BY payment_date DESC, id DESC
+      LIMIT 10
+    `).all(customer.id);
+
+    const payments = paymentRows.map(p => ({
+      id: p.id,
+      receiptNumber: p.receipt_number,
+      amount: Number(p.amount || 0),
+      paymentDate: p.payment_date,
+      paymentMethod: p.payment_method,
+      referenceNumber: p.reference_number || '',
+      notes: p.notes || '',
+      createdAt: p.created_at
+    }));
 
     // Determine start date, end date, display month, and period label
     let startDate = '';
@@ -588,7 +659,9 @@ router.get('/statement', async (req, res) => {
           netPayable: finalNetPayable,
           daysInMonth
         },
-        days: daysList
+        days: daysList,
+        availableBills,
+        payments
       });
 
     // =========================================================================
@@ -695,7 +768,9 @@ router.get('/statement', async (req, res) => {
           daysInMonth: daysInPeriod,
           periodLabel: periodLabel || displayMonth
         },
-        days: daysList
+        days: daysList,
+        availableBills,
+        payments
       });
     }
   } catch (err) {

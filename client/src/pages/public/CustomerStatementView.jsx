@@ -184,7 +184,7 @@ export default function CustomerStatementView() {
     );
   }
 
-  const { customer, parlour, bill, summary, days } = data;
+  const { customer, parlour, bill, summary, days, availableBills, payments } = data;
   const isPrepaid = (data.billingType === 'PREPAID' || (summary && summary.billingType === 'PREPAID'));
   const isWeekly = Boolean(data.isWeekly || (bill && bill.billingType === 'WEEKLY') || customer?.billingType === 'WEEKLY');
   const monthBillValue = (bill ? Number(bill.grossAmount) : Number(summary.monthBillGross || summary.totalDeliveryAmount || 0));
@@ -246,28 +246,106 @@ export default function CustomerStatementView() {
           </h1>
         </div>
 
-        {/* Month Filter Selector */}
+        {/* Invoice / Month Filter Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={handleMonthChange}
-            style={{
-              backgroundColor: '#0f172a',
-              color: '#38bdf8',
-              border: '1px solid #334155',
-              borderRadius: '6px',
-              padding: '6px 10px',
-              fontSize: '0.85rem',
-              fontWeight: 700,
-              cursor: 'pointer'
-            }}
-          />
+          {availableBills && availableBills.length > 1 ? (
+            <select
+              value={bill ? bill.id : ''}
+              onChange={(e) => {
+                const bId = e.target.value;
+                const chosen = availableBills.find(x => String(x.id) === String(bId));
+                if (chosen) {
+                  fetchStatement(customer.id, chosen.period || chosen.billingMonth, chosen.id);
+                }
+              }}
+              style={{
+                backgroundColor: '#0f172a',
+                color: '#38bdf8',
+                border: '1px solid #334155',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                maxWidth: '220px'
+              }}
+            >
+              {availableBills.map(b => (
+                <option key={b.id} value={b.id}>
+                  {b.period || b.billNumber} ({b.status === 'PAID' ? '✓ Paid' : `₹${b.netPayable}`})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={handleMonthChange}
+              style={{
+                backgroundColor: '#0f172a',
+                color: '#38bdf8',
+                border: '1px solid #334155',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            />
+          )}
         </div>
       </header>
 
       {/* Main Container */}
       <main style={{ maxWidth: '680px', margin: '0 auto', padding: '16px' }}>
+        
+        {/* Available Invoices / Weeks Pill Bar (if multiple bills available) */}
+        {availableBills && availableBills.length > 1 && (
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            overflowX: 'auto',
+            paddingBottom: '12px',
+            marginBottom: '8px',
+            scrollbarWidth: 'none'
+          }}>
+            {availableBills.map(b => {
+              const isActive = bill && bill.id === b.id;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => fetchStatement(customer.id, b.period || b.billingMonth, b.id)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    border: `1px solid ${isActive ? '#38bdf8' : '#334155'}`,
+                    backgroundColor: isActive ? 'rgba(56, 189, 248, 0.18)' : '#0f172a',
+                    color: isActive ? '#38bdf8' : '#94a3b8',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>{b.period || b.billNumber}</span>
+                  <span style={{
+                    fontSize: '0.68rem',
+                    padding: '1px 5px',
+                    borderRadius: '4px',
+                    backgroundColor: b.status === 'PAID' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(234, 179, 8, 0.2)',
+                    color: b.status === 'PAID' ? '#4ade80' : '#facc15'
+                  }}>
+                    {b.status === 'PAID' ? '✓ PAID' : `₹${b.netPayable}`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         
         {/* Printable/Savable Statement Summary Card */}
         <div 
@@ -496,6 +574,85 @@ export default function CustomerStatementView() {
             )}
           </div>
         </div>
+
+        {/* Payment Records Section (Safely logged in database) */}
+        {payments && payments.length > 0 && (
+          <div style={{
+            backgroundColor: '#0a0a0a',
+            border: '1px solid #1e293b',
+            borderRadius: '16px',
+            padding: '16px 20px',
+            marginBottom: '20px'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '12px'
+            }}>
+              <div style={{
+                fontSize: '0.85rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: '#4ade80',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <CheckCircle2 size={16} color="#4ade80" />
+                <span>Payment Records ({payments.length})</span>
+              </div>
+              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                Secure Database Log
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {payments.map(p => (
+                <div
+                  key={p.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    backgroundColor: '#141414',
+                    border: '1px solid #262626',
+                    borderRadius: '10px',
+                    padding: '10px 14px',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 800, color: '#ffffff', letterSpacing: '-0.01em' }}>
+                      {p.receiptNumber}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
+                      {p.paymentDate} • Paid via {p.paymentMethod}{p.referenceNumber ? ` • Ref: ${p.referenceNumber}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 800, color: '#4ade80', fontSize: '1rem' }}>
+                      ₹{Number(p.amount).toFixed(2)}
+                    </div>
+                    <span style={{
+                      display: 'inline-block',
+                      fontSize: '0.68rem',
+                      fontWeight: 800,
+                      color: '#22c55e',
+                      backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      marginTop: '2px'
+                    }}>
+                      RECEIVED ✓
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Section Heading */}
         <div style={{
