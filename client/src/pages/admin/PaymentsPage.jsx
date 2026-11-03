@@ -214,7 +214,7 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     setFormData({
       customer_id: cust.id,
       bill_id: firstBill ? firstBill.id : null,
-      payment_type: cust.billing_type === 'PREPAID' ? 'ADVANCE_PAYMENT' : 'POSTPAID_BILL_PAYMENT',
+      payment_type: (cust.billing_type === 'PREPAID' || cust.billing_type === 'COUPON') ? 'ADVANCE_PAYMENT' : 'POSTPAID_BILL_PAYMENT',
       amount: String(dueAmount > 0 ? dueAmount : ''),
       payment_date: getLocalDateString(),
       payment_method: 'UPI',
@@ -779,6 +779,8 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                   <option value="PREPAID">Prepaid (Advance)</option>
                   <option value="POSTPAID">Postpaid</option>
                   <option value="WEEKLY">Weekly</option>
+                  <option value="COUPON">Coupon Customers</option>
+                  <option value="DAILY">Daily Spot</option>
                 </select>
 
                 {/* Sort By */}
@@ -926,6 +928,8 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                               <span className="badge badge-indigo" style={{ fontSize: '0.72rem' }}>Weekly Billing</span>
                             ) : cust.billing_type === 'DAILY' ? (
                               <span className="badge badge-warning" style={{ fontSize: '0.72rem' }}>Daily Spot</span>
+                            ) : cust.billing_type === 'COUPON' ? (
+                              <span className="badge" style={{ fontSize: '0.72rem', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontWeight: '700' }}>Coupon Plan</span>
                             ) : (
                               <span className="badge badge-gray" style={{ fontSize: '0.72rem' }}>Postpaid</span>
                             )}
@@ -1070,7 +1074,17 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                       <div className="mobile-card-row">
                         <span className="mobile-card-row-label">Plan & Unpaid Bills</span>
                         <div style={{ textAlign: 'right' }}>
-                          <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>{cust.billing_type}</span>
+                          {cust.billing_type === 'PREPAID' ? (
+                            <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>Prepaid</span>
+                          ) : cust.billing_type === 'WEEKLY' ? (
+                            <span className="badge badge-indigo" style={{ fontSize: '0.7rem' }}>Weekly</span>
+                          ) : cust.billing_type === 'DAILY' ? (
+                            <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>Daily</span>
+                          ) : cust.billing_type === 'COUPON' ? (
+                            <span className="badge" style={{ fontSize: '0.7rem', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>Coupon</span>
+                          ) : (
+                            <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>Postpaid</span>
+                          )}
                           {cust.unpaid_bills && cust.unpaid_bills.length > 0 ? (
                             <div style={{ fontSize: '0.72rem', color: '#dc2626', fontWeight: '700', marginTop: '2px' }}>
                               {cust.unpaid_bills.length} Unpaid {cust.unpaid_bills.length === 1 ? 'Bill' : 'Bills'}
