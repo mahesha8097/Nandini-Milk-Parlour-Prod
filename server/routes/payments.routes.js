@@ -65,6 +65,120 @@ router.get('/', requireAdmin, async (req, res) => {
   }
 });
 
+// Get all customers with pending dues and their active unpaid bills (Admin only)
+router.get('/pending-customers', requireAdmin, async (req, res) => {
+  try {
+    const agentId = req.agentId || 1;
+    const { route, category, billing_type, search } = req.query;
+
+    let query = `
+      SELECT c.id, c.name, c.phone, c.flat_no, c.address, c.customer_category,
+             c.billing_type, c.pending_balance, c.advance_balance, c.route,
+             z.name as zone_name,
+             u.name as delivery_boy_name
+      FROM customers c
+      LEFT JOIN zones z ON c.zone_id = z.id
+      LEFT JOIN users u ON c.delivery_boy_id = u.id
+      WHERE (c.agent_id = ? OR c.agent_id IS NULL)
+        AND c.pending_balance > 0
+    `;
+    const params = [agentId];
+
+    if (route) {
+      query += ` AND c.route = ?`;
+      params.push(route);
+    }
+    if (category) {
+      query += ` AND c.customer_category = ?`;
+      params.push(category);
+    }
+    if (billing_type) {
+      query += ` AND c.billing_type = ?`;
+      params.push(billing_type);
+    }
+    if (search) {
+      query += ` AND (LOWER(c.name) LIKE ? OR c.phone LIKE ? OR LOWER(c.flat_no) LIKE ?)`;
+      const term = `%${search.toLowerCase()}%`;
+      params.push(term, term, term);
+    }
+
+    query += ` ORDER BY c.pending_balance DESC, c.name ASC`;
+
+    const customers = await db.prepare(query).all(...params);
+
+    // Fetch active unpaid bills for these customers to provide rich context
+    const unpaidBills = await db.prepare(`
+      SELECT id, customer_id, bill_number, billing_month, billing_type,
+             start_date, end_date, gross_amount, net_payable,
+             COALESCE(paid_amount, 0) as paid_amount, status
+      FROM bills
+      WHERE (agent_id = ? OR agent_id IS NULL)
+        AND status != 'CANCELLED'
+        AND status != 'PAID'
+        AND net_payable > COALESCE(paid_amount, 0)
+      ORDER BY id DESC
+    `).all(agentId);
+
+    const billsByCustomer = {};
+    for (const b of unpaidBills) {
+      if (!billsByCustomer[b.customer_id]) {
+        billsByCustomer[b.customer_id] = [];
+      }
+      billsByCustomer[b.customer_id].push({
+        id: b.id,
+        bill_number: b.bill_number,
+        billing_month: b.billing_month,
+        period: b.billing_month || (b.start_date && b.end_date ? `${b.start_date} to ${b.end_date}` : ''),
+        billing_type: b.billing_type,
+        gross_amount: Number(b.gross_amount || 0),
+        net_payable: Number(b.net_payable || 0),
+        paid_amount: Number(b.paid_amount || 0),
+        remaining_due: Math.max(0, parseFloat((Number(b.net_payable || 0) - Number(b.paid_amount || 0)).toFixed(2))),
+        status: b.status
+      });
+    }
+
+    const result = customers.map(c => ({
+      ...c,
+      pending_balance: Number(c.pending_balance || 0),
+      advance_balance: Number(c.advance_balance || 0),
+      unpaid_bills: billsByCustomer[c.id] || [],
+      unpaid_bills_count: (billsByCustomer[c.id] || []).length
+    }));
+
+    // Summary metrics
+    const totalPendingAmount = result.reduce((sum, c) => sum + c.pending_balance, 0);
+    const totalCount = result.length;
+
+    const routesSet = new Set();
+    result.forEach(c => {
+      if (c.route && c.route.trim()) routesSet.add(c.route.trim());
+    });
+
+    res.json({
+      customers: result,
+      summary: {
+        total_pending_amount: parseFloat(totalPendingAmount.toFixed(2)),
+        total_customers_count: totalCount,
+        house_count: result.filter(c => c.customer_category === 'HOUSE').length,
+        house_pending_amount: parseFloat(result.filter(c => c.customer_category === 'HOUSE').reduce((s, c) => s + c.pending_balance, 0).toFixed(2)),
+        bulk_count: result.filter(c => c.customer_category !== 'HOUSE').length,
+        bulk_pending_amount: parseFloat(result.filter(c => c.customer_category !== 'HOUSE').reduce((s, c) => s + c.pending_balance, 0).toFixed(2)),
+        weekly_count: result.filter(c => c.billing_type === 'WEEKLY').length,
+        weekly_pending_amount: parseFloat(result.filter(c => c.billing_type === 'WEEKLY').reduce((s, c) => s + c.pending_balance, 0).toFixed(2)),
+        prepaid_count: result.filter(c => c.billing_type === 'PREPAID').length,
+        prepaid_pending_amount: parseFloat(result.filter(c => c.billing_type === 'PREPAID').reduce((s, c) => s + c.pending_balance, 0).toFixed(2)),
+        postpaid_count: result.filter(c => c.billing_type === 'POSTPAID').length,
+        postpaid_pending_amount: parseFloat(result.filter(c => c.billing_type === 'POSTPAID').reduce((s, c) => s + c.pending_balance, 0).toFixed(2)),
+        routes: Array.from(routesSet).sort()
+      }
+    });
+  } catch (err) {
+    console.error('Fetch pending customers error:', err);
+    res.status(500).json({ error: 'Failed to fetch pending customers' });
+  }
+});
+
 // Record new payment (Admin only)
 router.post('/', requireAdmin, async (req, res) => {
   try {
