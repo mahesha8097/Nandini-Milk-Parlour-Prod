@@ -437,20 +437,20 @@ export default function DeliveryCalendarPage() {
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: '16px',
-        marginBottom: '20px'
+        gap: '12px',
+        marginBottom: '16px'
       }}>
         <div>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Calendar size={28} color="var(--primary)" />
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Calendar size={26} color="var(--primary)" />
             <span>Customer Delivery Calendar</span>
           </h1>
-          <p style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.88rem', fontWeight: 500 }}>
+          <p className="desktop-only" style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>
             Schedule milk pauses & vacations, notify delivery boys, get prior resume reminders, and sync to Google Calendar.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="calendar-header-actions">
           <button
             type="button"
             onClick={() => handleOpenScheduleModal(null, 'CUSTOM_DATES')}
@@ -458,17 +458,17 @@ export default function DeliveryCalendarPage() {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
               fontWeight: 800,
-              padding: '10px 16px',
+              padding: '9px 14px',
               color: '#b91c1c',
               borderColor: '#fca5a5',
               background: '#fef2f2',
-              boxShadow: '0 2px 8px rgba(220,38,38,0.1)'
+              boxShadow: '0 2px 8px rgba(220,38,38,0.08)'
             }}
             title="Mark specific dates when customer requests no milk"
           >
-            <Calendar size={18} color="#dc2626" />
+            <Calendar size={16} color="#dc2626" />
             <span>Mark "No Milk" Dates</span>
           </button>
 
@@ -479,83 +479,83 @@ export default function DeliveryCalendarPage() {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '6px',
               fontWeight: 800,
-              padding: '10px 18px',
-              boxShadow: '0 4px 14px rgba(0,84,166,0.25)'
+              padding: '9px 16px',
+              boxShadow: '0 4px 14px rgba(0,84,166,0.2)'
             }}
           >
-            <Plus size={18} />
+            <Plus size={16} />
             <span>Schedule Milk Pause</span>
           </button>
 
           <button
             type="button"
             onClick={() => fetchCalendarData(true)}
-            className="btn btn-outline"
-            style={{ padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            className="btn btn-outline btn-refresh"
+            style={{ padding: '9px 12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             title="Refresh Calendar"
             disabled={refreshing}
           >
-            <RefreshCw size={18} className={refreshing ? 'spin' : ''} />
+            <RefreshCw size={16} className={refreshing ? 'spin' : ''} />
           </button>
         </div>
       </div>
 
       {/* Real-time Today & Tomorrow Alert Banners */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px', marginBottom: '22px' }}>
+      <div className="calendar-alert-grid">
         {/* Banner 1: Paused Today (Delivery Boy Do Not Deliver Warning) */}
         <div style={{
           background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-card)',
           border: `1.5px solid ${notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--border-color)'}`,
           borderRadius: '12px',
-          padding: '14px 18px',
+          padding: '12px 14px',
           display: 'flex',
           alignItems: 'flex-start',
-          gap: '12px'
+          gap: '10px'
         }}>
           <div style={{
             background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-surface)',
             color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)',
-            width: '40px',
-            height: '40px',
-            borderRadius: '10px',
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <XCircle size={22} />
+            <XCircle size={20} />
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.76rem', fontWeight: 800, color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
                 Today's Paused Deliveries ({notifications.pausedCount})
               </span>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>
                 {formatDisplayDate(todayStr)}
               </span>
             </div>
             {notifications.pausedCount > 0 ? (
-              <div style={{ marginTop: '4px' }}>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-red)' }}>
+              <div style={{ marginTop: '3px' }}>
+                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: 'var(--accent-red)' }}>
                   ⛔ DO NOT DELIVER: {notifications.pausedCount} customer{notifications.pausedCount > 1 ? 's' : ''} requested milk stop today.
                 </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
                   {notifications.pausedToday.slice(0, 3).map((p, i) => (
-                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
+                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '0.72rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px' }}>
                       {p.flat_no ? `${p.flat_no} - ` : ''}{p.customer_name}
                     </span>
                   ))}
                   {notifications.pausedCount > 3 && (
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-red)' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-red)' }}>
                       +{notifications.pausedCount - 3} more
                     </span>
                   )}
                 </div>
               </div>
             ) : (
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              <p style={{ margin: '3px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 No active delivery pauses today. Normal route delivery in progress.
               </p>
             )}
@@ -567,48 +567,48 @@ export default function DeliveryCalendarPage() {
           background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-card)',
           border: `1.5px solid ${notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--border-color)'}`,
           borderRadius: '12px',
-          padding: '14px 18px',
+          padding: '12px 14px',
           display: 'flex',
           alignItems: 'flex-start',
-          gap: '12px'
+          gap: '10px'
         }}>
           <div style={{
             background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-surface)',
             color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)',
-            width: '40px',
-            height: '40px',
-            borderRadius: '10px',
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Bell size={22} />
+            <Bell size={20} />
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.76rem', fontWeight: 800, color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
                 🔔 1-Day Prior Alert: Resumes Tomorrow ({notifications.resumingCount})
               </span>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>
                 Tomorrow: {formatDisplayDate(notifications.tomorrow || addDays(todayStr, 1))}
               </span>
             </div>
             {notifications.resumingCount > 0 ? (
-              <div style={{ marginTop: '4px' }}>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: 'var(--primary)' }}>
+              <div style={{ marginTop: '3px' }}>
+                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)' }}>
                   Procure milk today: {notifications.resumingCount} customer{notifications.resumingCount > 1 ? 's' : ''} resume milk tomorrow!
                 </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
                   {notifications.resumingTomorrow.map((r, i) => (
-                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>
+                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: '0.72rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px' }}>
                       {r.flat_no ? `${r.flat_no} - ` : ''}{r.customer_name} ({r.products_summary || 'Milk'})
                     </span>
                   ))}
                 </div>
               </div>
             ) : (
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              <p style={{ margin: '3px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 No customer delivery pauses are scheduled to resume tomorrow.
               </p>
             )}
@@ -617,17 +617,17 @@ export default function DeliveryCalendarPage() {
       </div>
 
       {/* Main Filter & Navigation Controls Card */}
-      <div className="card" style={{ padding: '16px', marginBottom: '18px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+      <div className="card calendar-controls-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           {/* Month Stepper */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="calendar-stepper-row">
             <button type="button" onClick={handlePrevMonth} className="btn btn-outline btn-sm" title="Previous Month">
               <ChevronLeft size={16} />
             </button>
             <input
               type="month"
               className="form-input"
-              style={{ fontWeight: 800, fontSize: '0.9rem', width: '160px', padding: '6px 10px' }}
+              style={{ fontWeight: 800, fontSize: '0.88rem', padding: '6px 10px' }}
               value={selectedMonth}
               onChange={(e) => {
                 setSelectedMonth(e.target.value);
@@ -637,28 +637,29 @@ export default function DeliveryCalendarPage() {
             <button type="button" onClick={handleNextMonth} className="btn btn-outline btn-sm" title="Next Month">
               <ChevronRight size={16} />
             </button>
-            <button type="button" onClick={handleCurrentMonth} className="btn btn-outline btn-sm" style={{ fontWeight: 700 }}>
-              Current Month
+            <button type="button" onClick={handleCurrentMonth} className="btn btn-outline btn-sm" style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <span className="desktop-only">Current Month</span>
+              <span className="mobile-only">Today</span>
             </button>
           </div>
 
           {/* Search & Route Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', width: '200px' }}>
+          <div className="calendar-filters-row">
+            <div className="search-box" style={{ position: 'relative' }}>
               <Search size={15} style={{ position: 'absolute', left: '10px', top: '10px', color: '#94a3b8' }} />
               <input
                 type="text"
                 placeholder="Search customer / flat..."
                 className="form-input"
-                style={{ paddingLeft: '32px', fontSize: '0.85rem' }}
+                style={{ paddingLeft: '32px', fontSize: '0.85rem', width: '100%' }}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
 
             <select
-              className="form-select"
-              style={{ fontSize: '0.85rem', fontWeight: 700, width: '150px' }}
+              className="form-select route-select"
+              style={{ fontSize: '0.85rem', fontWeight: 700 }}
               value={routeFilter}
               onChange={(e) => setRouteFilter(e.target.value)}
             >
@@ -669,7 +670,7 @@ export default function DeliveryCalendarPage() {
             </select>
 
             {/* View Switcher */}
-            <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
+            <div className="view-switcher" style={{ background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
               <button
                 type="button"
                 onClick={() => setViewMode('GRID')}
@@ -709,7 +710,7 @@ export default function DeliveryCalendarPage() {
         </div>
 
         {selectedDateFilter && (
-          <div style={{
+          <div className="desktop-only" style={{
             marginTop: '12px',
             padding: '12px 16px',
             background: '#f8fafc',
@@ -808,9 +809,9 @@ export default function DeliveryCalendarPage() {
 
       {/* VIEW MODE: MONTH GRID */}
       {viewMode === 'GRID' ? (
-        <div className="card" style={{ padding: '16px' }}>
+        <div className="card calendar-grid-card">
           {/* Day of Week Labels */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', textAlign: 'center', marginBottom: '8px' }}>
+          <div className="calendar-weekdays-header">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dw, i) => (
               <div key={dw} style={{
                 fontSize: '0.78rem',
@@ -819,24 +820,25 @@ export default function DeliveryCalendarPage() {
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em'
               }}>
-                {dw}
+                <span className="desktop-only">{dw}</span>
+                <span className="mobile-only">{dw.slice(0, 2)}</span>
               </div>
             ))}
           </div>
 
           {/* Calendar Grid Cells */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
+          <div className="calendar-cells-grid">
             {calendarGridData.map((cell) => {
               if (cell.blank) {
                 return (
                   <div
                     key={cell.key}
+                    className="calendar-day-cell"
                     style={{
-                      minHeight: '105px',
                       background: 'var(--bg-surface)',
                       borderRadius: '8px',
                       border: '1px dashed var(--border-color)',
-                      opacity: 0.5
+                      opacity: 0.4
                     }}
                   />
                 );
@@ -855,47 +857,93 @@ export default function DeliveryCalendarPage() {
                       setSelectedDateFilter(cell.dateStr);
                     }
                   }}
+                  className="calendar-day-cell"
                   style={{
-                    minHeight: '105px',
                     background: cell.isToday ? 'var(--secondary-light)' : (isFiltered ? 'var(--primary-light)' : 'var(--bg-card)'),
-                    borderRadius: '10px',
                     border: `1.5px solid ${cell.isToday ? 'var(--secondary)' : (isFiltered ? 'var(--primary)' : 'var(--border-color)')}`,
-                    padding: '8px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    boxShadow: isFiltered ? '0 4px 12px rgba(37,99,235,0.15)' : 'none',
-                    position: 'relative'
+                    boxShadow: isFiltered ? '0 4px 12px rgba(37,99,235,0.18)' : 'none'
                   }}
                 >
                   {/* Cell Header: Day Number & Today indicator */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{
-                      fontSize: '0.88rem',
-                      fontWeight: cell.isToday ? 900 : 700,
-                      color: cell.isToday ? 'var(--secondary)' : 'var(--text-primary)'
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <span className="day-number" style={{
+                      fontWeight: cell.isToday || isFiltered ? 900 : 700,
+                      color: cell.isToday ? 'var(--secondary)' : (isFiltered ? 'var(--primary)' : 'var(--text-primary)')
                     }}>
                       {cell.dayNumber}
                     </span>
                     {cell.isToday && (
-                      <span style={{
-                        background: '#22c55e',
-                        color: 'white',
-                        fontSize: '0.65rem',
-                        fontWeight: 900,
-                        padding: '1px 6px',
-                        borderRadius: '999px',
-                        letterSpacing: '0.02em'
-                      }}>
-                        TODAY
+                      <>
+                        <span className="today-pill desktop-only" style={{
+                          background: '#22c55e',
+                          color: 'white',
+                          fontSize: '0.65rem',
+                          fontWeight: 900,
+                          padding: '1px 6px',
+                          borderRadius: '999px',
+                          letterSpacing: '0.02em'
+                        }}>
+                          TODAY
+                        </span>
+                        <span className="mobile-only" style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          background: '#22c55e',
+                          flexShrink: 0
+                        }} title="Today" />
+                      </>
+                    )}
+                  </div>
+
+                  {/* MOBILE VIEW: Compact Badge Indicators (avoids horizontal expansion) */}
+                  <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', width: '100%', marginTop: '2px' }}>
+                    {cell.vacations.length > 0 && (
+                      <span
+                        style={{
+                          background: '#fee2e2',
+                          color: '#b91c1c',
+                          border: '1px solid #fca5a5',
+                          borderRadius: '999px',
+                          fontSize: '0.6rem',
+                          fontWeight: 900,
+                          padding: '0 4px',
+                          lineHeight: '13px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '1px',
+                          maxWidth: '100%'
+                        }}
+                        title={`${cell.vacations.length} paused`}
+                      >
+                        ⛔{cell.vacations.length}
+                      </span>
+                    )}
+                    {cell.resuming.length > 0 && (
+                      <span
+                        style={{
+                          background: '#eff6ff',
+                          color: '#1d4ed8',
+                          border: '1px solid #bfdbfe',
+                          borderRadius: '999px',
+                          fontSize: '0.6rem',
+                          fontWeight: 900,
+                          padding: '0 4px',
+                          lineHeight: '13px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '1px',
+                          maxWidth: '100%'
+                        }}
+                        title={`${cell.resuming.length} resuming`}
+                      >
+                        🔔{cell.resuming.length}
                       </span>
                     )}
                   </div>
 
-                  {/* Paused Customers Badges (Do Not Deliver) */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '2px' }}>
+                  {/* DESKTOP VIEW: Detailed Badges with Names & [X] */}
+                  <div className="desktop-only" style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '2px', width: '100%' }}>
                     {cell.vacations.slice(0, 2).map((v) => (
                       <div
                         key={v.id}
@@ -983,36 +1031,137 @@ export default function DeliveryCalendarPage() {
                         <span>Resumes: {r.customer_name}</span>
                       </div>
                     ))}
-                  </div>
 
-                  {/* Empty Cell Quick Add on Hover */}
-                  {!hasEvents && (
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: '4px' }}>
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenScheduleModal(cell.dateStr, 'CUSTOM_DATES');
-                        }}
-                        style={{
-                          fontSize: '0.68rem',
-                          color: '#b91c1c',
-                          fontWeight: 800,
-                          padding: '2px 5px',
-                          borderRadius: '4px',
-                          background: '#fef2f2',
-                          border: '1px solid #fecaca',
-                          cursor: 'pointer'
-                        }}
-                        title="Click to mark this day as No Milk for a customer"
-                      >
-                        + No Milk
-                      </span>
-                    </div>
-                  )}
+                    {/* Empty Cell Quick Add on Hover */}
+                    {!hasEvents && (
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gap: '4px' }}>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenScheduleModal(cell.dateStr, 'CUSTOM_DATES');
+                          }}
+                          style={{
+                            fontSize: '0.68rem',
+                            color: '#b91c1c',
+                            fontWeight: 800,
+                            padding: '2px 5px',
+                            borderRadius: '4px',
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            cursor: 'pointer'
+                          }}
+                          title="Click to mark this day as No Milk for a customer"
+                        >
+                          + No Milk
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Selected Date Details (Expands right below Month Grid when tapped) */}
+          {selectedDateFilter && (
+            <div style={{
+              marginTop: '16px',
+              padding: '14px 16px',
+              background: 'var(--bg-app)',
+              border: '1.5px solid var(--border-color)',
+              borderRadius: '10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Calendar size={16} color="var(--primary)" />
+                  <span>Selected Date: <strong>{formatDisplayDate(selectedDateFilter)}</strong></span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDateFilter(null)}
+                  className="btn btn-outline btn-sm"
+                  style={{ fontSize: '0.74rem', padding: '3px 8px' }}
+                >
+                  Clear Selection
+                </button>
+              </div>
+
+              {/* List of paused customers on this selected day */}
+              {(() => {
+                const pausedOnThisDate = vacations.filter(v => v.start_date <= selectedDateFilter && v.end_date >= selectedDateFilter);
+                const uniqueOnDate = Array.from(new Map(pausedOnThisDate.map(v => [v.customer_id, v])).values());
+                if (uniqueOnDate.length === 0) {
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '4px 0', flexWrap: 'wrap', gap: '8px' }}>
+                      <span>✅ No milk pauses scheduled for this date. Regular deliveries will happen normally.</span>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenScheduleModal(selectedDateFilter, 'CUSTOM_DATES')}
+                        className="btn btn-outline btn-sm"
+                        style={{ fontSize: '0.74rem', padding: '4px 10px', color: '#b91c1c', borderColor: '#fca5a5', fontWeight: 700 }}
+                      >
+                        + Mark No Milk on {selectedDateFilter.slice(8)}th
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#b91c1c' }}>
+                      ⛔ {uniqueOnDate.length} customer(s) have milk delivery PAUSED on this date:
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {uniqueOnDate.map(v => (
+                        <div
+                          key={v.id}
+                          style={{
+                            background: '#fee2e2',
+                            border: '1px solid #fca5a5',
+                            borderRadius: '8px',
+                            padding: '10px 12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <div>
+                            <strong style={{ color: '#0f172a' }}>{v.flat_no ? `[${v.flat_no}] ` : ''}{v.customer_name}</strong>
+                            <span style={{ color: '#b91c1c', marginLeft: '6px', fontSize: '0.75rem', fontWeight: 600 }}>({v.reason || 'No Milk'})</span>
+                            {v.zone_name && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>Zone: {v.zone_name}</div>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelVacation(v.id, v.customer_name)}
+                            className="btn btn-sm"
+                            style={{
+                              background: '#dc2626',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              fontWeight: 800,
+                              fontSize: '0.74rem',
+                              padding: '6px 12px',
+                              cursor: 'pointer'
+                            }}
+                            title="Cancel pause and resume deliveries for this customer"
+                          >
+                            ✕ Cancel Pause & Resume Milk
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
       ) : (
         /* VIEW MODE: LIST VIEW */
@@ -1042,10 +1191,10 @@ export default function DeliveryCalendarPage() {
                   <div
                     key={v.id}
                     style={{
-                      background: isActive ? '#fef2f2' : '#f8fafc',
-                      border: `1.5px solid ${isActive ? '#fca5a5' : '#e2e8f0'}`,
+                      background: isActive ? '#fef2f2' : 'var(--bg-card)',
+                      border: `1.5px solid ${isActive ? '#fca5a5' : 'var(--border-color)'}`,
                       borderRadius: '10px',
-                      padding: '14px 16px',
+                      padding: '12px 14px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1053,14 +1202,14 @@ export default function DeliveryCalendarPage() {
                       gap: '12px'
                     }}
                   >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ flex: 1, minWidth: '240px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         {v.flat_no && (
                           <span style={{ background: '#2563eb', color: 'white', fontWeight: 900, fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px' }}>
                             {v.flat_no}
                           </span>
                         )}
-                        <span style={{ fontSize: '1rem', fontWeight: 900, color: '#0f172a' }}>
+                        <span style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)' }}>
                           {v.customer_name}
                         </span>
                         {isActive && (
@@ -1075,7 +1224,7 @@ export default function DeliveryCalendarPage() {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.82rem', color: '#64748b', marginTop: '4px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px', flexWrap: 'wrap' }}>
                         <span>📅 <strong>{v.start_date}</strong> to <strong>{v.end_date}</strong></span>
                         <span>• Resumes: <strong style={{ color: '#15803d' }}>{v.resume_date}</strong></span>
                         <span>• Reason: <em>{v.reason || 'Vacation'}</em></span>
@@ -1083,14 +1232,14 @@ export default function DeliveryCalendarPage() {
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       {/* Google Calendar Link */}
                       <a
                         href={v.google_calendar_url}
                         target="_blank"
                         rel="noreferrer"
                         className="btn btn-outline btn-sm"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#1d4ed8', borderColor: '#bfdbfe', background: '#eff6ff', fontWeight: 700 }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#1d4ed8', borderColor: '#bfdbfe', background: '#eff6ff', fontWeight: 700, padding: '5px 10px', fontSize: '0.78rem' }}
                         title="Add pause reminder to Google Calendar"
                       >
                         <Calendar size={13} color="#2563eb" />
@@ -1109,7 +1258,7 @@ export default function DeliveryCalendarPage() {
                           location: v.customer_address
                         })}
                         className="btn btn-outline btn-sm"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 700 }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 700, padding: '5px 10px', fontSize: '0.78rem' }}
                         title="Download .ics file for Apple Calendar or Outlook"
                       >
                         <Download size={13} />
@@ -1119,9 +1268,9 @@ export default function DeliveryCalendarPage() {
                       {/* Cancel / Resume Delivery */}
                       <button
                         type="button"
-                        onClick={() => handleCancelVacation(v.id)}
+                        onClick={() => handleCancelVacation(v.id, v.customer_name)}
                         className="btn btn-outline btn-sm"
-                        style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', fontWeight: 700 }}
+                        style={{ color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2', fontWeight: 700, padding: '5px 10px', fontSize: '0.78rem' }}
                         title="Cancel pause and restore normal deliveries"
                       >
                         <Trash2 size={13} />
