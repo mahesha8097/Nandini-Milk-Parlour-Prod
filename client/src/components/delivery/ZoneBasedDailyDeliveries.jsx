@@ -3172,15 +3172,17 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         /* ------------------------------------------------------------------------- */
         <div style={{
           background: 'white',
-          borderRadius: '14px',
+          borderRadius: '16px',
           border: '1px solid #e2e8f0',
-          padding: '12px 14px',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
+          padding: '16px 14px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
+          justifyContent: 'space-between',
+          gap: '14px',
           width: '100%',
           maxWidth: '680px',
+          minHeight: 'min(760px, calc(100vh - 140px))',
           margin: '0 auto',
           boxSizing: 'border-box'
         }}>
@@ -3339,16 +3341,16 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   {activeCustomer.customer_name}
                 </h2>
                 {activeCustomer.status === 'DELIVERED' ? (
-                  <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                    <Check size={12} /> Delivered
+                  <span style={{ background: '#dcfce7', color: '#15803d', padding: '3px 10px', borderRadius: '999px', fontSize: '0.78rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={14} /> Delivered
                   </span>
                 ) : activeCustomer.status === 'SKIPPED' ? (
-                  <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                    <XCircle size={12} /> Skipped
+                  <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '3px 10px', borderRadius: '999px', fontSize: '0.78rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <XCircle size={14} /> Skipped
                   </span>
                 ) : (
-                  <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800 }}>
-                    Pending
+                  <span style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', padding: '3px 10px', borderRadius: '999px', fontSize: '0.78rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Clock size={12} /> Not Yet Marked
                   </span>
                 )}
               </div>
@@ -3506,172 +3508,239 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      gap: '8px',
-                      padding: '8px 10px',
+                      gap: '12px',
+                      padding: '12px 14px',
                       background: itemDelivered ? '#f0fdf4' : itemSkipped ? '#fef2f2' : '#ffffff',
-                      borderRadius: '8px',
-                      border: itemDelivered ? '1.5px solid #86efac' : itemSkipped ? '1.5px solid #fecaca' : '1.5px solid #e2e8f0'
+                      borderRadius: '12px',
+                      border: itemDelivered ? '2px solid #86efac' : itemSkipped ? '2px solid #fecaca' : '2px solid #e2e8f0',
+                      boxShadow: itemDelivered ? '0 2px 8px rgba(34, 197, 94, 0.08)' : '0 2px 6px rgba(0,0,0,0.03)'
                     }}
                   >
-                    {/* Left: Product Name & Qty */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                      <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>🥛</span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {item.product_name_snapshot} {item.variant_snapshot && `(${item.variant_snapshot})`}
+                    {/* Left: Nandini Product Image, Full Name & Qty */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                      <ProductPacketImage
+                        product={item}
+                        size={56}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontWeight: 900,
+                          fontSize: '1.02rem',
+                          color: '#0f172a',
+                          lineHeight: 1.35,
+                          wordBreak: 'break-word'
+                        }}>
+                          {item.product_name_snapshot}
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                          Qty: <strong style={{ color: itemDelivered ? '#15803d' : '#0f172a', fontSize: '0.85rem' }}>{item.quantity} {item.quantity === 1 ? 'pkt' : 'pkts'}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                          {item.variant_snapshot && (
+                            <span style={{
+                              background: '#e0f2fe',
+                              color: '#0369a1',
+                              border: '1px solid #bae6fd',
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                              fontSize: '0.78rem',
+                              fontWeight: 800
+                            }}>
+                              {item.variant_snapshot}
+                            </span>
+                          )}
+                          <span style={{
+                            background: itemDelivered ? '#dcfce7' : '#f1f5f9',
+                            color: itemDelivered ? '#15803d' : '#0f172a',
+                            border: itemDelivered ? '1px solid #86efac' : '1px solid #cbd5e1',
+                            borderRadius: '6px',
+                            padding: '2px 10px',
+                            fontSize: '0.88rem',
+                            fontWeight: 900
+                          }}>
+                            Qty: {item.quantity} {item.quantity === 1 ? 'pkt' : 'pkts'}
+                          </span>
                           {activeCustomer?.billing_type === 'COUPON' && (
-                            <span style={{ marginLeft: '6px', color: '#059669', fontWeight: 700 }}>• 🎟️ Coupon</span>
+                            <span style={{ color: '#059669', fontWeight: 800, fontSize: '0.76rem' }}>🎟️ Coupon</span>
                           )}
                         </div>
                       </div>
                     </div>
 
                     {/* Right: Inline Actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                       {itemPending ? (
                         <>
                           <button
                             type="button"
-                            onClick={() => handleOpenEdit(item)}
-                            style={{
-                              background: '#f1f5f9',
-                              color: '#0284c7',
-                              border: '1px solid #cbd5e1',
-                              borderRadius: '5px',
-                              padding: '4px 7px',
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px'
-                            }}
-                            title="Edit quantity"
-                          >
-                            <Edit3 size={12} />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenSkip({ ...activeCustomer, items: [item] })}
-                            style={{
-                              background: '#fff7ed',
-                              color: '#c2410c',
-                              border: '1px solid #fed7aa',
-                              borderRadius: '5px',
-                              padding: '4px 7px',
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                            title="Skip this item"
-                          >
-                            Skip
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => handleDeliverSingleItem(item, activeCustomer.customer_name)}
                             style={{
-                              background: '#16a34a',
+                              background: 'linear-gradient(135deg, #15803d, #16a34a)',
                               color: 'white',
                               border: 'none',
-                              borderRadius: '5px',
-                              padding: '4px 8px',
-                              fontSize: '0.72rem',
-                              fontWeight: 800,
+                              borderRadius: '10px',
+                              padding: '10px 14px',
+                              fontSize: '0.86rem',
+                              fontWeight: 900,
                               cursor: 'pointer',
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '3px'
+                              gap: '5px',
+                              boxShadow: '0 3px 10px rgba(22, 163, 74, 0.3)',
+                              minHeight: '44px'
                             }}
-                            title="Mark only this item delivered"
+                            title="Tap tick mark to mark this product delivered"
                           >
-                            <Check size={12} />
-                            <span>✓</span>
+                            <Check size={18} strokeWidth={3} />
+                            <span>Deliver</span>
                           </button>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(item)}
+                              style={{
+                                background: '#f8fafc',
+                                color: '#0284c7',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '6px',
+                                padding: '3px 8px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                              title="Edit quantity"
+                            >
+                              <Edit3 size={11} />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSkip({ ...activeCustomer, items: [item] })}
+                              style={{
+                                background: '#fff7ed',
+                                color: '#c2410c',
+                                border: '1px solid #fed7aa',
+                                borderRadius: '6px',
+                                padding: '3px 8px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                textAlign: 'center'
+                              }}
+                              title="Skip this item"
+                            >
+                              Skip
+                            </button>
+                          </div>
                         </>
                       ) : itemDelivered ? (
                         <>
-                          <span style={{ color: '#15803d', fontSize: '0.74rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <CheckCircle2 size={13} /> Delivered
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCorrection(item)}
-                            style={{
-                              background: '#eff6ff',
-                              color: '#1d4ed8',
-                              border: '1px solid #bfdbfe',
-                              borderRadius: '5px',
-                              padding: '3px 6px',
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                            title="Edit / Correct"
-                          >
-                            <Edit3 size={11} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRevertPending(item.id)}
-                            style={{
-                              background: '#fffbeb',
-                              color: '#d97706',
-                              border: '1px solid #fde68a',
-                              borderRadius: '5px',
-                              padding: '3px 6px',
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                            title="Revert back to Pending"
-                          >
-                            <RotateCcw size={11} />
-                          </button>
+                          <div style={{
+                            background: '#dcfce7',
+                            color: '#15803d',
+                            border: '1.5px solid #86efac',
+                            borderRadius: '8px',
+                            padding: '8px 12px',
+                            fontSize: '0.85rem',
+                            fontWeight: 900,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                          }}>
+                            <CheckCircle2 size={16} color="#16a34a" />
+                            <span>Delivered</span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCorrection(item)}
+                              style={{
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                border: '1px solid #bfdbfe',
+                                borderRadius: '6px',
+                                padding: '4px 6px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                              title="Edit / Correct"
+                            >
+                              <Edit3 size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRevertPending(item.id)}
+                              style={{
+                                background: '#fffbeb',
+                                color: '#d97706',
+                                border: '1px solid #fde68a',
+                                borderRadius: '6px',
+                                padding: '4px 6px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                              title="Revert back to Pending"
+                            >
+                              <RotateCcw size={12} />
+                            </button>
+                          </div>
                         </>
                       ) : (
                         <>
-                          <span style={{ color: '#dc2626', fontSize: '0.74rem', fontWeight: 800 }}>
+                          <span style={{ color: '#dc2626', fontSize: '0.82rem', fontWeight: 900, padding: '6px 10px', background: '#fee2e2', borderRadius: '6px', border: '1px solid #fecaca' }}>
                             Skipped
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCorrection(item)}
-                            style={{
-                              background: '#eff6ff',
-                              color: '#1d4ed8',
-                              border: '1px solid #bfdbfe',
-                              borderRadius: '5px',
-                              padding: '3px 6px',
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                            title="Edit / Correct"
-                          >
-                            <Edit3 size={11} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRevertPending(item.id)}
-                            style={{
-                              background: '#fffbeb',
-                              color: '#d97706',
-                              border: '1px solid #fde68a',
-                              borderRadius: '5px',
-                              padding: '3px 6px',
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                            title="Revert back to Pending"
-                          >
-                            <RotateCcw size={11} />
-                          </button>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCorrection(item)}
+                              style={{
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                border: '1px solid #bfdbfe',
+                                borderRadius: '6px',
+                                padding: '4px 6px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                              title="Edit / Correct"
+                            >
+                              <Edit3 size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRevertPending(item.id)}
+                              style={{
+                                background: '#fffbeb',
+                                color: '#d97706',
+                                border: '1px solid #fde68a',
+                                borderRadius: '6px',
+                                padding: '4px 6px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                              title="Revert back to Pending"
+                            >
+                              <RotateCcw size={12} />
+                            </button>
+                          </div>
                         </>
                       )}
                     </div>
@@ -3681,33 +3750,110 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             )}
           </div>
 
-          {/* 4. Hero Action: Mark Delivered & Next (Fits in 1 frame) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' }}>
+          {/* 4. Bottom Action Area: Tick confirmation, Not Yet Marked & Next */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
             {activeCustomer.items.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') ? (
-              <button
-                type="button"
-                onClick={() => handleDeliverCustomerGroupAndGoNext(activeCustomer)}
-                style={{
-                  width: '100%',
-                  background: 'linear-gradient(135deg, #15803d, #16a34a)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '10px',
-                  fontWeight: 900,
-                  fontSize: '0.98rem',
-                  padding: '11px 16px',
-                  cursor: 'pointer',
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {/* Not Yet Marked Banner */}
+                <div style={{
+                  padding: '12px 16px',
+                  background: '#fffbeb',
+                  border: '1.5px dashed #f59e0b',
+                  borderRadius: '12px',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  boxShadow: '0 3px 10px rgba(22, 163, 74, 0.3)',
-                  letterSpacing: '0.01em'
-                }}
-              >
-                <CheckCircle2 size={18} />
-                <span>{nextCustomer ? 'MARK DELIVERED & NEXT ➔' : (nextZone ? 'MARK DELIVERED & NEXT ZONE ➔' : '✓ MARK DELIVERED (FINISH)')}</span>
-              </button>
+                  justifyContent: 'space-between',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Clock size={22} color="#d97706" style={{ flexShrink: 0 }} />
+                    <div>
+                      <div style={{ color: '#b45309', fontWeight: 900, fontSize: '0.96rem' }}>
+                        Not Yet Marked
+                      </div>
+                      <div style={{ color: '#92400e', fontSize: '0.76rem', marginTop: '1px' }}>
+                        Tap the green <strong>Deliver ✓</strong> button above to confirm delivery
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* If customer has multiple pending items, offer a 1-tap Tick All button */}
+                  {activeCustomer.items.filter((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED').length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeliverCustomerGroup(activeCustomer)}
+                      style={{
+                        background: 'linear-gradient(135deg, #15803d, #16a34a)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        fontSize: '0.8rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)'
+                      }}
+                      title="Mark all pending products for this customer delivered"
+                    >
+                      <Check size={14} strokeWidth={3} />
+                      <span>Tick All</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Delivery boy can go to next customer to mark delivery */}
+                {nextCustomer ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCustomerId(nextCustomer.customer_id)}
+                    style={{
+                      width: '100%',
+                      background: '#f8fafc',
+                      color: '#475569',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '10px',
+                      fontWeight: 700,
+                      fontSize: '0.9rem',
+                      padding: '11px 16px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <span>Go to Next Customer ({nextCustomer.flat_no ? (nextCustomer.flat_no.toLowerCase().includes('flat') || nextCustomer.flat_no.toLowerCase().includes('villa') ? nextCustomer.flat_no : `Flat ${nextCustomer.flat_no}`) : nextCustomer.customer_name}) ➔</span>
+                    <ChevronRight size={18} />
+                  </button>
+                ) : nextZone ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDoneAndMoveToNextZone()}
+                    style={{
+                      width: '100%',
+                      background: '#f8fafc',
+                      color: '#475569',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '10px',
+                      fontWeight: 700,
+                      fontSize: '0.9rem',
+                      padding: '11px 16px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <span>Go to Next Zone ({nextZone.name}) ➔</span>
+                    <ChevronRight size={18} />
+                  </button>
+                ) : null}
+              </div>
             ) : nextCustomer ? (
               <button
                 type="button"
@@ -3717,20 +3863,20 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   background: 'linear-gradient(135deg, #1d4ed8, #2563eb)',
                   color: 'white',
                   border: 'none',
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   fontWeight: 900,
-                  fontSize: '0.98rem',
-                  padding: '11px 16px',
+                  fontSize: '1.02rem',
+                  padding: '14px 18px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
-                  boxShadow: '0 3px 10px rgba(37, 99, 235, 0.3)'
+                  boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)'
                 }}
               >
                 <span>NEXT: {nextCustomer.flat_no ? (nextCustomer.flat_no.toLowerCase().includes('flat') || nextCustomer.flat_no.toLowerCase().includes('villa') ? nextCustomer.flat_no : `Flat ${nextCustomer.flat_no}`) : nextCustomer.customer_name} ➔</span>
-                <ChevronRight size={18} />
+                <ChevronRight size={20} />
               </button>
             ) : nextZone ? (
               <button
@@ -3741,30 +3887,30 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   background: 'linear-gradient(135deg, #059669, #10b981)',
                   color: 'white',
                   border: 'none',
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   fontWeight: 900,
-                  fontSize: '0.98rem',
-                  padding: '11px 16px',
+                  fontSize: '1.02rem',
+                  padding: '14px 18px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
-                  boxShadow: '0 3px 10px rgba(16, 185, 129, 0.3)'
+                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
                 }}
               >
-                <CheckCheck size={18} />
+                <CheckCheck size={20} />
                 <span>DONE & MOVE TO NEXT ZONE ({nextZone.name}) ➔</span>
               </button>
             ) : (
               <div style={{
-                padding: '9px 14px',
+                padding: '14px 18px',
                 background: '#dcfce7',
                 color: '#15803d',
-                borderRadius: '8px',
+                borderRadius: '10px',
                 fontWeight: 800,
                 textAlign: 'center',
-                fontSize: '0.9rem'
+                fontSize: '0.95rem'
               }}>
                 ✓ All Deliveries Completed for Today!
               </div>

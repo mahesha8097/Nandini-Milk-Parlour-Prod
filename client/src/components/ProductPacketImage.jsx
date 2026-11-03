@@ -9,12 +9,15 @@ export default function ProductPacketImage({
   product = {},
   size = 48,
   style = {},
-  className = ''
+  className = '',
+  category,
+  productName,
+  imageUrl
 }) {
   const [imageFailed, setImageFailed] = useState(false);
 
-  const rawUrl = product.product_image_url || product.image_url;
-  const name = (product.product_name_snapshot || product.name || '').toLowerCase();
+  const rawUrl = product?.product_image_url || product?.image_url || imageUrl;
+  const name = (product?.product_name_snapshot || product?.name || productName || '').toLowerCase();
 
   // Determine fallback image source based on Nandini product branding
   let defaultPacketSrc = '/images/products/toned-blue.jpg';
