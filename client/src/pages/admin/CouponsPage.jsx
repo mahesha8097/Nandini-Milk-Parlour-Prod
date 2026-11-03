@@ -508,7 +508,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="coupon-header-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => { fetchSummary(); fetchBooks(); }}
             className="btn btn-outline"
@@ -532,8 +532,8 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
             }}
             title="Record physical paper coupons customer already holds prior to using the app (₹0 price, normal delivery deduction)"
           >
-            <Ticket size={17} />
-            🎟️ Record Leftover Physical Coupons (₹0)
+            <Ticket size={16} />
+            Record Leftover (₹0)
           </button>
           <button
             onClick={() => handleOpenIssueModal()}
@@ -548,116 +548,100 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               fontWeight: 600
             }}
           >
-            <Plus size={18} />
-            Issue New Coupon Book
+            <Plus size={16} />
+            Issue Coupon Book
           </button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Coupon Customers</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--accent-amber-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
-              <User size={20} />
+      <div className="stat-grid" style={{ marginBottom: '20px' }}>
+        <div className="stat-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <span className="stat-label">Coupon Customers</span>
+            <div className="stat-icon-wrapper" style={{ background: 'var(--accent-amber-light)', color: '#d97706' }}>
+              <User size={18} />
             </div>
           </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: 'var(--text-primary)' }}>
+          <div className="stat-value">
             {summaryData.totalCouponCustomers}
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+          <div className="stat-sub">
             Operating on prepaid coupon books
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Coupon Books</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--accent-indigo-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5' }}>
-              <BookOpen size={20} />
+        <div className="stat-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <span className="stat-label">Active Books</span>
+            <div className="stat-icon-wrapper" style={{ background: 'var(--accent-indigo-light)', color: '#4f46e5' }}>
+              <BookOpen size={18} />
             </div>
           </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#4f46e5' }}>
+          <div className="stat-value" style={{ color: '#4f46e5' }}>
             {allBooks.filter(b => b.status === 'ACTIVE').length}
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+          <div className="stat-sub">
             Books in active customer circulation
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Remaining Coupons Left</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--secondary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
-              <Ticket size={20} />
+        <div className="stat-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <span className="stat-label">Remaining Coupons</span>
+            <div className="stat-icon-wrapper" style={{ background: 'var(--secondary-light)', color: '#16a34a' }}>
+              <Ticket size={18} />
             </div>
           </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#16a34a' }}>
+          <div className="stat-value" style={{ color: '#16a34a' }}>
             {summaryData.totalRemainingCoupons}
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Leftover coupons across all milk varieties
+          <div className="stat-sub">
+            Leftover coupons across milk varieties
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Used In {selectedMonth}</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--accent-red-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
-              <ArrowDownLeft size={20} />
+        <div className="stat-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <span className="stat-label">Used In {selectedMonth}</span>
+            <div className="stat-icon-wrapper" style={{ background: 'var(--accent-red-light)', color: '#dc2626' }}>
+              <ArrowDownLeft size={18} />
             </div>
           </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#dc2626' }}>
+          <div className="stat-value" style={{ color: '#dc2626' }}>
             {summaryData.totalUsedThisMonth}
           </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+          <div className="stat-sub">
             Coupons redeemed for delivered packets
           </div>
         </div>
       </div>
 
       {/* Tabs Navigation */}
-      <div style={{ display: 'flex', gap: '12px', borderBottom: '2px solid var(--border-color)', marginBottom: '20px' }}>
+      <div className="coupon-tabs-nav">
         <button
           onClick={() => setActiveTab('CUSTOMERS')}
+          className="coupon-tab-btn"
           style={{
-            padding: '12px 20px',
-            fontSize: '15px',
-            fontWeight: 600,
-            background: 'none',
-            border: 'none',
             borderBottom: activeTab === 'CUSTOMERS' ? '3px solid #d97706' : '3px solid transparent',
-            color: activeTab === 'CUSTOMERS' ? '#d97706' : 'var(--text-secondary)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            marginBottom: '-2px'
+            color: activeTab === 'CUSTOMERS' ? '#d97706' : 'var(--text-secondary)'
           }}
         >
           <User size={18} />
-          Customer Balances & Leftovers ({filteredReport.length})
+          <span className="desktop-only">Customer Balances & Leftovers ({filteredReport.length})</span>
+          <span className="mobile-only">Balances ({filteredReport.length})</span>
         </button>
         <button
           onClick={() => setActiveTab('BOOKS')}
+          className="coupon-tab-btn"
           style={{
-            padding: '12px 20px',
-            fontSize: '15px',
-            fontWeight: 600,
-            background: 'none',
-            border: 'none',
             borderBottom: activeTab === 'BOOKS' ? '3px solid #d97706' : '3px solid transparent',
-            color: activeTab === 'BOOKS' ? '#d97706' : 'var(--text-secondary)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            marginBottom: '-2px'
+            color: activeTab === 'BOOKS' ? '#d97706' : 'var(--text-secondary)'
           }}
         >
           <BookOpen size={18} />
-          All Coupon Books (Add / Edit / Modify) ({allBooks.length})
+          <span className="desktop-only">All Coupon Books (Add / Edit / Modify) ({allBooks.length})</span>
+          <span className="mobile-only">Books ({allBooks.length})</span>
         </button>
       </div>
 
@@ -668,6 +652,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
         <>
           {/* Filter and Month Toolbar */}
           <div
+            className="coupon-toolbar"
             style={{
               background: 'var(--bg-card)',
               padding: '16px 20px',
@@ -681,7 +666,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
+            <div className="coupon-toolbar-row" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
               {/* Month Selector */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Calendar size={18} color="var(--text-muted)" />
@@ -695,11 +680,11 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </div>
 
               {/* Search Bar */}
-              <div style={{ position: 'relative', minWidth: '240px', flex: 1, maxWidth: '380px' }}>
+              <div style={{ position: 'relative', minWidth: '220px', flex: 1, maxWidth: '380px' }}>
                 <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input
                   type="text"
-                  placeholder="Search customer name, phone, zone..."
+                  placeholder="Search customer, phone, zone..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="form-control"
@@ -708,7 +693,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </div>
 
               {/* Status Filter */}
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px', maxWidth: '100%' }}>
                 {['ALL', 'ACTIVE', 'LOW', 'EXHAUSTED'].map((st) => (
                   <button
                     key={st}
@@ -719,6 +704,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       fontSize: '12px',
                       fontWeight: 600,
                       cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                       border: statusFilter === st ? 'none' : '1px solid var(--border-color)',
                       background:
                         statusFilter === st
@@ -738,8 +724,8 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
             </div>
           </div>
 
-          {/* Customer Coupon Report Table */}
-          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+          {/* Customer Coupon Report Table (Desktop Only) */}
+          <div className="desktop-only" style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
                 <thead>
@@ -983,6 +969,245 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </table>
             </div>
           </div>
+
+          {/* Customer Coupon Report Cards (Mobile Only) */}
+          {loading ? (
+            <div className="mobile-only" style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 8px' }} />
+              <p style={{ margin: 0, fontSize: '14px' }}>Loading coupon tracker...</p>
+            </div>
+          ) : filteredReport.length === 0 ? (
+            <div className="mobile-only" style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <Ticket size={32} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
+              <p style={{ margin: 0, fontWeight: 500, fontSize: '14px' }}>No coupon customers match the current filter</p>
+              <button
+                onClick={() => handleOpenIssueModal()}
+                className="btn btn-primary"
+                style={{ marginTop: '12px', background: '#d97706', borderColor: '#d97706', fontSize: '13px' }}
+              >
+                <Plus size={14} style={{ marginRight: '4px' }} />
+                Issue First Coupon Book
+              </button>
+            </div>
+          ) : (
+            <div className="mobile-only mobile-card-list">
+              {filteredReport.map((row) => (
+                <div
+                  key={row.customerId}
+                  className="mobile-data-card"
+                  style={{
+                    borderLeft: `4px solid ${
+                      row.remainingCoupons === 0
+                        ? '#dc2626'
+                        : row.remainingCoupons <= 5
+                        ? '#d97706'
+                        : '#16a34a'
+                    }`
+                  }}
+                >
+                  {/* Card Header: Customer Name & Status */}
+                  <div className="mobile-card-header">
+                    <div>
+                      <h3 className="mobile-card-title">{row.customerName}</h3>
+                      <div className="mobile-card-subtitle" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Phone size={11} />
+                        <span>{row.customerPhone}</span>
+                        {row.flatNo && <span>• Flat {row.flatNo}</span>}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '10px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        background:
+                          row.remainingCoupons === 0
+                            ? '#fee2e2'
+                            : row.remainingCoupons <= 5
+                            ? '#fef3c7'
+                            : '#dcfce7',
+                        color:
+                          row.remainingCoupons === 0
+                            ? '#991b1b'
+                            : row.remainingCoupons <= 5
+                            ? '#92400e'
+                            : '#166534',
+                        border: `1px solid ${
+                          row.remainingCoupons === 0
+                            ? '#fca5a5'
+                            : row.remainingCoupons <= 5
+                            ? '#fcd34d'
+                            : '#86efac'
+                        }`
+                      }}
+                    >
+                      {row.remainingCoupons === 0 ? 'Exhausted' : row.remainingCoupons <= 5 ? 'Low (≤5)' : 'Active'}
+                    </span>
+                  </div>
+
+                  {/* Zone & Route Row */}
+                  <div className="mobile-card-row">
+                    <span className="mobile-card-row-label">Zone & Route</span>
+                    <div style={{ textAlign: 'right', fontSize: '12px' }}>
+                      <span style={{ fontWeight: 600 }}>{row.zoneName || 'No Zone'}</span>
+                      {row.routeName && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{row.routeName}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Remaining Coupons Highlight Row */}
+                  <div
+                    className="mobile-card-row"
+                    style={{
+                      background: 'var(--bg-app)',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      borderTop: 'none',
+                      marginTop: '2px'
+                    }}
+                  >
+                    <span
+                      className="mobile-card-row-label"
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-primary)' }}
+                    >
+                      <Ticket size={14} color="#d97706" />
+                      Coupons Left
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '16px',
+                        fontWeight: 800,
+                        color:
+                          row.remainingCoupons === 0
+                            ? '#dc2626'
+                            : row.remainingCoupons <= 5
+                            ? '#d97706'
+                            : '#16a34a'
+                      }}
+                    >
+                      {row.remainingCoupons} coupons
+                    </span>
+                  </div>
+
+                  {/* Milk Product Breakdown if any */}
+                  {row.productBreakdown && row.productBreakdown.length > 0 && (
+                    <div className="mobile-card-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+                      <span className="mobile-card-row-label">Product Breakdown</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', width: '100%' }}>
+                        {row.productBreakdown.map((pb, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              background: pb.productId ? '#eff6ff' : '#f8fafc',
+                              color: pb.productId ? '#1e40af' : '#475569',
+                              border: `1px solid ${pb.productId ? '#bfdbfe' : '#e2e8f0'}`
+                            }}
+                          >
+                            <span>🥛 {pb.productName}</span>
+                            <span
+                              style={{
+                                background: pb.productId ? '#2563eb' : '#64748b',
+                                color: '#fff',
+                                padding: '1px 5px',
+                                borderRadius: '8px',
+                                fontSize: '10px',
+                                fontWeight: 700
+                              }}
+                            >
+                              {pb.remaining}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Books Count & Used this Month */}
+                  <div className="mobile-card-row">
+                    <span className="mobile-card-row-label">Books / Used</span>
+                    <div style={{ textAlign: 'right', fontSize: '12px' }}>
+                      <span style={{ fontWeight: 600 }}>{row.totalBooks} book{row.totalBooks !== 1 ? 's' : ''}</span>
+                      <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>•</span>
+                      <span style={{ color: '#4f46e5', fontWeight: 600 }}>{row.usedThisMonth} used in {selectedMonth}</span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="mobile-card-actions">
+                    <div style={{ display: 'flex', gap: '6px', flex: 1 }}>
+                      <button
+                        onClick={() => handleOpenIssueModal({ id: row.customerId, name: row.customerName })}
+                        className="btn btn-outline"
+                        style={{
+                          flex: 1,
+                          padding: '6px 10px',
+                          fontSize: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          borderColor: '#d97706',
+                          color: '#d97706',
+                          background: '#fffbeb',
+                          fontWeight: 600
+                        }}
+                      >
+                        <Plus size={14} />
+                        Add Book
+                      </button>
+                      <button
+                        onClick={() => handleOpenLeftoverModal({ id: row.customerId, name: row.customerName })}
+                        className="btn btn-outline"
+                        style={{
+                          flex: 1,
+                          padding: '6px 10px',
+                          fontSize: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          borderColor: '#0284c7',
+                          color: '#0284c7',
+                          background: '#f0f9ff',
+                          fontWeight: 600
+                        }}
+                      >
+                        <Ticket size={13} />
+                        Leftover (₹0)
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        onClick={() => handleOpenHistoryModal(row)}
+                        className="btn btn-outline"
+                        style={{ padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        title="Usage History"
+                      >
+                        <History size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleOpenAdjustModal(row)}
+                        className="btn btn-outline"
+                        style={{ padding: '6px 10px', fontSize: '12px', color: 'var(--text-muted)' }}
+                        title="Manual Adjustment"
+                      >
+                        <Sliders size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -993,6 +1218,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
         <>
           {/* Books Toolbar */}
           <div
+            className="coupon-toolbar"
             style={{
               background: 'var(--bg-card)',
               padding: '16px 20px',
@@ -1006,13 +1232,13 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               justifyContent: 'space-between'
             }}
           >
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
+            <div className="coupon-toolbar-row" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
               {/* Search Bar */}
-              <div style={{ position: 'relative', minWidth: '240px', flex: 1, maxWidth: '340px' }}>
+              <div style={{ position: 'relative', minWidth: '200px', flex: 1, maxWidth: '340px' }}>
                 <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input
                   type="text"
-                  placeholder="Search book #, customer name, phone..."
+                  placeholder="Search book #, customer, phone..."
                   value={bookSearchTerm}
                   onChange={(e) => setBookSearchTerm(e.target.value)}
                   className="form-control"
@@ -1030,7 +1256,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                   style={{ padding: '6px 10px', fontSize: '13px', borderRadius: '8px', minWidth: '160px' }}
                 >
                   <option value="ALL">All Products Filter</option>
-                  <option value="UNIVERSAL">🎟️ Universal Milk Only</option>
+                  <option value="UNIVERSAL">🎫 Universal Milk Only</option>
                   {allProducts.filter(p => p.is_coupon_eligible === 1 || p.category === 'Milk').map((p) => (
                     <option key={p.id} value={p.id}>
                       🥛 {p.name} ({p.variant_label || ''})
@@ -1040,7 +1266,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </div>
 
               {/* Status Filter */}
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px', maxWidth: '100%' }}>
                 {['ALL', 'ACTIVE', 'EXHAUSTED', 'CANCELLED'].map((st) => (
                   <button
                     key={st}
@@ -1051,6 +1277,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                       fontSize: '12px',
                       fontWeight: 600,
                       cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                       border: bookStatusFilter === st ? 'none' : '1px solid var(--border-color)',
                       background:
                         bookStatusFilter === st
@@ -1065,7 +1292,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="coupon-toolbar-actions">
               <button
                 onClick={() => handleOpenLeftoverModal()}
                 className="btn btn-secondary"
@@ -1105,8 +1332,8 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
             </div>
           </div>
 
-          {/* All Books Table */}
-          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+          {/* All Books Table (Desktop Only) */}
+          <div className="desktop-only" style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>
@@ -1320,6 +1547,224 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
               </table>
             </div>
           </div>
+
+          {/* All Books Cards (Mobile Only) */}
+          {booksLoading ? (
+            <div className="mobile-only" style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 8px' }} />
+              <p style={{ margin: 0, fontSize: '14px' }}>Loading coupon books...</p>
+            </div>
+          ) : filteredBooks.length === 0 ? (
+            <div className="mobile-only" style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <BookOpen size={32} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
+              <p style={{ margin: 0, fontWeight: 500, fontSize: '14px' }}>No coupon books found matching your criteria</p>
+            </div>
+          ) : (
+            <div className="mobile-only mobile-card-list">
+              {filteredBooks.map((b) => (
+                <div
+                  key={b.id}
+                  className="mobile-data-card"
+                  style={{
+                    borderLeft: `4px solid ${
+                      b.status === 'ACTIVE'
+                        ? '#16a34a'
+                        : b.status === 'EXHAUSTED'
+                        ? '#dc2626'
+                        : '#64748b'
+                    }`
+                  }}
+                >
+                  {/* Header: Book # & Status */}
+                  <div className="mobile-card-header">
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--primary)', fontFamily: 'monospace' }}>
+                        {b.book_number}
+                      </div>
+                      <h3 className="mobile-card-title" style={{ marginTop: '2px' }}>{b.customer_name}</h3>
+                      <div className="mobile-card-subtitle">
+                        {b.customer_phone} {b.zone_name ? `• ${b.zone_name}` : ''}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '10px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        background:
+                          b.status === 'ACTIVE'
+                            ? '#dcfce7'
+                            : b.status === 'EXHAUSTED'
+                            ? '#fee2e2'
+                            : '#f1f5f9',
+                        color:
+                          b.status === 'ACTIVE'
+                            ? '#166534'
+                            : b.status === 'EXHAUSTED'
+                            ? '#991b1b'
+                            : '#475569',
+                        border: `1px solid ${
+                          b.status === 'ACTIVE'
+                            ? '#86efac'
+                            : b.status === 'EXHAUSTED'
+                            ? '#fca5a5'
+                            : '#cbd5e1'
+                        }`
+                      }}
+                    >
+                      {b.status}
+                    </span>
+                  </div>
+
+                  {/* Product Row */}
+                  <div className="mobile-card-row">
+                    <span className="mobile-card-row-label">Milk Product</span>
+                    <div style={{ textAlign: 'right' }}>
+                      {b.product_name ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            background: '#eff6ff',
+                            color: '#1e40af',
+                            border: '1px solid #bfdbfe'
+                          }}
+                        >
+                          🥛 {b.product_name} {b.product_variant ? `(${b.product_variant})` : ''}
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            background: '#f8fafc',
+                            color: '#475569',
+                            border: '1px solid #cbd5e1'
+                          }}
+                        >
+                          🎫 Universal / All Milk
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Balance & Progress Row */}
+                  <div className="mobile-card-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="mobile-card-row-label">Balance</span>
+                      <span
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          color: b.remaining_coupons === 0 ? '#dc2626' : b.remaining_coupons <= 5 ? '#d97706' : '#16a34a'
+                        }}
+                      >
+                        {b.remaining_coupons} / {b.total_coupons} remaining
+                      </span>
+                    </div>
+                    {/* Visual progress bar */}
+                    <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${Math.min(100, Math.max(0, (b.remaining_coupons / (b.total_coupons || 1)) * 100))}%`,
+                          height: '100%',
+                          background: b.remaining_coupons === 0 ? '#dc2626' : b.remaining_coupons <= 5 ? '#d97706' : '#16a34a',
+                          borderRadius: '3px'
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      <span>{b.used_coupons} used</span>
+                      <span>Issued: {b.issue_date}</span>
+                    </div>
+                  </div>
+
+                  {/* Price Paid / Payment Method */}
+                  <div className="mobile-card-row">
+                    <span className="mobile-card-row-label">Price Paid</span>
+                    <div style={{ textAlign: 'right' }}>
+                      {(!b.price_paid || parseFloat(b.price_paid) === 0) ? (
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            background: '#f0fdf4',
+                            color: '#166534',
+                            border: '1px solid #bbf7d0'
+                          }}
+                        >
+                          🎫 Pre-App (₹0)
+                        </span>
+                      ) : (
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          ₹{b.price_paid}{' '}
+                          <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)' }}>
+                            ({b.payment_method})
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {b.notes && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '2px 0' }}>
+                      {b.notes}
+                    </div>
+                  )}
+
+                  {/* Mobile Actions */}
+                  <div className="mobile-card-actions" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+                    <button
+                      onClick={() => handleOpenEditModal(b)}
+                      className="btn btn-outline"
+                      style={{
+                        flex: 1,
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        color: '#2563eb',
+                        borderColor: '#93c5fd'
+                      }}
+                    >
+                      <Edit size={13} />
+                      Edit Book
+                    </button>
+                    <button
+                      onClick={() => handleDeleteBook(b.id, b.book_number)}
+                      className="btn btn-outline"
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        color: '#dc2626',
+                        borderColor: '#fca5a5'
+                      }}
+                      title="Delete / Void Coupon Book"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
