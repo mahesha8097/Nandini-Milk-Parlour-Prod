@@ -14,6 +14,7 @@ export default function CustomerStatementView() {
   const [capturing, setCapturing] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState('');
   const invoiceRef = useRef(null);
+  const cleanInvoiceRef = useRef(null);
 
   // Parse URL hash or query params
   // E.g. #statement?c=12&m=2026-10 or #orders?c=12&m=2026-10
@@ -77,24 +78,28 @@ export default function CustomerStatementView() {
   };
 
   const handleDownloadInvoice = async () => {
-    if (!invoiceRef.current) return;
+    const targetElement = cleanInvoiceRef.current || invoiceRef.current;
+    if (!targetElement) return;
     try {
       setCapturing(true);
-      const canvas = await html2canvas(invoiceRef.current, {
+      const canvas = await html2canvas(targetElement, {
         scale: 2,
-        backgroundColor: '#0a0a0a',
+        backgroundColor: '#ffffff',
         useCORS: true,
         logging: false,
         onclone: (clonedDoc) => {
-          const noPrints = clonedDoc.querySelectorAll('.no-download, .no-print');
-          noPrints.forEach((el) => {
-            el.style.display = 'none';
-          });
-          const container = clonedDoc.getElementById('full-customer-invoice');
-          if (container) {
-            container.style.maxWidth = '760px';
-            container.style.margin = '0 auto';
-            container.style.padding = '24px';
+          const cleanEl = clonedDoc.getElementById('clean-printable-invoice');
+          if (cleanEl) {
+            cleanEl.style.position = 'static';
+            cleanEl.style.left = 'auto';
+            cleanEl.style.top = 'auto';
+            cleanEl.style.opacity = '1';
+            cleanEl.style.display = 'block';
+            cleanEl.style.width = '800px';
+          }
+          const webView = clonedDoc.querySelector('.statement-web-preview');
+          if (webView) {
+            webView.style.display = 'none';
           }
         }
       });
@@ -226,38 +231,56 @@ export default function CustomerStatementView() {
           body, html {
             background-color: #ffffff !important;
             color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
-          header, .no-print, .no-download {
+          header, .no-print, .no-download, .statement-web-preview {
             display: none !important;
           }
-          main {
+          .printable-clean-invoice {
+            display: block !important;
+            position: static !important;
+            left: auto !important;
+            top: auto !important;
+            opacity: 1 !important;
+            width: 100% !important;
             max-width: 100% !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-          #full-customer-invoice {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-            border: 1px solid #cbd5e1 !important;
+            padding: 8px 12px !important;
+            margin: 0 auto !important;
             box-shadow: none !important;
-            padding: 16px !important;
-            margin: 0 !important;
-            max-width: 100% !important;
-          }
-          #full-customer-invoice * {
+            border: none !important;
+            background: #ffffff !important;
             color: #0f172a !important;
-            border-color: #e2e8f0 !important;
           }
-          #full-customer-invoice table th {
-            background-color: #f1f5f9 !important;
-            color: #1e293b !important;
-            font-weight: 800 !important;
+          .printable-clean-invoice table {
+            page-break-inside: auto;
           }
-          #full-customer-invoice table td {
-            border-bottom: 1px solid #e2e8f0 !important;
+          .printable-clean-invoice tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+          }
+          @page {
+            size: portrait;
+            margin: 8mm 10mm;
+          }
+        }
+        @media screen {
+          .printable-clean-invoice {
+            position: fixed;
+            left: -9999px;
+            top: 0;
+            width: 800px;
+            min-width: 800px;
+            background: #ffffff;
+            opacity: 0;
+            pointer-events: none;
+            z-index: -9999;
           }
         }
       `}</style>
+
+      {/* Online Web Preview for Customer (Retained exactly as before) */}
+      <div className="statement-web-preview">
       {/* Top Mobile Bar matching user's screenshot */}
       <header style={{
         position: 'sticky',
@@ -1141,6 +1164,377 @@ export default function CustomerStatementView() {
         </div>
 
       </main>
+      </div> {/* End statement-web-preview */}
+
+      {/* ========================================================================= */}
+      {/* CLEAN PROFESSIONAL WHITE INVOICE TEMPLATE (FOR DOWNLOAD PNG & PRINTING)   */}
+      {/* Matches the Bill Generation Invoice Template with Date-Wise Delivery rows  */}
+      {/* ========================================================================= */}
+      <div
+        ref={cleanInvoiceRef}
+        id="clean-printable-invoice"
+        className="printable-clean-invoice"
+        style={{
+          width: '800px',
+          minWidth: '800px',
+          maxWidth: '800px',
+          background: '#ffffff',
+          color: '#1e293b',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '0.813rem',
+          lineHeight: '1.4',
+          padding: '24px 28px',
+          boxSizing: 'border-box',
+          margin: '0 auto',
+          border: '1px solid #cbd5e1',
+          borderRadius: '8px'
+        }}
+      >
+        {/* Top Heading */}
+        <div style={{ textAlign: 'center', marginBottom: '12px', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px' }}>
+          <span style={{ fontSize: '1.2rem', fontWeight: 900, letterSpacing: '0.12em', color: '#0054a6', textTransform: 'uppercase' }}>
+            INVOICE
+          </span>
+        </div>
+
+        {/* Business Header & Invoice Meta */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: '12px', borderBottom: '2px solid #0054a6', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {parlour.logo && (
+              <div style={{
+                width: '56px',
+                height: '56px',
+                background: 'white',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                padding: '3px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <img
+                  src={parlour.logo}
+                  alt="Business Logo"
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              </div>
+            )}
+            <div>
+              <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0054a6', margin: 0, textTransform: 'uppercase' }}>
+                {parlour.businessName || 'SS AGENCY [NANDINI MILK PARLOUR]'}
+              </h1>
+              <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '3px', maxWidth: '440px' }}>
+                {parlour.address && `${parlour.address}, `}{parlour.state || 'Karnataka'} {parlour.pincode && `- ${parlour.pincode}`}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+                {parlour.phone && `Phone: ${parlour.phone}`} {parlour.email && ` | Email: ${parlour.email}`}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+              Invoice No: <span style={{ color: '#0054a6' }}>{bill?.billNumber || `NB-${(bill?.billingMonth || selectedMonth || '202611').replace('-', '')}-${String(customer.id).padStart(4, '0')}`}</span>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px' }}>
+              Date: <strong>{bill?.billDate || (selectedMonth ? `${selectedMonth}-01` : '2026-11-01')}</strong>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+              Month: <strong>{bill?.billingMonth || selectedMonth}</strong>
+            </div>
+            <div style={{ marginTop: '4px' }}>
+              <span style={{
+                display: 'inline-block',
+                padding: '3px 8px',
+                borderRadius: '4px',
+                fontSize: '0.7rem',
+                fontWeight: 800,
+                background: isPaid ? '#dcfce7' : '#fee2e2',
+                color: isPaid ? '#15803d' : '#b91c1c',
+                border: `1px solid ${isPaid ? '#86efac' : '#fca5a5'}`
+              }}>
+                {isPaid ? 'PAID' : 'PENDING'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Customer & Delivery Information */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '10px 12px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', marginBottom: '14px' }}>
+          <div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>BILL TO:</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>{customer.name}</div>
+            <div style={{ fontSize: '0.78rem', color: '#475569' }}>Contact: {customer.phone}</div>
+            <div style={{ fontSize: '0.78rem', color: '#475569' }}>Address: {customer.flatNo ? `Flat ${customer.flatNo}, ` : ''}{customer.address || customer.route || 'Bangalore'}</div>
+          </div>
+
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>DELIVERY DETAILS:</div>
+            <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px' }}>
+              Route: <strong>{customer.route || 'Route 2'}</strong>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+              Category: <strong>{customer.category === 'BULK_HOTEL' ? 'Bulk / Commercial' : 'Household'}</strong>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+              Plan: <strong>{isPrepaid ? 'Prepaid (Advance)' : (isWeekly ? 'Weekly' : 'Postpaid')}</strong>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+              Schedule: <strong style={{ color: '#0054a6' }}>{summary.totalScheduledDays || summary.totalDeliveredDays || days.length} Scheduled Days</strong>
+              {summary.totalDeliveredDays > 0 ? ` (Delivered ${summary.totalDeliveredDays} days)` : ''}
+            </div>
+          </div>
+        </div>
+
+        {/* Date-Wise Delivered Products Schedule Table */}
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0054a6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              DATE-WISE DELIVERED PRODUCTS SCHEDULE
+            </div>
+            <span style={{ fontSize: '0.72rem', color: '#0284c7', fontWeight: 800, background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', border: '1px solid #bfdbfe' }}>
+              {summary.totalDeliveredDays || days.filter(d => d.status === 'DELIVERED').length} Delivered Days
+            </span>
+          </div>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+            <thead>
+              <tr style={{ background: '#f1f5f9', borderTop: '1px solid #cbd5e1', borderBottom: '2px solid #cbd5e1' }}>
+                <th style={{ padding: '6px 8px', textAlign: 'center', width: '30px' }}>#</th>
+                <th style={{ padding: '6px 8px', textAlign: 'left', width: '150px' }}>DATE</th>
+                <th style={{ padding: '6px 8px', textAlign: 'left' }}>PRODUCT DELIVERED</th>
+                <th style={{ padding: '6px 8px', textAlign: 'center', width: '70px' }}>QUANTITY</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right', width: '75px' }}>RATE (₹)</th>
+                <th style={{ padding: '6px 8px', textAlign: 'right', width: '85px' }}>AMOUNT (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {days.map((day, idx) => {
+                const isSkipped = day.status === 'SKIPPED';
+                const isDelivered = day.status === 'DELIVERED';
+                const hasItems = day.items && day.items.length > 0;
+
+                if (!hasItems || (isSkipped && day.totalItems === 0)) {
+                  return (
+                    <tr key={day.date} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc', color: '#94a3b8' }}>
+                      <td style={{ padding: '4px 8px', textAlign: 'center' }}>{idx + 1}</td>
+                      <td style={{ padding: '4px 8px', fontWeight: 600 }}>{day.formattedDate || day.date}</td>
+                      <td style={{ padding: '4px 8px', fontStyle: 'italic', color: '#94a3b8' }}>Delivery Paused / Skipped</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'center' }}>0 pkts</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'right' }}>—</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600 }}>0.00</td>
+                    </tr>
+                  );
+                }
+
+                return day.items.map((it, itIdx) => (
+                  <tr key={`${day.date}-${itIdx}`} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                    <td style={{ padding: '4px 8px', textAlign: 'center', color: '#64748b' }}>{itIdx === 0 ? idx + 1 : ''}</td>
+                    <td style={{ padding: '4px 8px', fontWeight: 700, color: '#0f172a' }}>
+                      {itIdx === 0 ? (
+                        <div>
+                          <span>{day.formattedDate || day.date}</span>
+                          {day.deliveredTime && (
+                            <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700, marginLeft: '4px' }}>
+                              ✓ {day.deliveredTime}
+                            </span>
+                          )}
+                        </div>
+                      ) : ''}
+                    </td>
+                    <td style={{ padding: '4px 8px', fontWeight: 700, color: '#0f172a' }}>
+                      {it.productName} {it.variantLabel ? `(${it.variantLabel})` : ''}
+                    </td>
+                    <td style={{ padding: '4px 8px', textAlign: 'center', fontWeight: 800, color: '#0284c7' }}>
+                      {it.quantity} {it.quantity === 1 ? 'pkt' : 'pkts'}
+                    </td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: '#475569' }}>
+                      {Number(it.unitPrice || 0).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
+                      {Number(it.totalAmount || (it.quantity * it.unitPrice)).toFixed(2)}
+                    </td>
+                  </tr>
+                ));
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 800 }}>
+                <td colSpan={3} style={{ padding: '8px', color: '#0f172a' }}>
+                  TOTAL DELIVERED
+                </td>
+                <td style={{ padding: '8px', textAlign: 'center', color: '#0284c7', fontSize: '0.82rem' }}>
+                  {summary.totalDeliveredItems || days.filter(d => d.status === 'DELIVERED').reduce((acc, d) => acc + (d.totalItems || 0), 0)} pkts
+                </td>
+                <td style={{ padding: '8px', textAlign: 'right', color: '#64748b', fontSize: '0.72rem' }}>
+                  Net Total:
+                </td>
+                <td style={{ padding: '8px', textAlign: 'right', color: '#16a34a', fontSize: '0.85rem' }}>
+                  ₹{Number(netPayableValue !== undefined ? netPayableValue : monthBillValue || 0).toFixed(2)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {/* Delivery Schedule Bar */}
+        <div style={{
+          padding: '6px 10px',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '4px',
+          fontSize: '0.74rem',
+          color: '#334155',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '12px'
+        }}>
+          <div>
+            🗓️ <strong>Delivery Schedule:</strong> {summary.totalScheduledDays || summary.totalDeliveredDays || days.length} Scheduled Days for <strong>{bill?.billingMonth || selectedMonth}</strong>
+          </div>
+          <div style={{ color: '#0054a6', fontWeight: 700 }}>
+            Total Delivered: {summary.totalDeliveredItems || days.filter(d => d.status === 'DELIVERED').reduce((acc, d) => acc + (d.totalItems || 0), 0)} pkts
+          </div>
+        </div>
+
+        {/* Bill Summary Breakdown (Matches image 4 exactly) */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+          <div style={{ width: '310px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '10px 14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '3px' }}>
+              <span style={{ color: '#64748b' }}>
+                {isPrepaid ? 'Sub Total (Scheduled Days):' : 'Sub Total (Delivered Milk):'}
+              </span>
+              <span style={{ fontWeight: 600 }}>₹{monthBillValue.toFixed(2)}</span>
+            </div>
+
+            {isPrepaid && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '4px 8px', margin: '4px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#0369a1', fontWeight: 700 }}>
+                  <span>Advance Deposited / Paid:</span>
+                  <span>₹{Number(customer.advanceBalance || 0).toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#dc2626', fontWeight: 700, marginTop: '2px' }}>
+                  <span>Advance Settled / Deducted:</span>
+                  <span>- ₹{advanceSettledValue.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#15803d', fontWeight: 800, borderTop: '1px dashed #86efac', paddingTop: '2px', marginTop: '2px' }}>
+                  <span>Remaining Advance Balance:</span>
+                  <span>₹{Math.max(0, Number(customer.advanceBalance || 0) - advanceSettledValue).toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', marginBottom: '3px' }}>
+              <span style={{ color: '#64748b' }}>Round Off:</span>
+              <span style={{ fontWeight: 600 }}>₹0.00</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', fontWeight: 800, borderTop: '1px solid #cbd5e1', paddingTop: '4px', marginBottom: '3px', color: '#0f172a' }}>
+              <span>Total Bill:</span>
+              <span>₹{monthBillValue.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#16a34a', marginBottom: '3px' }}>
+              <span>Received / Adjusted:</span>
+              <span style={{ fontWeight: 700 }}>₹{Number(bill?.paidAmount || 0).toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: netPayableValue > 0 ? '#dc2626' : '#16a34a', marginBottom: '3px' }}>
+              <span>Net Due (Payable):</span>
+              <span style={{ fontWeight: 700 }}>₹{netPayableValue.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', fontWeight: 800, borderTop: '1px solid #e2e8f0', paddingTop: '4px', marginTop: '3px', color: netPayableValue > 0 ? '#dc2626' : '#15803d' }}>
+              <span>Pending Due:</span>
+              <span>₹{netPayableValue.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment Details & Authorized Signatory Section */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '16px',
+          padding: '12px',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          marginBottom: '12px',
+          alignItems: 'center'
+        }}>
+          {/* Left: Payment Info */}
+          <div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              PAYMENT DETAILS
+            </div>
+            <div style={{ fontSize: '0.78rem', marginTop: '3px', color: '#0f172a' }}>
+              Gpay / PhonePe / Paytm: <strong style={{ color: '#0054a6' }}>{parlour.upiPhone || parlour.phone || '7022754524'}</strong>
+            </div>
+            {parlour.upiId && (
+              <div style={{ fontSize: '0.78rem', marginTop: '2px' }}>
+                UPI ID: <strong style={{ color: '#0054a6' }}>{parlour.upiId}</strong>
+              </div>
+            )}
+            {parlour.upiQr ? (
+              <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '64px',
+                  height: '64px',
+                  background: 'white',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '4px',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <img
+                    src={parlour.upiQr}
+                    alt="UPI QR Code"
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#475569' }}>
+                  <strong style={{ display: 'block', color: '#0f172a' }}>Scan to Pay</strong>
+                  <span>Accepted: UPI • Cash • Bank</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '3px' }}>
+                Accepted: UPI • Cash • Bank Transfer
+              </div>
+            )}
+          </div>
+
+          {/* Right: Authorized Signature */}
+          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>
+            {parlour.signature ? (
+              <div style={{ height: '44px', marginBottom: '2px', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+                <img
+                  src={parlour.signature}
+                  alt="Signature"
+                  style={{ maxHeight: '44px', maxWidth: '140px', objectFit: 'contain' }}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              </div>
+            ) : (
+              <div style={{ height: '24px' }}></div>
+            )}
+            <div style={{ borderTop: '1px solid #94a3b8', paddingTop: '3px', minWidth: '150px', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>Authorized Signatory</div>
+              <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{parlour.businessName || 'SS Agency [Nandini Milk Parlour]'}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Customer-Friendly Quote */}
+        <div style={{ textAlign: 'center', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+          <p style={{ margin: 0, fontSize: '0.74rem', color: '#64748b', fontStyle: 'italic' }}>
+            "Thank you for choosing Nandini Milk Parlour — Freshness delivered with care."
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

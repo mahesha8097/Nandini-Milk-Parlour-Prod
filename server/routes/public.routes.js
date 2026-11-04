@@ -623,12 +623,18 @@ router.get('/statement', async (req, res) => {
           pendingBalance: customer.pending_balance || 0
         },
         parlour: {
-          businessName: (profile && (profile.invoice_business_name || profile.business_name)) || 'Nandini Milk Parlour',
+          businessName: (profile && (profile.invoice_business_name || profile.business_name)) || 'SS AGENCY [NANDINI MILK PARLOUR]',
+          logo: (profile && (profile.invoice_logo || profile.business_logo)) || '',
           phone: (profile && (profile.phone || profile.upi_phone)) || '7022754524',
-          address: (profile && profile.address) || 'Bangalore, Karnataka',
+          email: (profile && profile.email) || '',
+          address: (profile && profile.address) || 'towards panchayat road, opposite Nitesh Flushing Meadows, Seegehalli, kadugodi, Bengaluru, Shigehalli, Karnataka 560115',
+          state: (profile && profile.state) || 'Karnataka',
+          pincode: (profile && profile.pincode) || '560067',
           upiId: (profile && profile.upi_id) || '',
           upiPhone: (profile && profile.upi_phone) || '7022754524',
-          invoiceFooter: (profile && profile.invoice_footer) || 'Thank you for choosing Nandini Milk! Pure & Fresh.'
+          upiQr: (profile && profile.upi_qr) || '',
+          signature: (profile && profile.signature) || '',
+          invoiceFooter: (profile && profile.invoice_footer) || 'Thank you for choosing Nandini Milk Parlour — Freshness delivered with care.'
         },
         bill: bill ? {
           id: bill.id,
@@ -733,12 +739,18 @@ router.get('/statement', async (req, res) => {
           pendingBalance: customer.pending_balance || 0
         },
         parlour: {
-          businessName: (profile && (profile.invoice_business_name || profile.business_name)) || 'Nandini Milk Parlour',
+          businessName: (profile && (profile.invoice_business_name || profile.business_name)) || 'SS AGENCY [NANDINI MILK PARLOUR]',
+          logo: (profile && (profile.invoice_logo || profile.business_logo)) || '',
           phone: (profile && (profile.phone || profile.upi_phone)) || '7022754524',
-          address: (profile && profile.address) || 'Bangalore, Karnataka',
+          email: (profile && profile.email) || '',
+          address: (profile && profile.address) || 'towards panchayat road, opposite Nitesh Flushing Meadows, Seegehalli, kadugodi, Bengaluru, Shigehalli, Karnataka 560115',
+          state: (profile && profile.state) || 'Karnataka',
+          pincode: (profile && profile.pincode) || '560067',
           upiId: (profile && profile.upi_id) || '',
           upiPhone: (profile && profile.upi_phone) || '7022754524',
-          invoiceFooter: (profile && profile.invoice_footer) || 'Thank you for choosing Nandini Milk! Pure & Fresh.'
+          upiQr: (profile && profile.upi_qr) || '',
+          signature: (profile && profile.signature) || '',
+          invoiceFooter: (profile && profile.invoice_footer) || 'Thank you for choosing Nandini Milk Parlour — Freshness delivered with care.'
         },
         bill: bill ? {
           id: bill.id,
