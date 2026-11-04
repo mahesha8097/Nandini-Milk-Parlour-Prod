@@ -464,9 +464,14 @@ export default function CustomerProfileModal({
     if (billLoading) return;
     let monthToUse = targetMonth || billingMonth || currentMonthStr;
 
+    let effBasis = basis;
+    if (effBasis === 'AUTO' && customer.billing_type === 'PREPAID') {
+      effBasis = 'SUBSCRIPTION';
+    }
+
     // Intelligent check: if generating advance subscription bill for PREPAID customer,
     // and customer has an active subscription in an upcoming month (e.g. next month) but none in monthToUse:
-    if (basis === 'SUBSCRIPTION' || customer.billing_type === 'PREPAID') {
+    if (effBasis === 'SUBSCRIPTION' || customer.billing_type === 'PREPAID') {
       const activeSubs = (profile?.subscriptions || []).filter(s => s.is_active === 1 || s.is_active === true);
       const hasInMonth = activeSubs.some(s => s.start_date <= `${monthToUse}-31` && (!s.end_date || s.end_date >= `${monthToUse}-01`));
       if (!hasInMonth && activeSubs.length > 0) {
@@ -484,10 +489,10 @@ export default function CustomerProfileModal({
       const res = await api.post('/bills/generate-single', {
         customer_id: customerId,
         month: monthToUse,
-        billingBasis: basis,
+        billingBasis: effBasis,
         forceRegenerate: true
       });
-      const basisDesc = basis === 'DELIVERIES' ? 'for delivered milk' : (basis === 'SUBSCRIPTION' ? 'as full month advance' : '');
+      const basisDesc = effBasis === 'DELIVERIES' ? 'for delivered milk' : (effBasis === 'SUBSCRIPTION' ? 'as full month advance' : '');
       setBillSuccessMsg(`Bill #${res.bill_number || res.id} calculated successfully ${basisDesc} for ${monthToUse}!`);
       await fetchCustomerProfile();
       onRefreshList?.();
@@ -652,6 +657,26 @@ export default function CustomerProfileModal({
             >
               <Receipt size={14} /> 🧾 Generate Monthly Bill (Calendar)
             </button>
+
+            {customer.billing_type === 'PREPAID' && (
+              <button
+                type="button"
+                onClick={() => handleGenerateOrRecalculateBill(billingMonth, 'SUBSCRIPTION')}
+                disabled={billLoading}
+                className="btn btn-sm"
+                style={{
+                  fontSize: '0.8rem',
+                  fontWeight: '800',
+                  background: 'linear-gradient(135deg, #059669, #10b981)',
+                  borderColor: '#059669',
+                  color: '#ffffff',
+                  boxShadow: '0 2px 4px rgba(16, 185, 129, 0.25)'
+                }}
+                title="Calculate full month advance bill including past delivered days and advance scheduled deliveries"
+              >
+                <Calendar size={14} /> 📅 Full Month Advance Bill
+              </button>
+            )}
 
             <button
               type="button"

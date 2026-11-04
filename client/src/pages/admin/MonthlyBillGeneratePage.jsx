@@ -360,27 +360,31 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
             if (parsed) {
               const pad = (n) => String(n).padStart(2, '0');
               if (Array.isArray(parsed) && parsed.length > 0) {
-                const mappedFromBill = parsed.map((savedItem, sIdx) => {
-                  const itemDays = (savedItem.selectedDays || savedItem.selected_days) || [];
-                  const itemDayQtys = savedItem.dayQuantities || {};
-                  return {
-                    productId: savedItem.product_id,
-                    productName: savedItem.product_name || 'Milk Product',
-                    variantLabel: savedItem.variant_label || 'Pkt',
-                    unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
-                    unitPrice: savedItem.unit_price || 0,
-                    quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
-                    category: savedItem.category || 'Milk',
-                    deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
-                    fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
-                    days: itemDays.length || savedItem.days_active_in_month || 0,
-                    startDate: savedItem.effective_start || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[0])}` : null),
-                    endDate: savedItem.effective_end || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
-                    selectedDays: itemDays,
-                    dayQuantities: itemDayQtys
-                  };
-                });
-                setItems(mappedFromBill);
+                // If bill only had delivered milk or no active subscription items, do NOT wipe out customer's active subscriptions!
+                const hasOnlyDelivered = parsed.every(it => it.is_delivered || it.frequency === 'DELIVERED');
+                if (!hasOnlyDelivered) {
+                  const mappedFromBill = parsed.map((savedItem, sIdx) => {
+                    const itemDays = (savedItem.selectedDays || savedItem.selected_days) || [];
+                    const itemDayQtys = savedItem.dayQuantities || {};
+                    return {
+                      productId: savedItem.product_id,
+                      productName: savedItem.product_name || 'Milk Product',
+                      variantLabel: savedItem.variant_label || 'Pkt',
+                      unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
+                      unitPrice: savedItem.unit_price || 0,
+                      quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
+                      category: savedItem.category || 'Milk',
+                      deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
+                      fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
+                      days: itemDays.length || savedItem.days_active_in_month || 0,
+                      startDate: savedItem.effective_start || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[0])}` : null),
+                      endDate: savedItem.effective_end || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
+                      selectedDays: itemDays,
+                      dayQuantities: itemDayQtys
+                    };
+                  });
+                  setItems(mappedFromBill);
+                }
               } else if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
                 const savedDays = parsed.selected_days.map(Number);
                 setItems(prev => prev.map((it) => ({
@@ -455,27 +459,30 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
               if (parsed) {
                 const pad = (n) => String(n).padStart(2, '0');
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                  const mappedFromBill = parsed.map((savedItem) => {
-                    const itemDays = (savedItem.selectedDays || savedItem.selected_days) || [];
-                    const itemDayQtys = savedItem.dayQuantities || {};
-                    return {
-                      productId: savedItem.product_id,
-                      productName: savedItem.product_name || 'Milk Product',
-                      variantLabel: savedItem.variant_label || 'Pkt',
-                      unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
-                      unitPrice: savedItem.unit_price || 0,
-                      quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
-                      category: savedItem.category || 'Milk',
-                      deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
-                      fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
-                      days: itemDays.length || savedItem.days_active_in_month || 0,
-                      startDate: savedItem.effective_start || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[0])}` : null),
-                      endDate: savedItem.effective_end || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
-                      selectedDays: itemDays,
-                      dayQuantities: itemDayQtys
-                    };
-                  });
-                  setItems(mappedFromBill);
+                  const hasOnlyDelivered = parsed.every(it => it.is_delivered || it.frequency === 'DELIVERED');
+                  if (!hasOnlyDelivered) {
+                    const mappedFromBill = parsed.map((savedItem) => {
+                      const itemDays = (savedItem.selectedDays || savedItem.selected_days) || [];
+                      const itemDayQtys = savedItem.dayQuantities || {};
+                      return {
+                        productId: savedItem.product_id,
+                        productName: savedItem.product_name || 'Milk Product',
+                        variantLabel: savedItem.variant_label || 'Pkt',
+                        unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
+                        unitPrice: savedItem.unit_price || 0,
+                        quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
+                        category: savedItem.category || 'Milk',
+                        deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
+                        fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
+                        days: itemDays.length || savedItem.days_active_in_month || 0,
+                        startDate: savedItem.effective_start || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[0])}` : null),
+                        endDate: savedItem.effective_end || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
+                        selectedDays: itemDays,
+                        dayQuantities: itemDayQtys
+                      };
+                    });
+                    setItems(mappedFromBill);
+                  }
                 } else if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
                   const savedDays = parsed.selected_days.map(Number);
                   setItems(prev => prev.map((it) => ({
@@ -492,6 +499,44 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
           }
         })
         .catch(() => {});
+    }
+  };
+
+  const handleResetToSubscriptions = () => {
+    const cust = selectedCustomer;
+    if (!cust) return;
+    if (cust.subscriptions && cust.subscriptions.length > 0) {
+      const mapped = cust.subscriptions.map(s => {
+        const prod = products.find(p => p.id === s.product_id) || {};
+        const itemDayInfo = calculateSubscriptionDaysForMonth(s, selectedMonth);
+        const chargeType = s.delivery_charge_type || prod.delivery_charge_type || 'MILK_RULE';
+        const fixedCharge = s.fixed_delivery_charge !== undefined
+          ? s.fixed_delivery_charge
+          : (prod.fixed_delivery_charge !== undefined ? prod.fixed_delivery_charge : 0);
+
+        return {
+          productId: s.product_id,
+          productName: s.product_name || prod.name || 'Milk Product',
+          variantLabel: s.variant_label || prod.variant_label || 'Pkt',
+          unitVolumeLitres: prod.unit_volume_litres || s.unit_volume_litres || 0.5,
+          unitPrice: s.selling_price || prod.selling_price || 0,
+          quantity: s.quantity || 1,
+          category: s.category || prod.category || 'Milk',
+          deliveryChargeType: chargeType,
+          fixedDeliveryCharge: fixedCharge,
+          days: itemDayInfo.days,
+          startDate: itemDayInfo.startDate,
+          endDate: itemDayInfo.endDate,
+          selectedDays: itemDayInfo.selectedDays,
+          dayQuantities: {}
+        };
+      });
+      setItems(mapped);
+      setToastMsg('🔄 Loaded latest active subscriptions into calendar schedule!');
+      setTimeout(() => setToastMsg(''), 4000);
+    } else {
+      setToastMsg('No active subscriptions found for this customer');
+      setTimeout(() => setToastMsg(''), 3000);
     }
   };
 
@@ -2164,6 +2209,15 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
               title="Download Complete Monthly Billing & Payments Master Excel Sheet for this Month"
             >
               <FileSpreadsheet size={15} /> Export Month Excel
+            </button>
+            <button
+              type="button"
+              onClick={handleResetToSubscriptions}
+              className="btn btn-outline btn-sm"
+              style={{ fontWeight: 800, color: '#2563eb', borderColor: '#bfdbfe', background: '#eff6ff', display: 'flex', alignItems: 'center', gap: '5px' }}
+              title="Reload latest active subscriptions and re-project full month scheduled days"
+            >
+              <RotateCcw size={14} /> Reload Subscriptions
             </button>
             <button onClick={handleAddItem} className="btn btn-outline btn-sm">
               <Plus size={15} /> Add Product

@@ -489,9 +489,10 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     return null; // Coupon customers pay via coupon books
   }
 
-  // Check if bill already exists
+  // Check if bill already exists for this customer and month
   const existing = await db.prepare(`
-    SELECT * FROM bills WHERE customer_id = ? AND billing_month = ? AND billing_type = 'PREPAID'
+    SELECT * FROM bills WHERE customer_id = ? AND billing_month = ? AND status != 'CANCELLED'
+    ORDER BY id DESC LIMIT 1
   `).get(customer.id, billingMonth);
 
   if (existing && !forceRegenerate) {
@@ -609,22 +610,45 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     try {
       const parsed = typeof existing.items_json === 'string' ? JSON.parse(existing.items_json) : existing.items_json;
       if (parsed) {
-        if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
-          savedSelectedDays = new Set(parsed.selected_days.map(Number));
-        }
-        if (parsed.off_days && Array.isArray(parsed.off_days)) {
-          savedOffDays = new Set(parsed.off_days.map(Number));
+        if (!parsed.is_delivered && parsed.frequency !== 'DELIVERED') {
+          if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+            savedSelectedDays = new Set(parsed.selected_days.map(Number));
+          }
+          if (parsed.off_days && Array.isArray(parsed.off_days)) {
+            savedOffDays = new Set(parsed.off_days.map(Number));
+          }
         }
         if (Array.isArray(parsed) && parsed.length > 0) {
-          if (parsed[0].selected_days && Array.isArray(parsed[0].selected_days)) {
-            savedSelectedDays = new Set(parsed[0].selected_days.map(Number));
-          }
-          if (parsed[0].off_days && Array.isArray(parsed[0].off_days)) {
-            savedOffDays = new Set(parsed[0].off_days.map(Number));
+          // IMPORTANT: Never extract savedSelectedDays from a delivered items line!
+          // Delivered items lines only record the past delivered dates (e.g. [1, 2]).
+          // Using that as a monthly schedule would falsely wipe out all future scheduled deliveries!
+          const scheduleItem = parsed.find(item => !item.is_delivered && item.frequency !== 'DELIVERED');
+          if (scheduleItem) {
+            if (scheduleItem.selected_days && Array.isArray(scheduleItem.selected_days)) {
+              savedSelectedDays = new Set(scheduleItem.selected_days.map(Number));
+            }
+            if (scheduleItem.off_days && Array.isArray(scheduleItem.off_days)) {
+              savedOffDays = new Set(scheduleItem.off_days.map(Number));
+            }
           }
         }
       }
     } catch (e) {}
+  }
+
+  // Calculate highest day number that has already been DELIVERED
+  const lastDeliveredDay = deliveredDeliveries.reduce((max, del) => {
+    const dayNum = parseInt(del.delivery_date.split('-')[2], 10);
+    return Math.max(max, isNaN(dayNum) ? 0 : dayNum);
+  }, 0);
+
+  // Safety: If savedSelectedDays only contains past days (<= lastDeliveredDay) and no future days,
+  // it is simply past delivery history, NOT an active future schedule. Invalidate it so future active subscriptions project cleanly!
+  if (savedSelectedDays && savedSelectedDays.size > 0 && lastDeliveredDay > 0) {
+    const hasFutureDays = Array.from(savedSelectedDays).some(dayNum => dayNum > lastDeliveredDay);
+    if (!hasFutureDays) {
+      savedSelectedDays = null;
+    }
   }
 
   // Day-by-day calculation across the billing month
@@ -1920,7 +1944,9 @@ async function recalculateSingleBill(billId, billingBasis = 'AUTO') {
 
   let effBasis = billingBasis;
   if (effBasis === 'AUTO') {
-    if (bill.notes?.includes('Delivered Milk') || (bill.total_deliveries_count > 0 && bill.total_deliveries_count < 28)) {
+    if (customer.billing_type === 'PREPAID') {
+      effBasis = 'SUBSCRIPTION';
+    } else if (bill.notes?.includes('Delivered Milk') || (bill.total_deliveries_count > 0 && bill.total_deliveries_count < 28)) {
       effBasis = 'DELIVERIES';
     }
   }
