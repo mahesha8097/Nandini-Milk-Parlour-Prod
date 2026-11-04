@@ -685,8 +685,9 @@ router.post('/bulk-deliver', verifyToken, async (req, res) => {
     // Refresh monthly bill if exists
     const billingMonth = targetDate.slice(0, 7);
     try {
-      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const { syncCustomerBillingAfterSubscriptionChange, syncCustomerLiveBalance } = require('../services/billingService');
       await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+      await syncCustomerLiveBalance(customer.id);
     } catch (e) {
       console.warn('Auto bill refresh on bulk deliver notice:', e.message);
     }
@@ -848,7 +849,7 @@ router.put('/:id/status', verifyToken, async (req, res) => {
 
     // Automatically synchronize billing and wallet balance if a bill exists or customer has subscriptions
     try {
-      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const { syncCustomerBillingAfterSubscriptionChange, syncCustomerLiveBalance } = require('../services/billingService');
       const delMonth = delivery.delivery_date.slice(0, 7);
       const hasActiveSub = await db.prepare(`
         SELECT COUNT(*) as count FROM subscriptions
@@ -863,6 +864,9 @@ router.put('/:id/status', verifyToken, async (req, res) => {
       if (existingBill || !hasActiveSub || Number(hasActiveSub.count) === 0) {
         await syncCustomerBillingAfterSubscriptionChange(delivery.customer_id, delMonth);
       }
+
+      // Synchronize live customer balance (prepaid advance minused daily, postpaid pending updated live)
+      await syncCustomerLiveBalance(delivery.customer_id);
     } catch (syncErr) {
       console.warn('Delivery status bill sync notice:', syncErr.message);
     }
@@ -1014,6 +1018,13 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
           await syncCustomerBillingAfterSubscriptionChange(Number(cId), dMonth);
         }
       }
+
+      // Synchronize live customer balances for all affected customers
+      const { syncCustomerLiveBalance } = require('../services/billingService');
+      const uniqueCustIds = new Set(authorizedDels.map(d => d.customer_id));
+      for (const cId of uniqueCustIds) {
+        await syncCustomerLiveBalance(cId);
+      }
     } catch (bulkBillSyncErr) {
       console.warn('Bulk delivery bill sync notice:', bulkBillSyncErr.message);
     }
@@ -1091,7 +1102,7 @@ router.post('/record-payment', verifyToken, async (req, res) => {
     }
 
     // 2. Record payment transaction in payments table & ledger
-    const { recordPaymentTransaction } = require('../services/billingService');
+    const { recordPaymentTransaction, syncCustomerLiveBalance } = require('../services/billingService');
     const paymentRecord = await recordPaymentTransaction({
       customerId: parseInt(customer_id, 10),
       billId: null,
@@ -1103,6 +1114,8 @@ router.post('/record-payment', verifyToken, async (req, res) => {
       notes: notes || `Collected on delivery by ${req.user.name || 'Delivery Boy'}`,
       recordedByUserId: req.user.id
     });
+
+    await syncCustomerLiveBalance(parseInt(customer_id, 10));
 
     res.status(201).json({
       message: `Payment of ₹${numAmount.toFixed(2)} recorded successfully in payment recorder!`,
@@ -1493,10 +1506,18 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
     const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ? AND status != "CANCELLED"').get(customer.id, billingMonth);
     if (existingBill && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
       try {
-        const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+        const { syncCustomerBillingAfterSubscriptionChange, syncCustomerLiveBalance } = require('../services/billingService');
         await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+        await syncCustomerLiveBalance(customer.id);
       } catch (e) {
         console.warn('Auto bill refresh on temporary change notice:', e.message);
+      }
+    } else {
+      try {
+        const { syncCustomerLiveBalance } = require('../services/billingService');
+        await syncCustomerLiveBalance(customer.id);
+      } catch (e) {
+        console.warn('Live balance sync on temporary change notice:', e.message);
       }
     }
 
@@ -1700,10 +1721,18 @@ router.post('/extra', verifyToken, async (req, res) => {
 
     if (existingBill && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
       try {
-        const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+        const { syncCustomerBillingAfterSubscriptionChange, syncCustomerLiveBalance } = require('../services/billingService');
         await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+        await syncCustomerLiveBalance(customer.id);
       } catch (e) {
         console.warn('Auto bill refresh on extra product notice:', e.message);
+      }
+    } else {
+      try {
+        const { syncCustomerLiveBalance } = require('../services/billingService');
+        await syncCustomerLiveBalance(customer.id);
+      } catch (e) {
+        console.warn('Live balance sync on extra product notice:', e.message);
       }
     }
 

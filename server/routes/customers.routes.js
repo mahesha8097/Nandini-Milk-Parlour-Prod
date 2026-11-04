@@ -132,8 +132,11 @@ router.get('/', verifyToken, async (req, res) => {
 
     const customers = await db.prepare(query).all(...params);
 
-    // Attach active subscriptions summary for quick list view (Supports both SQLite & Async Postgres)
+    const { syncCustomerLiveBalance } = require('../services/billingService');
+
+    // Attach active subscriptions summary and calculate live balance for each customer
     const enrichedCustomers = await Promise.all((customers || []).map(async (c) => {
+      const liveBal = await syncCustomerLiveBalance(c.id, { persist: true });
       const subs = await db.prepare(`
         SELECT s.*, p.name as product_name, p.variant_label, p.category, p.unit_volume_litres,
                p.selling_price, p.delivery_charge_type, p.fixed_delivery_charge, p.image_url
@@ -143,6 +146,8 @@ router.get('/', verifyToken, async (req, res) => {
       `).all(c.id);
       return {
         ...c,
+        advance_balance: liveBal ? liveBal.advance_balance : Number(c.advance_balance || 0),
+        pending_balance: liveBal ? liveBal.pending_balance : Number(c.pending_balance || 0),
         subscriptions: subs || []
       };
     }));
@@ -170,7 +175,12 @@ router.get('/:id/dues', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
-    const { calculateCustomerPendingDues } = require('../services/billingService');
+    const { calculateCustomerPendingDues, syncCustomerLiveBalance } = require('../services/billingService');
+    const liveBal = await syncCustomerLiveBalance(customerId, { persist: true });
+    if (liveBal) {
+      customer.advance_balance = liveBal.advance_balance;
+      customer.pending_balance = liveBal.pending_balance;
+    }
     const duesInfo = await calculateCustomerPendingDues(customerId);
 
     // Also get all non-cancelled bills to provide complete context
@@ -184,9 +194,13 @@ router.get('/:id/dues', verifyToken, async (req, res) => {
     `).all(customerId);
 
     res.json({
-      customer,
-      pending_balance: customer.pending_balance,
-      advance_balance: customer.advance_balance,
+      customer: {
+        ...customer,
+        pending_balance: liveBal ? liveBal.pending_balance : customer.pending_balance,
+        advance_balance: liveBal ? liveBal.advance_balance : customer.advance_balance
+      },
+      pending_balance: liveBal ? liveBal.pending_balance : customer.pending_balance,
+      advance_balance: liveBal ? liveBal.advance_balance : customer.advance_balance,
       total_unpaid_bills: duesInfo.totalUnpaid,
       unpaid_bills: duesInfo.unpaidBillsList.map(b => ({
         ...b,
@@ -228,6 +242,13 @@ router.get('/:id', verifyToken, async (req, res) => {
 
     if (!customer) {
       return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const { syncCustomerLiveBalance } = require('../services/billingService');
+    const liveBal = await syncCustomerLiveBalance(customerId, { persist: true });
+    if (liveBal) {
+      customer.advance_balance = liveBal.advance_balance;
+      customer.pending_balance = liveBal.pending_balance;
     }
 
     // Subscriptions
@@ -900,6 +921,13 @@ router.post('/:customerId/bills/generate', requireAdmin, async (req, res) => {
     const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
     if (!customer) {
       return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const { syncCustomerLiveBalance } = require('../services/billingService');
+    const liveBal = await syncCustomerLiveBalance(customerId, { persist: true });
+    if (liveBal) {
+      customer.advance_balance = liveBal.advance_balance;
+      customer.pending_balance = liveBal.pending_balance;
     }
 
     const targetMonth = req.body.billing_month || req.body.month || new Date().toISOString().slice(0, 7);

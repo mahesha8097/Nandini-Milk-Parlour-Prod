@@ -279,6 +279,13 @@ async function correctDelivery({ deliveryId, correctedQuantity, status, reason, 
     }
   }
 
+  try {
+    const { syncCustomerLiveBalance } = require('./billingService');
+    await syncCustomerLiveBalance(customer.id);
+  } catch (syncBalErr) {
+    console.warn('Live balance sync on correction notice:', syncBalErr.message);
+  }
+
   // 8. Fetch and return fresh delivery record
   const updatedDelivery = await db.prepare(`
     SELECT d.*, 
