@@ -1447,7 +1447,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   };
 
   return (
-    <div className="zone-delivery-container" style={{ padding: activeCustomer ? '10px 12px 70px 12px' : '20px 24px 96px 24px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: 'var(--bg-main)' }}>
+    <div className="zone-delivery-container" style={{ padding: activeCustomer ? '10px 10px calc(110px + env(safe-area-inset-bottom, 24px)) 10px' : '16px 14px calc(110px + env(safe-area-inset-bottom, 24px)) 14px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: 'var(--bg-main)', boxSizing: 'border-box' }}>
       {/* Toast Notification */}
       {toastMessage && (
         <div style={{
@@ -2987,16 +2987,30 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                       </div>
                     )}
 
-                    {/* Bottom Row: Products count badge + Call button + Open Customer Button */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Bottom Row: Products count badge + Call button + Action Buttons */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      borderTop: '1px solid var(--border-color)',
+                      paddingTop: '10px',
+                      marginTop: '4px'
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '8px',
+                        flexWrap: 'wrap'
+                      }}>
                         <span style={{
-                          background: '#f1f5f9',
-                          color: '#475569',
-                          fontSize: '0.76rem',
+                          background: 'var(--bg-main)',
+                          color: 'var(--text-secondary)',
+                          fontSize: '0.78rem',
                           fontWeight: '700',
-                          padding: '3px 8px',
-                          borderRadius: '6px'
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-color)'
                         }}>
                           {cust.items.length} {cust.items.length === 1 ? 'product' : 'products'} scheduled
                         </span>
@@ -3006,11 +3020,11 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             onClick={(e) => e.stopPropagation()}
                             className="btn btn-outline btn-sm"
                             style={{
-                              padding: '4px 10px',
-                              borderRadius: '6px',
+                              padding: '5px 12px',
+                              borderRadius: '8px',
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '4px',
+                              gap: '5px',
                               textDecoration: 'none',
                               color: '#2563eb',
                               borderColor: '#bfdbfe',
@@ -3024,7 +3038,14 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {/* Action buttons row with flex wrap & full stretch so no overflow or clipping occurs */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        flexWrap: 'wrap',
+                        width: '100%'
+                      }}>
                         {cust.items.some((it) => it.status === 'DELIVERED' || it.status === 'SKIPPED') && (
                           <button
                             type="button"
@@ -3034,15 +3055,19 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             }}
                             className="btn btn-outline btn-sm"
                             style={{
+                              flex: '1 1 auto',
                               display: 'inline-flex',
                               alignItems: 'center',
+                              justifyContent: 'center',
                               gap: '4px',
                               fontWeight: '700',
                               fontSize: '0.78rem',
-                              padding: '5px 10px',
+                              padding: '7px 10px',
                               borderRadius: '8px',
                               borderColor: '#f59e0b',
-                              color: '#d97706'
+                              color: '#d97706',
+                              minHeight: '38px',
+                              whiteSpace: 'nowrap'
                             }}
                             title="Revert all deliveries for this customer back to Pending"
                           >
@@ -3061,17 +3086,21 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             }}
                             className="btn btn-sm"
                             style={{
+                              flex: '1 1 auto',
                               display: 'inline-flex',
                               alignItems: 'center',
+                              justifyContent: 'center',
                               gap: '5px',
                               fontWeight: '800',
                               fontSize: '0.78rem',
-                              padding: '5px 11px',
+                              padding: '7px 11px',
                               borderRadius: '8px',
                               background: cust.paidTodayAmount > 0 ? '#f0fdf4' : '#16a34a',
                               color: cust.paidTodayAmount > 0 ? '#15803d' : 'white',
                               border: cust.paidTodayAmount > 0 ? '1.5px solid #86efac' : 'none',
-                              boxShadow: cust.paidTodayAmount > 0 ? 'none' : '0 2px 6px rgba(22, 163, 74, 0.25)'
+                              boxShadow: cust.paidTodayAmount > 0 ? 'none' : '0 2px 6px rgba(22, 163, 74, 0.25)',
+                              minHeight: '38px',
+                              whiteSpace: 'nowrap'
                             }}
                             title={cust.paidTodayAmount > 0 ? 'Payment recorded. Click to adjust or view.' : 'Collect payment at customer location'}
                           >
@@ -3088,15 +3117,19 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                           }}
                           className="btn btn-primary btn-sm"
                           style={{
+                            flex: '1 1 auto',
                             display: 'inline-flex',
                             alignItems: 'center',
+                            justifyContent: 'center',
                             gap: '6px',
                             fontWeight: '800',
                             fontSize: '0.82rem',
-                            padding: '6px 14px',
+                            padding: '7px 14px',
                             borderRadius: '8px',
                             background: isDelivered ? '#15803d' : '#2563eb',
-                            borderColor: isDelivered ? '#166534' : '#1d4ed8'
+                            borderColor: isDelivered ? '#166534' : '#1d4ed8',
+                            minHeight: '38px',
+                            whiteSpace: 'nowrap'
                           }}
                         >
                           <span>{isDelivered ? 'View Deliveries' : 'Open Customer'}</span>
@@ -3141,24 +3174,29 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: '8px',
                   fontWeight: 800,
-                  padding: '9px 18px',
-                  borderRadius: '8px',
+                  padding: '10px 18px',
+                  borderRadius: '10px',
                   background: 'linear-gradient(135deg, #059669, #10b981)',
                   borderColor: '#059669',
-                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                  whiteSpace: 'normal',
+                  lineHeight: 1.25,
+                  textAlign: 'center',
+                  minHeight: '44px'
                 }}
               >
                 <span>Done & Move to Next Zone: {nextZone.name}</span>
-                <ArrowRight size={16} />
+                <ArrowRight size={16} style={{ flexShrink: 0 }} />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => setSelectedZoneKey(null)}
                 className="btn btn-outline btn-sm"
-                style={{ fontWeight: 700 }}
+                style={{ fontWeight: 700, minHeight: '38px', padding: '6px 14px' }}
               >
                 Back to All Zones
               </button>
@@ -3487,24 +3525,25 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: '8px',
+              flexWrap: 'wrap',
               fontSize: '0.82rem'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: '1 1 auto' }}>
                 <Wallet size={16} color={activeCustomer.paidTodayAmount > 0 ? '#16a34a' : (activeCustomer.billing_type === 'DAILY' ? '#ea580c' : '#64748b')} style={{ flexShrink: 0 }} />
                 {activeCustomer.paidTodayAmount > 0 ? (
                   <span style={{ color: '#15803d', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     ✓ Paid: ₹{activeCustomer.paidTodayAmount.toFixed(2)} ({activeCustomer.todayPayments[0]?.payment_method || 'CASH'})
                   </span>
                 ) : activeCustomer.billing_type === 'DAILY' ? (
-                  <span style={{ color: '#c2410c', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  <span style={{ color: '#c2410c', fontWeight: 800 }}>
                     💰 Due: ₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'}
                   </span>
                 ) : activeCustomer.billing_type === 'COUPON' ? (
-                  <span style={{ color: '#047857', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  <span style={{ color: '#047857', fontWeight: 800 }}>
                     🎟️ Coupon Customer {activeCustomer.coupon_balance !== undefined ? `(Bal: ${activeCustomer.coupon_balance})` : ''}
                   </span>
                 ) : (
-                  <span style={{ color: 'var(--text-secondary)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>
                     📅 Monthly • Today: ₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'}
                   </span>
                 )}
@@ -3519,11 +3558,12 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   border: 'none',
                   fontWeight: 800,
                   fontSize: '0.78rem',
-                  padding: '5px 12px',
+                  padding: '6px 14px',
                   borderRadius: '6px',
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
-                  flexShrink: 0
+                  flexShrink: 0,
+                  minHeight: '34px'
                 }}
               >
                 {activeCustomer.paidTodayAmount > 0 ? 'Edit Pay' : 'Enter Pay'}
@@ -3713,14 +3753,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             color: '#15803d',
                             border: '1.5px solid #86efac',
                             borderRadius: '10px',
-                            padding: '8px 16px',
+                            padding: '7px 14px',
                             fontSize: '0.88rem',
                             fontWeight: 900,
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '6px'
+                            gap: '6px',
+                            minHeight: '38px'
                           }}>
-                            <CheckCircle2 size={18} color="#16a34a" />
+                            <CheckCircle2 size={18} color="#16a34a" style={{ flexShrink: 0 }} />
                             <span>Delivered</span>
                           </div>
 
@@ -3733,13 +3774,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                                 color: '#1d4ed8',
                                 border: '1px solid #bfdbfe',
                                 borderRadius: '8px',
-                                padding: '6px 10px',
-                                fontSize: '0.78rem',
+                                padding: '6px 12px',
+                                fontSize: '0.8rem',
                                 fontWeight: 800,
                                 cursor: 'pointer',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '4px'
+                                gap: '4px',
+                                minHeight: '38px',
+                                whiteSpace: 'nowrap'
                               }}
                               title="Edit / Correct"
                             >
@@ -3754,13 +3797,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                                 color: '#d97706',
                                 border: '1px solid #fde68a',
                                 borderRadius: '8px',
-                                padding: '6px 10px',
-                                fontSize: '0.78rem',
+                                padding: '6px 12px',
+                                fontSize: '0.8rem',
                                 fontWeight: 800,
                                 cursor: 'pointer',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '4px'
+                                gap: '4px',
+                                minHeight: '38px',
+                                whiteSpace: 'nowrap'
                               }}
                               title="Revert back to Pending"
                             >
@@ -3771,9 +3816,21 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                         </>
                       ) : (
                         <>
-                          <span style={{ color: '#dc2626', fontSize: '0.85rem', fontWeight: 900, padding: '6px 14px', background: '#fee2e2', borderRadius: '8px', border: '1px solid #fecaca' }}>
-                            ⛔ Skipped
-                          </span>
+                          <div style={{
+                            color: '#dc2626',
+                            fontSize: '0.85rem',
+                            fontWeight: 900,
+                            padding: '7px 14px',
+                            background: '#fee2e2',
+                            borderRadius: '10px',
+                            border: '1px solid #fecaca',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            minHeight: '38px'
+                          }}>
+                            <span>⛔ Skipped</span>
+                          </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <button
                               type="button"
@@ -3783,13 +3840,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                                 color: '#1d4ed8',
                                 border: '1px solid #bfdbfe',
                                 borderRadius: '8px',
-                                padding: '6px 10px',
-                                fontSize: '0.78rem',
+                                padding: '6px 12px',
+                                fontSize: '0.8rem',
                                 fontWeight: 800,
                                 cursor: 'pointer',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '4px'
+                                gap: '4px',
+                                minHeight: '38px',
+                                whiteSpace: 'nowrap'
                               }}
                               title="Edit / Correct"
                             >
@@ -3804,13 +3863,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                                 color: '#d97706',
                                 border: '1px solid #fde68a',
                                 borderRadius: '8px',
-                                padding: '6px 10px',
-                                fontSize: '0.78rem',
+                                padding: '6px 12px',
+                                fontSize: '0.8rem',
                                 fontWeight: 800,
                                 cursor: 'pointer',
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '4px'
+                                gap: '4px',
+                                minHeight: '38px',
+                                whiteSpace: 'nowrap'
                               }}
                               title="Revert back to Pending"
                             >
@@ -3968,18 +4029,21 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   border: 'none',
                   borderRadius: '14px',
                   fontWeight: 900,
-                  fontSize: '1.05rem',
-                  padding: '14px 20px',
+                  fontSize: '0.98rem',
+                  padding: '14px 18px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
                   boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
-                  minHeight: '52px'
+                  minHeight: '52px',
+                  whiteSpace: 'normal',
+                  lineHeight: 1.3,
+                  textAlign: 'center'
                 }}
               >
-                <CheckCheck size={20} />
+                <CheckCheck size={20} style={{ flexShrink: 0 }} />
                 <span>DONE & MOVE TO NEXT ZONE ({nextZone.name}) ➔</span>
               </button>
             ) : (
@@ -3997,7 +4061,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             )}
 
             {/* Bottom Utilities Row: Extra Product, Skip, Revert */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', paddingTop: '4px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: '8px', paddingTop: '4px' }}>
               <button
                 type="button"
                 onClick={() => handleOpenExtra(activeCustomer.items[0] || activeCustomer)}
@@ -4006,19 +4070,20 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   color: '#b45309',
                   border: '1.5px solid #fde68a',
                   fontWeight: 800,
-                  fontSize: '0.84rem',
-                  padding: '10px 14px',
+                  fontSize: '0.82rem',
+                  padding: '10px 10px',
                   borderRadius: '10px',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '6px',
                   cursor: 'pointer',
-                  minHeight: '44px'
+                  minHeight: '44px',
+                  whiteSpace: 'nowrap'
                 }}
               >
-                <PlusCircle size={16} color="#d97706" />
-                <span>Extra Product</span>
+                <PlusCircle size={16} color="#d97706" style={{ flexShrink: 0 }} />
+                <span>+ Extra Product</span>
               </button>
 
               {activeCustomer.customer_category === 'BULK_HOTEL' && (
@@ -4070,18 +4135,20 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     color: 'var(--text-secondary)',
                     border: '1.5px solid var(--border-color)',
                     fontWeight: 800,
-                    fontSize: '0.84rem',
+                    fontSize: '0.82rem',
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '6px',
-                    padding: '10px 14px',
+                    padding: '10px 8px',
                     borderRadius: '10px',
-                    minHeight: '44px'
+                    minHeight: '44px',
+                    whiteSpace: 'nowrap'
                   }}
+                  title="Revert all items back to pending"
                 >
-                  <RotateCcw size={15} />
+                  <RotateCcw size={15} style={{ flexShrink: 0 }} />
                   <span>Revert to Pending</span>
                 </button>
               )}
@@ -5256,7 +5323,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           </label>
 
           {/* Action Buttons */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
             <button
               type="submit"
               disabled={submittingPayment}
@@ -5265,16 +5332,23 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 background: '#16a34a',
                 borderColor: '#16a34a',
                 fontWeight: 900,
-                fontSize: '0.95rem',
-                padding: '12px',
+                fontSize: '0.96rem',
+                padding: '12px 14px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '8px'
+                gap: '8px',
+                whiteSpace: 'normal',
+                textAlign: 'center',
+                lineHeight: 1.25,
+                width: '100%',
+                borderRadius: '12px',
+                minHeight: '48px',
+                boxShadow: '0 2px 8px rgba(22, 163, 74, 0.3)'
               }}
             >
-              <Wallet size={18} />
-              <span>{submittingPayment ? 'Recording...' : `Confirm & Record ₹${paymentModalData.amount || '0'} in Payment Recorder`}</span>
+              <Wallet size={18} style={{ flexShrink: 0 }} />
+              <span>{submittingPayment ? 'Recording...' : `Confirm Payment: ₹${paymentModalData.amount || '0'}`}</span>
             </button>
 
             {paymentModalCustomer?.status !== 'DELIVERED' && (
@@ -5283,7 +5357,18 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 disabled={submittingPayment}
                 onClick={handleDeliverWithoutPayment}
                 className="btn btn-outline"
-                style={{ fontSize: '0.84rem', fontWeight: 700, padding: '9px', borderColor: '#fdba74', color: '#c2410c' }}
+                style={{
+                  fontSize: '0.84rem',
+                  fontWeight: 700,
+                  padding: '10px 14px',
+                  borderColor: '#fdba74',
+                  color: '#c2410c',
+                  whiteSpace: 'normal',
+                  textAlign: 'center',
+                  lineHeight: 1.25,
+                  borderRadius: '10px',
+                  minHeight: '42px'
+                }}
                 title="Customer will pay later or was not home"
               >
                 Mark Delivered Without Payment (Pay Later)
@@ -5295,7 +5380,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               disabled={submittingPayment}
               onClick={() => setIsDailyPaymentModalOpen(false)}
               className="btn btn-outline"
-              style={{ fontSize: '0.84rem' }}
+              style={{ fontSize: '0.84rem', padding: '10px 14px', borderRadius: '10px', minHeight: '40px' }}
             >
               Cancel
             </button>
