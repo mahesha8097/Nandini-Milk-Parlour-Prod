@@ -22,6 +22,7 @@ import {
   PlusCircle,
   Plus,
   Minus,
+  Package,
   ShoppingBag,
   Sparkles,
   MapPin,
@@ -142,10 +143,14 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   const [editError, setEditError] = useState('');
   const [submittingEdit, setSubmittingEdit] = useState(false);
 
-  // Extra product modal
+  // Extra product modal (Modern Select Products multi-item stepper)
   const [isExtraModalOpen, setIsExtraModalOpen] = useState(false);
   const [selectedExtraCustomer, setSelectedExtraCustomer] = useState(null);
-  const [extraForm, setExtraForm] = useState({ customer_id: '', product_id: '', quantity: 1, delivery_date: getLocalDateString(), notes: '' });
+  const [extraForm, setExtraForm] = useState({ customer_id: '', delivery_date: getLocalDateString(), notes: '' });
+  const [extraQuantities, setExtraQuantities] = useState({});
+  const [extraSearchTerm, setExtraSearchTerm] = useState('');
+  const [isExtraSearchOpen, setIsExtraSearchOpen] = useState(false);
+  const [extraCategoryFilter, setExtraCategoryFilter] = useState('ALL');
   const [extraError, setExtraError] = useState('');
   const [submittingExtra, setSubmittingExtra] = useState(false);
 
@@ -1243,9 +1248,14 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     }
   };
 
-  // Open Extra Product Modal
+  // Open Extra Product Modal (Select Products Modern Multi-Item Flow)
   const handleOpenExtra = (target = null) => {
     setExtraError('');
+    setExtraSearchTerm('');
+    setIsExtraSearchOpen(false);
+    setExtraCategoryFilter('ALL');
+    setExtraQuantities({});
+
     if (target) {
       const custId = target.customer_id || target.id;
       const matchedCust = customers.find((c) => c.id === custId) || {
@@ -1257,35 +1267,52 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       setSelectedExtraCustomer(matchedCust);
       setExtraForm({
         customer_id: custId ? custId.toString() : '',
-        product_id: products.length > 0 ? products[0].id.toString() : '',
         delivery_date: selectedDate,
-        quantity: 1,
-        status: 'DELIVERED',
-        notes: 'Customer requested extra item'
+        notes: ''
       });
     } else {
       setSelectedExtraCustomer(null);
       setExtraForm({
         customer_id: customers.length > 0 ? customers[0].id.toString() : '',
-        product_id: products.length > 0 ? products[0].id.toString() : '',
         delivery_date: selectedDate,
-        quantity: 1,
-        status: 'DELIVERED',
-        notes: 'Customer requested extra item'
+        notes: ''
       });
     }
     setIsExtraModalOpen(true);
   };
 
+  const handleIncrementExtra = (productId) => {
+    setExtraQuantities((prev) => ({
+      ...prev,
+      [productId]: (prev[productId] || 0) + 1
+    }));
+  };
+
+  const handleDecrementExtra = (productId) => {
+    setExtraQuantities((prev) => {
+      const current = prev[productId] || 0;
+      if (current <= 1) {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      }
+      return { ...prev, [productId]: current - 1 };
+    });
+  };
+
   const handleSaveExtra = async (e) => {
     if (e) e.preventDefault();
-    if (!extraForm.customer_id || !extraForm.product_id) {
-      setExtraError('Please select both a customer and a product.');
+    if (!extraForm.customer_id) {
+      setExtraError('Please select a customer first.');
       return;
     }
-    const q = parseInt(extraForm.quantity, 10);
-    if (isNaN(q) || q <= 0) {
-      setExtraError('Quantity must be at least 1.');
+
+    const selectedItems = Object.entries(extraQuantities)
+      .map(([pId, qty]) => ({ product_id: parseInt(pId, 10), quantity: qty }))
+      .filter((it) => it.quantity > 0);
+
+    if (selectedItems.length === 0) {
+      setExtraError('Please select at least one product with quantity greater than 0.');
       return;
     }
 
@@ -1294,8 +1321,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       setExtraError('');
       const payload = {
         customer_id: parseInt(extraForm.customer_id, 10),
-        product_id: parseInt(extraForm.product_id, 10),
-        quantity: q,
+        items: selectedItems,
         delivery_date: extraForm.delivery_date || selectedDate,
         status: 'DELIVERED',
         notes: extraForm.notes || 'Customer requested extra item'
@@ -1303,10 +1329,10 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
 
       const res = await api.post('/deliveries/extra', payload);
       setIsExtraModalOpen(false);
-      showToast(res.message || 'Extra product added successfully!');
+      showToast(res.message || `${selectedItems.length} extra product(s) added successfully!`);
       refreshDeliveriesOnly();
     } catch (err) {
-      setExtraError(err.message || 'Failed to add extra product.');
+      setExtraError(err.message || 'Failed to add extra product(s).');
     } finally {
       setSubmittingExtra(false);
     }
@@ -3038,13 +3064,13 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                         )}
                       </div>
 
-                      {/* Action buttons row with flex wrap & full stretch so no overflow or clipping occurs */}
+                      {/* Action buttons responsive grid with auto-fit so no button ever clips or overflows */}
                       <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))',
                         gap: '8px',
-                        flexWrap: 'wrap',
-                        width: '100%'
+                        width: '100%',
+                        boxSizing: 'border-box'
                       }}>
                         {cust.items.some((it) => it.status === 'DELIVERED' || it.status === 'SKIPPED') && (
                           <button
@@ -3055,14 +3081,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             }}
                             className="btn btn-outline btn-sm"
                             style={{
-                              flex: '1 1 auto',
+                              width: '100%',
+                              boxSizing: 'border-box',
                               display: 'inline-flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: '4px',
                               fontWeight: '700',
                               fontSize: '0.78rem',
-                              padding: '7px 10px',
+                              padding: '7px 8px',
                               borderRadius: '8px',
                               borderColor: '#f59e0b',
                               color: '#d97706',
@@ -3086,14 +3113,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             }}
                             className="btn btn-sm"
                             style={{
-                              flex: '1 1 auto',
+                              width: '100%',
+                              boxSizing: 'border-box',
                               display: 'inline-flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: '5px',
                               fontWeight: '800',
                               fontSize: '0.78rem',
-                              padding: '7px 11px',
+                              padding: '7px 8px',
                               borderRadius: '8px',
                               background: cust.paidTodayAmount > 0 ? '#f0fdf4' : '#16a34a',
                               color: cust.paidTodayAmount > 0 ? '#15803d' : 'white',
@@ -3117,14 +3145,15 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                           }}
                           className="btn btn-primary btn-sm"
                           style={{
-                            flex: '1 1 auto',
+                            width: '100%',
+                            boxSizing: 'border-box',
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: '6px',
                             fontWeight: '800',
                             fontSize: '0.82rem',
-                            padding: '7px 14px',
+                            padding: '7px 12px',
                             borderRadius: '8px',
                             background: isDelivered ? '#15803d' : '#2563eb',
                             borderColor: isDelivered ? '#166534' : '#1d4ed8',
@@ -4354,41 +4383,138 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       {/* ========================================================================= */}
       {/* EXTRA PRODUCT MODAL */}
       {/* ========================================================================= */}
+      {/* ========================================================================= */}
+      {/* SELECT PRODUCTS (EXTRA PRODUCT) MODAL — NATIVE APP EXPERIENCE           */}
+      {/* ========================================================================= */}
       <Modal
         isOpen={isExtraModalOpen}
         onClose={() => !submittingExtra && setIsExtraModalOpen(false)}
-        title="Add Extra Product to Customer"
-        maxWidth="520px"
+        hideHeader
+        maxWidth="860px"
+        backdropClassName="select-products-modal-backdrop"
+        dialogClassName="select-products-modal-dialog"
+        contentStyle={{ padding: 0, overflow: 'hidden', borderRadius: '24px' }}
+        bodyStyle={{ padding: 0 }}
       >
-        <form onSubmit={handleSaveExtra} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {extraError && (
-            <div style={{ background: '#fee2e2', border: '1px solid #f87171', color: '#991b1b', padding: '10px 14px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: '600' }}>
-              {extraError}
-            </div>
-          )}
+        <div className="select-products-container">
+          {/* Top App Header (Matches attached user design) */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border-color)',
+            background: 'var(--bg-card)',
+            flexShrink: 0
+          }}>
+            <button
+              type="button"
+              onClick={() => !submittingExtra && setIsExtraModalOpen(false)}
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '12px',
+                background: '#0284c7',
+                color: 'white',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)',
+                flexShrink: 0
+              }}
+              title="Back"
+            >
+              <ArrowLeft size={20} strokeWidth={2.5} />
+            </button>
 
+            <div style={{ textAlign: 'center', flex: 1, padding: '0 12px' }}>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+                Select Products
+              </h2>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Choose items for today's delivery
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsExtraSearchOpen((prev) => !prev)}
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '12px',
+                background: isExtraSearchOpen ? '#0369a1' : '#0284c7',
+                color: 'white',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)',
+                flexShrink: 0
+              }}
+              title="Search products"
+            >
+              <Search size={20} strokeWidth={2.5} />
+            </button>
+          </div>
+
+          {/* Customer Selection / Active Customer Banner */}
           {selectedExtraCustomer ? (
-            <div style={{ background: '#f1f5f9', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: '800', fontSize: '1rem', color: '#0f172a' }}>
-                  {selectedExtraCustomer.name} {selectedExtraCustomer.flat_no && `(${selectedExtraCustomer.flat_no})`}
-                </div>
-                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <MapPin size={12} />
-                  <span>{selectedExtraCustomer.address || 'Customer'}</span>
-                </div>
+            <div style={{
+              background: 'var(--bg-surface)',
+              padding: '10px 18px',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px',
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                <span style={{
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
+                  border: '1px solid #bfdbfe',
+                  fontWeight: 900,
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  flexShrink: 0
+                }}>
+                  {selectedExtraCustomer.flat_no ? (selectedExtraCustomer.flat_no.toLowerCase().includes('flat') || selectedExtraCustomer.flat_no.toLowerCase().includes('villa') ? selectedExtraCustomer.flat_no : `Flat ${selectedExtraCustomer.flat_no}`) : 'Customer'}
+                </span>
+                <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {selectedExtraCustomer.name}
+                </span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  ({selectedExtraCustomer.address || 'Customer'})
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedExtraCustomer(null)}
-                style={{ fontSize: '0.75rem', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                style={{
+                  color: '#0284c7',
+                  background: 'none',
+                  border: 'none',
+                  fontWeight: 800,
+                  fontSize: '0.78rem',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  flexShrink: 0
+                }}
               >
-                Change
+                Change Customer
               </button>
             </div>
           ) : (
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontWeight: '700' }}>Select Customer *</label>
+            <div style={{ padding: '12px 18px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                Select Customer for Extra Delivery *
+              </label>
               <select
                 className="form-select"
                 value={extraForm.customer_id}
@@ -4397,121 +4523,345 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   setSelectedExtraCustomer(cust || null);
                   setExtraForm((prev) => ({ ...prev, customer_id: e.target.value }));
                 }}
-                required
+                style={{ fontWeight: 800 }}
               >
                 <option value="">-- Choose Customer --</option>
                 {customers.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} {c.flat_no ? `(${c.flat_no})` : ''} - {c.address}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.flat_no ? `[${c.flat_no}] ` : ''}{c.name} - {c.address}
+                  </option>
                 ))}
               </select>
             </div>
           )}
 
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label" style={{ fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Choose Product to Add *</span>
-              {(() => {
-                const sel = products.find((p) => p.id === parseInt(extraForm.product_id, 10));
-                return sel ? (
-                  <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#1e40af' }}>
-                    ₹{sel.selling_price.toFixed(2)}/unit
-                  </span>
-                ) : null;
-              })()}
-            </label>
-            <select
-              className="form-select"
-              value={extraForm.product_id}
-              onChange={(e) => setExtraForm((prev) => ({ ...prev, product_id: e.target.value }))}
-              required
-              style={{ fontWeight: '700', padding: '9px 12px' }}
-            >
-              <option value="">-- Choose Product --</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({p.variant_label}) — ₹{p.selling_price.toFixed(2)}</option>
-              ))}
-            </select>
+          {/* Expandable Search Input Field */}
+          {isExtraSearchOpen && (
+            <div style={{ padding: '10px 18px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={16} color="#64748b" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="text"
+                  placeholder="Search milk, curd, paneer, ghee..."
+                  value={extraSearchTerm}
+                  onChange={(e) => setExtraSearchTerm(e.target.value)}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '9px 36px 9px 36px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #0284c7',
+                    background: 'var(--bg-card)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                {extraSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setExtraSearchTerm('')}
+                    style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontWeight: 800 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Category Chips Bar */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            overflowX: 'auto',
+            padding: '10px 18px',
+            borderBottom: '1px solid var(--border-color)',
+            background: 'var(--bg-card)',
+            flexShrink: 0,
+            scrollbarWidth: 'none'
+          }}>
+            {[
+              { key: 'ALL', label: 'All Products' },
+              { key: 'CURD', label: '🥣 Curd' },
+              { key: 'MILK', label: '🥛 Milk' },
+              { key: 'GHEE', label: '🧈 Ghee / Butter' },
+              { key: 'SWEETS', label: '🧀 Sweets / Paneer' }
+            ].map((cat) => (
+              <button
+                key={cat.key}
+                type="button"
+                onClick={() => setExtraCategoryFilter(cat.key)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '999px',
+                  border: extraCategoryFilter === cat.key ? '1.5px solid #0284c7' : '1px solid var(--border-color)',
+                  background: extraCategoryFilter === cat.key ? '#eff6ff' : 'var(--bg-surface)',
+                  color: extraCategoryFilter === cat.key ? '#0284c7' : 'var(--text-secondary)',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {cat.label}
+              </button>
+            ))}
           </div>
 
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label" style={{ fontWeight: '700', display: 'flex', justifyContent: 'space-between' }}>
-              <span>Quantity</span>
-              <span style={{ color: '#2563eb', fontWeight: '800' }}>{extraForm.quantity} Packet(s)</span>
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center', margin: '8px 0' }}>
-              <button
-                type="button"
-                onClick={() => setExtraForm((prev) => ({ ...prev, quantity: Math.max(1, (parseInt(prev.quantity, 10) || 1) - 1) }))}
-                style={{ width: '42px', height: '42px', borderRadius: '8px', border: '1.5px solid #cbd5e1', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                <Minus size={18} />
-              </button>
-              <input
-                type="number"
-                min="1"
-                className="form-input"
-                value={extraForm.quantity}
-                onChange={(e) => setExtraForm((prev) => ({ ...prev, quantity: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
-                style={{ textAlign: 'center', fontSize: '1.25rem', fontWeight: '900', width: '80px', height: '42px' }}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setExtraForm((prev) => ({ ...prev, quantity: (parseInt(prev.quantity, 10) || 1) + 1 }))}
-                style={{ width: '42px', height: '42px', borderRadius: '8px', border: '1.5px solid #cbd5e1', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                <Plus size={18} />
-              </button>
+          {/* Validation Error Banner (if any) */}
+          {extraError && (
+            <div style={{
+              margin: '10px 18px 0 18px',
+              padding: '10px 14px',
+              background: '#fee2e2',
+              border: '1px solid #f87171',
+              color: '#991b1b',
+              borderRadius: '10px',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              flexShrink: 0
+            }}>
+              {extraError}
             </div>
-            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap', marginTop: '6px' }}>
-              {[1, 2, 3, 4, 5].map((q) => (
+          )}
+
+          {/* Main Product Cards Scroll Area */}
+          <div className="select-products-scroll-area">
+            {(() => {
+              const filteredExtraProducts = products.filter((p) => {
+                const matchesSearch = !extraSearchTerm.trim() || 
+                  p.name.toLowerCase().includes(extraSearchTerm.toLowerCase()) ||
+                  (p.variant_label && p.variant_label.toLowerCase().includes(extraSearchTerm.toLowerCase())) ||
+                  (p.category && p.category.toLowerCase().includes(extraSearchTerm.toLowerCase()));
+
+                const matchesCategory = extraCategoryFilter === 'ALL' || 
+                  (p.category && p.category.toUpperCase().includes(extraCategoryFilter)) ||
+                  (extraCategoryFilter === 'MILK' && p.name.toLowerCase().includes('milk')) ||
+                  (extraCategoryFilter === 'CURD' && (p.name.toLowerCase().includes('curd') || p.name.toLowerCase().includes('dahi') || p.name.toLowerCase().includes('mosaru'))) ||
+                  (extraCategoryFilter === 'GHEE' && (p.name.toLowerCase().includes('ghee') || p.name.toLowerCase().includes('butter'))) ||
+                  (extraCategoryFilter === 'SWEETS' && (p.name.toLowerCase().includes('paneer') || p.name.toLowerCase().includes('sweet') || p.name.toLowerCase().includes('peda')));
+
+                return matchesSearch && matchesCategory;
+              });
+
+              if (filteredExtraProducts.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
+                    <ShoppingBag size={42} color="#94a3b8" style={{ marginBottom: '8px' }} />
+                    <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>No products found</div>
+                    <div style={{ fontSize: '0.82rem', marginTop: '4px' }}>Try searching with a different keyword or category</div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="select-products-card-grid">
+                  {filteredExtraProducts.map((p) => {
+                    const qty = extraQuantities[p.id] || 0;
+                    const isSelected = qty > 0;
+
+                    return (
+                      <div
+                        key={p.id}
+                        className={`select-product-item-card ${isSelected ? 'selected' : ''}`}
+                      >
+                        {/* Product Packet / Cup Artwork */}
+                        <ProductPacketImage
+                          product={p}
+                          size={56}
+                          style={{
+                            borderRadius: '12px',
+                            border: isSelected ? '1.5px solid #38bdf8' : '1px solid var(--border-color)'
+                          }}
+                        />
+
+                        {/* Product Name, Packaging & Price */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontWeight: 900,
+                            fontSize: '0.98rem',
+                            color: 'var(--text-primary)',
+                            lineHeight: 1.3,
+                            wordBreak: 'break-word'
+                          }}>
+                            {p.name}
+                          </div>
+                          <div style={{
+                            fontSize: '0.78rem',
+                            color: 'var(--text-secondary)',
+                            marginTop: '3px',
+                            fontWeight: 600
+                          }}>
+                            {p.variant_label || (p.unit_volume_litres ? `${p.unit_volume_litres} L` : '')}
+                          </div>
+                          <div style={{
+                            color: '#0284c7',
+                            fontWeight: 900,
+                            fontSize: '1.08rem',
+                            marginTop: '4px',
+                            letterSpacing: '-0.02em'
+                          }}>
+                            ₹{Number(p.selling_price || 0).toFixed(2)}
+                          </div>
+                        </div>
+
+                        {/* Stepper Quantity Control (Matches Image 2 exactly) */}
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          background: isSelected ? '#e0f2fe' : '#f1f5f9',
+                          borderRadius: '12px',
+                          padding: '3px',
+                          gap: '6px',
+                          border: isSelected ? '1px solid #bae6fd' : '1px solid transparent',
+                          flexShrink: 0
+                        }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDecrementExtra(p.id)}
+                            disabled={qty === 0}
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              border: 'none',
+                              background: qty > 0 ? '#0284c7' : '#bae6fd',
+                              color: qty > 0 ? 'white' : '#7dd3fc',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: qty > 0 ? 'pointer' : 'default',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Decrease"
+                          >
+                            <Minus size={16} strokeWidth={3} />
+                          </button>
+
+                          <span style={{
+                            minWidth: '22px',
+                            textAlign: 'center',
+                            fontWeight: 900,
+                            fontSize: '1.05rem',
+                            color: qty > 0 ? '#0284c7' : '#0f172a'
+                          }}>
+                            {qty}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleIncrementExtra(p.id)}
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              border: 'none',
+                              background: '#0284c7',
+                              color: 'white',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.35)',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Increase"
+                          >
+                            <Plus size={16} strokeWidth={3} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Sticky Floating Bottom Bar (Matches Image 2 exactly) */}
+          <div style={{
+            position: 'absolute',
+            bottom: '14px',
+            left: '14px',
+            right: '14px',
+            zIndex: 20,
+            pointerEvents: 'none'
+          }}>
+            {(() => {
+              const selectedEntries = Object.entries(extraQuantities).filter(([_, q]) => q > 0);
+              const totalCount = selectedEntries.reduce((sum, [_, q]) => sum + q, 0);
+              const totalAmount = selectedEntries.reduce((sum, [pId, q]) => {
+                const prod = products.find((p) => p.id === parseInt(pId, 10));
+                return sum + (prod ? prod.selling_price * q : 0);
+              }, 0);
+
+              return (
                 <button
-                  key={q}
                   type="button"
-                  onClick={() => setExtraForm((prev) => ({ ...prev, quantity: q }))}
+                  disabled={totalCount === 0 || submittingExtra}
+                  onClick={handleSaveExtra}
                   style={{
-                    padding: '3px 12px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    background: parseInt(extraForm.quantity, 10) === q ? '#2563eb' : 'white',
-                    color: parseInt(extraForm.quantity, 10) === q ? 'white' : '#334155',
-                    fontSize: '0.78rem',
-                    fontWeight: '800',
-                    cursor: 'pointer'
+                    width: '100%',
+                    pointerEvents: 'auto',
+                    background: totalCount > 0
+                      ? 'linear-gradient(135deg, #0284c7, #0ea5e9)'
+                      : '#94a3b8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '16px',
+                    padding: '14px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: totalCount > 0 ? 'pointer' : 'not-allowed',
+                    boxShadow: totalCount > 0
+                      ? '0 8px 24px rgba(2, 132, 199, 0.45)'
+                      : 'none',
+                    opacity: totalCount > 0 ? 1 : 0.6,
+                    transition: 'all 0.2s ease',
+                    minHeight: '52px'
                   }}
                 >
-                  {q}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Package size={22} style={{ flexShrink: 0 }} />
+                    <span style={{ fontWeight: 800, fontSize: '0.98rem' }}>
+                      {totalCount > 0
+                        ? `${totalCount} ${totalCount === 1 ? 'product' : 'products'} selected`
+                        : '0 products selected'}
+                    </span>
+                    {totalCount > 0 && (
+                      <span style={{
+                        background: 'rgba(255, 255, 255, 0.25)',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        fontSize: '0.84rem',
+                        fontWeight: 900
+                      }}>
+                        ₹{totalAmount.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{
+                    width: '1px',
+                    height: '22px',
+                    background: 'rgba(255, 255, 255, 0.4)',
+                    margin: '0 8px'
+                  }} />
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 900, fontSize: '1rem' }}>
+                    <span>{submittingExtra ? 'Adding...' : 'Continue'}</span>
+                    <ChevronRight size={20} style={{ flexShrink: 0 }} />
+                  </div>
                 </button>
-              ))}
-            </div>
+              );
+            })()}
           </div>
-
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label" style={{ fontWeight: '700', fontSize: '0.85rem' }}>Notes / Remarks (Optional)</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. Customer requested extra curd packet"
-              value={extraForm.notes}
-              onChange={(e) => setExtraForm((prev) => ({ ...prev, notes: e.target.value }))}
-            />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-            <button type="button" onClick={() => setIsExtraModalOpen(false)} className="btn btn-outline" disabled={submittingExtra}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}
-              disabled={submittingExtra}
-            >
-              <PlusCircle size={16} />
-              <span>{submittingExtra ? 'Adding...' : 'Add Extra Product to Delivery'}</span>
-            </button>
-          </div>
-        </form>
+        </div>
       </Modal>
 
       {/* ========================================================================= */}

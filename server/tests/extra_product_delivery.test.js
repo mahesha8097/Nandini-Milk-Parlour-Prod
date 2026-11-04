@@ -7,12 +7,13 @@ console.log('================================================================');
 console.log(' NANDINI MILK PARLOUR — EXTRA PRODUCT ON DELIVERY AUDIT TESTS');
 console.log('================================================================\n');
 
-try {
-  const testDate = '2026-10-04';
-  const testMonth = '2026-10';
+async function run() {
+  try {
+    const testDate = '2026-10-04';
+    const testMonth = '2026-10';
 
-  // 1. Get an active customer and delivery boy
-  const cust = db.prepare("SELECT * FROM customers WHERE status = 'ACTIVE' LIMIT 1").get();
+  // 1. Get an active customer (non-coupon) and delivery boy
+  const cust = db.prepare("SELECT * FROM customers WHERE status = 'ACTIVE' AND billing_type != 'COUPON' LIMIT 1").get();
   assert(cust, 'Active customer exists');
 
   const products = db.prepare("SELECT * FROM products WHERE is_active = 1").all();
@@ -50,19 +51,19 @@ try {
       product_name_snapshot, category_snapshot, variant_snapshot,
       unit_volume_litres_snapshot, quantity, unit_price_snapshot,
       total_product_amount, delivery_charge_snapshot, total_amount,
-      status, notes, created_at, updated_at
+      status, notes, agent_id, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?,
       ?, ?, ?,
       ?, 1, ?,
       ?, ?, ?,
-      'DELIVERED', 'Regular daily delivery', datetime('now', 'localtime'), datetime('now', 'localtime')
+      'DELIVERED', 'Regular daily delivery', ?, datetime('now', 'localtime'), datetime('now', 'localtime')
     )
   `).run(
     cust.id, cust.delivery_boy_id || null, testDate, prod1.id,
     prod1.name, prod1.category, prod1.variant_label,
     prod1.unit_volume_litres, prod1.selling_price,
-    prod1.selling_price, charge1, total1
+    prod1.selling_price, charge1, total1, cust.agent_id || 1
   );
 
   console.log('\n[TEST 2] Regular delivery created for product 1');
@@ -95,19 +96,19 @@ try {
       product_name_snapshot, category_snapshot, variant_snapshot,
       unit_volume_litres_snapshot, quantity, unit_price_snapshot,
       total_product_amount, delivery_charge_snapshot, total_amount,
-      status, notes, created_at, updated_at
+      status, notes, agent_id, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?,
       ?, ?, ?,
       ?, 2, ?,
       ?, ?, ?,
-      'DELIVERED', 'Extra product: Customer requested on spot', datetime('now', 'localtime'), datetime('now', 'localtime')
+      'DELIVERED', 'Extra product: Customer requested on spot', ?, datetime('now', 'localtime'), datetime('now', 'localtime')
     )
   `).run(
     cust.id, cust.delivery_boy_id || null, testDate, prod2.id,
     prod2.name, prod2.category, prod2.variant_label,
     prod2.unit_volume_litres, prod2.selling_price,
-    prodAmt2, charge2, total2
+    prodAmt2, charge2, total2, cust.agent_id || 1
   );
 
   const d2 = db.prepare('SELECT * FROM deliveries WHERE customer_id = ? AND product_id = ? AND delivery_date = ?').get(cust.id, prod2.id, testDate);
@@ -153,7 +154,7 @@ try {
 
   // 6. Test Billing Integration: Generate Delivered Milk Bill
   console.log('\n[TEST 5] Monthly Bill includes both regular and extra products');
-  const bill = generateBillForCustomer(cust, testMonth, { billingBasis: 'DELIVERIES', forceRegenerate: true });
+  const bill = await generateBillForCustomer(cust, testMonth, { billingBasis: 'DELIVERIES', forceRegenerate: true });
   assert(bill, 'Monthly bill generated successfully');
 
   const items = JSON.parse(bill.items_json || '[]');
@@ -175,7 +176,10 @@ try {
   console.log('\n================================================================');
   console.log(' ALL EXTRA PRODUCT DELIVERY & BILLING TESTS PASSED! ✓');
   console.log('================================================================\n');
-} catch (err) {
-  console.error('\n❌ Test failure:', err);
-  process.exit(1);
+  } catch (err) {
+    console.error('\n❌ Test failure:', err);
+    process.exit(1);
+  }
 }
+
+run();

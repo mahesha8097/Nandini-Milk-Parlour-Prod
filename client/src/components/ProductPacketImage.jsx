@@ -32,6 +32,9 @@ export default function ProductPacketImage({
   } else if (name.includes('curd') || name.includes('dahi') || name.includes('mosaru')) {
     defaultPacketSrc = '/images/products/curd-dahi.jpg';
     badgeTheme = { bg: '#ecfeff', border: '#06b6d4', text: '#0e7490', label: 'CURD' };
+  } else if (name.includes('cow')) {
+    defaultPacketSrc = '/images/products/toned-blue.jpg';
+    badgeTheme = { bg: '#e0f2fe', border: '#0284c7', text: '#0369a1', label: 'COW MILK' };
   } else if (name.includes('special') || name.includes('green') || name.includes('homo')) {
     defaultPacketSrc = '/images/products/special-green.jpg';
     badgeTheme = { bg: '#dcfce7', border: '#16a34a', text: '#15803d', label: 'SPECIAL' };

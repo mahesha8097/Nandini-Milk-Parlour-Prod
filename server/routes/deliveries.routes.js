@@ -1577,15 +1577,28 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
 // Add Extra Product / On-spot customer request (Accessible to both Delivery Boys & Admins)
 router.post('/extra', verifyToken, async (req, res) => {
   try {
-    const { customer_id, product_id, quantity, delivery_date, status = 'DELIVERED', notes } = req.body;
+    const { customer_id, product_id, quantity, items, delivery_date, status = 'DELIVERED', notes } = req.body;
 
-    if (!customer_id || !product_id) {
-      return res.status(400).json({ error: 'Customer and product are required' });
+    if (!customer_id) {
+      return res.status(400).json({ error: 'Customer is required' });
     }
 
-    const qty = parseInt(quantity || 1, 10);
-    if (isNaN(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'Quantity must be at least 1' });
+    // Support both multi-item array ({ items: [...] }) and single-item ({ product_id, quantity })
+    let itemsToProcess = [];
+    if (Array.isArray(items) && items.length > 0) {
+      itemsToProcess = items.map((it) => ({
+        product_id: parseInt(it.product_id, 10),
+        quantity: parseInt(it.quantity || 1, 10)
+      })).filter((it) => !isNaN(it.product_id) && it.product_id > 0 && !isNaN(it.quantity) && it.quantity > 0);
+    } else if (product_id) {
+      const q = parseInt(quantity || 1, 10);
+      if (!isNaN(q) && q > 0) {
+        itemsToProcess = [{ product_id: parseInt(product_id, 10), quantity: q }];
+      }
+    }
+
+    if (itemsToProcess.length === 0) {
+      return res.status(400).json({ error: 'At least one valid product and quantity is required' });
     }
 
     const targetDate = delivery_date || getLocalDateString();
@@ -1602,118 +1615,131 @@ router.post('/extra', verifyToken, async (req, res) => {
       }
     }
 
-    const product = await db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
     const deliveryBoyId = req.user.role === 'DELIVERY_BOY' ? req.user.id : (customer.delivery_boy_id || null);
+    const createdDeliveryIds = [];
 
-    let deliveryId = null;
+    for (const item of itemsToProcess) {
+      const product = await db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+      if (!product) continue;
 
-    const existing = await db.prepare(`
-      SELECT * FROM deliveries 
-      WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
-    `).get(customer_id, product_id, targetDate);
+      const qty = item.quantity;
+      const existing = await db.prepare(`
+        SELECT * FROM deliveries 
+        WHERE customer_id = ? AND product_id = ? AND delivery_date = ?
+      `).get(customer_id, item.product_id, targetDate);
 
-    if (existing) {
-      // Increment quantity on existing delivery
-      const newQty = (existing.status === 'SKIPPED' && existing.quantity === 0) ? qty : (existing.quantity + qty);
-      const totalProductAmount = parseFloat((product.selling_price * newQty).toFixed(2));
+      let deliveryId = null;
 
-      const calc = calculateDeliveryChargesForCustomerDay(customer.customer_category, [{
-        productId: product.id,
-        productName: product.name,
-        category: product.category,
-        variantLabel: product.variant_label,
-        unitVolumeLitres: product.unit_volume_litres,
-        quantity: newQty,
-        sellingPrice: product.selling_price,
-        deliveryChargeType: product.delivery_charge_type,
-        fixedDeliveryCharge: product.fixed_delivery_charge
-      }], customer.billing_type);
+      if (existing) {
+        // Increment quantity on existing delivery
+        const newQty = (existing.status === 'SKIPPED' && existing.quantity === 0) ? qty : (existing.quantity + qty);
+        const totalProductAmount = parseFloat((product.selling_price * newQty).toFixed(2));
 
-      const deliveryCharge = calc[0] ? (calc[0].deliveryCharge || 0) : 0;
-      const totalAmount = parseFloat((totalProductAmount + deliveryCharge).toFixed(2));
-      const extraNote = notes ? ` [Extra: ${notes}]` : ` [+${qty} extra added on delivery]`;
-      const updatedNotes = existing.notes ? `${existing.notes} ${extraNote}` : extraNote.trim();
+        const calc = calculateDeliveryChargesForCustomerDay(customer.customer_category, [{
+          productId: product.id,
+          productName: product.name,
+          category: product.category,
+          variantLabel: product.variant_label,
+          unitVolumeLitres: product.unit_volume_litres,
+          quantity: newQty,
+          sellingPrice: product.selling_price,
+          deliveryChargeType: product.delivery_charge_type,
+          fixedDeliveryCharge: product.fixed_delivery_charge
+        }], customer.billing_type);
 
-      await db.prepare(`
-        UPDATE deliveries
-        SET quantity = ?,
-            unit_price_snapshot = ?,
-            total_product_amount = ?,
-            delivery_charge_snapshot = ?,
-            total_amount = ?,
-            status = ?,
-            notes = ?,
-            updated_at = datetime('now', 'localtime')
-        WHERE id = ?
-      `).run(
-        newQty,
-        product.selling_price,
-        totalProductAmount,
-        deliveryCharge,
-        totalAmount,
-        status || 'DELIVERED',
-        updatedNotes,
-        existing.id
-      );
-      deliveryId = existing.id;
-    } else {
-      // Insert new delivery record
-      const totalProductAmount = parseFloat((product.selling_price * qty).toFixed(2));
-      const calc = calculateDeliveryChargesForCustomerDay(customer.customer_category, [{
-        productId: product.id,
-        productName: product.name,
-        category: product.category,
-        variantLabel: product.variant_label,
-        unitVolumeLitres: product.unit_volume_litres,
-        quantity: qty,
-        sellingPrice: product.selling_price,
-        deliveryChargeType: product.delivery_charge_type,
-        fixedDeliveryCharge: product.fixed_delivery_charge
-      }], customer.billing_type);
+        const deliveryCharge = calc[0] ? (calc[0].deliveryCharge || 0) : 0;
+        const totalAmount = parseFloat((totalProductAmount + deliveryCharge).toFixed(2));
+        const extraNote = notes ? ` [Extra: ${notes}]` : ` [+${qty} extra added on delivery]`;
+        const updatedNotes = existing.notes ? `${existing.notes} ${extraNote}` : extraNote.trim();
 
-      const deliveryCharge = calc[0] ? (calc[0].deliveryCharge || 0) : 0;
-      const totalAmount = parseFloat((totalProductAmount + deliveryCharge).toFixed(2));
+        await db.prepare(`
+          UPDATE deliveries
+          SET quantity = ?,
+              unit_price_snapshot = ?,
+              total_product_amount = ?,
+              delivery_charge_snapshot = ?,
+              total_amount = ?,
+              status = ?,
+              notes = ?,
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(
+          newQty,
+          product.selling_price,
+          totalProductAmount,
+          deliveryCharge,
+          totalAmount,
+          status || 'DELIVERED',
+          updatedNotes,
+          existing.id
+        );
+        deliveryId = existing.id;
+      } else {
+        // Insert new delivery record
+        const totalProductAmount = parseFloat((product.selling_price * qty).toFixed(2));
+        const calc = calculateDeliveryChargesForCustomerDay(customer.customer_category, [{
+          productId: product.id,
+          productName: product.name,
+          category: product.category,
+          variantLabel: product.variant_label,
+          unitVolumeLitres: product.unit_volume_litres,
+          quantity: qty,
+          sellingPrice: product.selling_price,
+          deliveryChargeType: product.delivery_charge_type,
+          fixedDeliveryCharge: product.fixed_delivery_charge
+        }], customer.billing_type);
 
-      const result = await db.prepare(`
-        INSERT INTO deliveries (
-          customer_id, delivery_boy_id, delivery_date, product_id,
-          product_name_snapshot, category_snapshot, variant_snapshot,
-          unit_volume_litres_snapshot, quantity, unit_price_snapshot,
-          total_product_amount, delivery_charge_snapshot, total_amount,
-          status, notes, agent_id, created_at, updated_at
-        ) VALUES (
-          ?, ?, ?, ?,
-          ?, ?, ?,
-          ?, ?, ?,
-          ?, ?, ?,
-          ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
-        )
-      `).run(
-        customer.id,
-        deliveryBoyId,
-        targetDate,
-        product.id,
-        product.name,
-        product.category,
-        product.variant_label,
-        product.unit_volume_litres,
-        qty,
-        product.selling_price,
-        totalProductAmount,
-        deliveryCharge,
-        totalAmount,
-        status || 'DELIVERED',
-        notes ? `Extra product: ${notes}` : 'Extra product requested on delivery',
-        customer.agent_id || req.agentId || 1
-      );
-      deliveryId = result.lastInsertRowid;
+        const deliveryCharge = calc[0] ? (calc[0].deliveryCharge || 0) : 0;
+        const totalAmount = parseFloat((totalProductAmount + deliveryCharge).toFixed(2));
+
+        const result = await db.prepare(`
+          INSERT INTO deliveries (
+            customer_id, delivery_boy_id, delivery_date, product_id,
+            product_name_snapshot, category_snapshot, variant_snapshot,
+            unit_volume_litres_snapshot, quantity, unit_price_snapshot,
+            total_product_amount, delivery_charge_snapshot, total_amount,
+            status, notes, agent_id, created_at, updated_at
+          ) VALUES (
+            ?, ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+          )
+        `).run(
+          customer.id,
+          deliveryBoyId,
+          targetDate,
+          product.id,
+          product.name,
+          product.category,
+          product.variant_label,
+          product.unit_volume_litres,
+          qty,
+          product.selling_price,
+          totalProductAmount,
+          deliveryCharge,
+          totalAmount,
+          status || 'DELIVERED',
+          notes ? `Extra product: ${notes}` : 'Extra product requested on delivery',
+          customer.agent_id || req.agentId || 1
+        );
+        deliveryId = result.lastInsertRowid;
+      }
+
+      if (deliveryId) {
+        createdDeliveryIds.push(deliveryId);
+        // Deduct/sync coupons for extra product if applicable
+        try {
+          const { syncCouponsForDelivery } = require('../services/couponService');
+          await syncCouponsForDelivery(deliveryId);
+        } catch (cpnErr) {
+          console.warn('Coupon sync on extra product warning:', cpnErr.message);
+        }
+      }
     }
 
-    // If a monthly bill exists for this customer in this month, automatically refresh it
+    // Refresh monthly bill and live balance for this customer
     const billingMonth = targetDate.slice(0, 7);
     const existingBill = await db.prepare(`
       SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ? AND status != 'CANCELLED'
@@ -1736,15 +1762,12 @@ router.post('/extra', verifyToken, async (req, res) => {
       }
     }
 
-    // Deduct/sync coupons for extra product if applicable
-    if (deliveryId) {
-      try {
-        const { syncCouponsForDelivery } = require('../services/couponService');
-        await syncCouponsForDelivery(deliveryId);
-      } catch (cpnErr) {
-        console.warn('Coupon sync on extra product warning:', cpnErr.message);
-      }
-    }
+    res.json({
+      success: true,
+      message: `${itemsToProcess.length} extra product(s) added successfully!`,
+      count: itemsToProcess.length,
+      deliveryIds: createdDeliveryIds
+    });
 
     const fullRecord = await db.prepare(`
       SELECT d.*, 

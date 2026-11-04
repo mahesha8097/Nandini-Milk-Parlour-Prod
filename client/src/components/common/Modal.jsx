@@ -1,7 +1,18 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = '600px' }) {
+export default function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  maxWidth = '600px',
+  hideHeader = false,
+  bodyStyle = {},
+  contentStyle = {},
+  dialogClassName = '',
+  backdropClassName = ''
+}) {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && isOpen) {
@@ -15,32 +26,34 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = '60
   if (!isOpen) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className={`modal-backdrop ${backdropClassName}`} onClick={onClose}>
       <div
-        className="modal-content"
-        style={{ maxWidth }}
+        className={`modal-content ${dialogClassName}`}
+        style={{ maxWidth, ...contentStyle }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="modal-header">
-          <h3 style={{ fontSize: '1.125rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-            {title}
-          </h3>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              display: 'flex',
-              padding: '4px',
-              borderRadius: '6px'
-            }}
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="modal-body">
+        {!hideHeader && (
+          <div className="modal-header">
+            <h3 style={{ fontSize: '1.125rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+              {title}
+            </h3>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                padding: '4px',
+                borderRadius: '6px'
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        )}
+        <div className="modal-body" style={bodyStyle}>
           {children}
         </div>
       </div>

@@ -287,6 +287,18 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* Responsive Visibility Utilities */
+@media (min-width: 1025px) {
+  .mobile-tablet-only {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .desktop-lg-only {
+    display: none !important;
+  }
+}
+
 @media (min-width: 769px) {
   .mobile-only {
     display: none !important;
@@ -486,6 +498,12 @@ h1, h2, h3, h4, h5, h6 {
   padding: 16px;
 }
 
+.calendar-grid-scroll-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .calendar-weekdays-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -571,35 +589,52 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 0.82rem !important;
   }
   .calendar-grid-card {
-    padding: 10px 6px !important;
-    overflow-x: hidden !important;
+    padding: 10px 8px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .calendar-weekdays-header,
+  .calendar-cells-grid {
+    min-width: 480px !important;
   }
   .calendar-weekdays-header {
-    gap: 3px !important;
+    gap: 4px !important;
     margin-bottom: 6px !important;
   }
   .calendar-weekdays-header div {
-    font-size: 0.7rem !important;
+    font-size: 0.72rem !important;
     padding: 2px 0 !important;
   }
   .calendar-cells-grid {
-    gap: 3px !important;
+    gap: 4px !important;
   }
   .calendar-day-cell {
-    min-height: 52px !important;
-    height: 56px !important;
-    padding: 4px 2px !important;
-    border-radius: 6px !important;
+    min-height: 56px !important;
+    height: 58px !important;
+    padding: 6px 4px !important;
+    border-radius: 8px !important;
     align-items: center !important;
     justify-content: flex-start !important;
     gap: 2px !important;
     overflow: hidden !important;
   }
   .calendar-day-cell .day-number {
-    font-size: 0.8rem !important;
+    font-size: 0.82rem !important;
   }
   .calendar-day-cell .today-pill {
     display: none !important;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .calendar-grid-card {
+    padding: 12px 10px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .calendar-weekdays-header,
+  .calendar-cells-grid {
+    min-width: 640px !important;
   }
 }
 
@@ -864,6 +899,28 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--bg-surface, var(--bg-main));
   border-bottom-left-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-lg);
+}
+
+@media (max-width: 768px) {
+  .modal-backdrop {
+    padding: 8px !important;
+    align-items: center !important;
+  }
+  .modal-content {
+    max-height: 94vh !important;
+    border-radius: 16px !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+  .modal-header {
+    padding: 14px 16px !important;
+  }
+  .modal-body {
+    padding: 16px 14px !important;
+  }
+  .modal-footer {
+    padding: 12px 14px !important;
+  }
 }
 
 @keyframes fadeIn {
@@ -1411,6 +1468,116 @@ h1, h2, h3, h4, h5, h6 {
 /* Theme Smooth Transition */
 body, .main-content, .card, .stat-card, .table-container, .mobile-data-card, .modal-content, .mobile-nav, header {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* ==========================================================================
+   SELECT PRODUCTS (EXTRA PRODUCT SELECTION) — MOBILE / TABLET / LAPTOP / DESKTOP
+   ========================================================================== */
+.select-products-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 86vh;
+  min-height: 520px;
+  background: var(--bg-card);
+  position: relative;
+  box-sizing: border-box;
+}
+
+.select-products-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 20px 96px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.select-products-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+.select-product-item-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justifyContent: space-between;
+  gap: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease-in-out;
+}
+
+.select-product-item-card.selected {
+  background: #f0f9ff;
+  border: 1.5px solid #0284c7;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.12);
+}
+
+[data-theme="dark"] .select-product-item-card.selected {
+  background: #082f49 !important;
+  border-color: #38bdf8 !important;
+}
+
+/* Mobile Screens (< 768px): Full View Matching Attached App Screenshot */
+@media (max-width: 768px) {
+  .select-products-modal-backdrop {
+    padding: 0 !important;
+  }
+  .select-products-modal-dialog {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+  .select-products-container {
+    max-height: 100vh !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+  }
+  .select-products-scroll-area {
+    padding: 12px 14px calc(96px + env(safe-area-inset-bottom, 20px)) 14px !important;
+    gap: 10px !important;
+  }
+  .select-products-card-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .select-product-item-card {
+    border-radius: 16px !important;
+    padding: 12px 14px !important;
+  }
+}
+
+/* Tablet Screens (768px - 1024px) */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .select-products-container {
+    max-height: 88vh;
+  }
+  .select-products-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+}
+
+/* Laptop & Desktop (> 1024px) */
+@media (min-width: 1025px) {
+  .select-products-container {
+    max-height: 86vh;
+  }
+  .select-products-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
 }
 
 

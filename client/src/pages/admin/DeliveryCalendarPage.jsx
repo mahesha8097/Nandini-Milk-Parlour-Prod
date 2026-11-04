@@ -410,7 +410,7 @@ export default function DeliveryCalendarPage() {
   const calculatedAlertDate = scheduleForm.end_date || '';
 
   return (
-    <div className="page-wrapper" style={{ paddingBottom: '60px' }}>
+    <div className="page-wrapper">
       {/* Toast Notification */}
       {toastMessage && (
         <div style={{
@@ -517,7 +517,7 @@ export default function DeliveryCalendarPage() {
           flexDirection: 'column',
           gap: '8px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               <div style={{
                 background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-surface)',
@@ -594,7 +594,7 @@ export default function DeliveryCalendarPage() {
           flexDirection: 'column',
           gap: '8px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
               <div style={{
                 background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-surface)',
@@ -683,9 +683,9 @@ export default function DeliveryCalendarPage() {
             <button type="button" onClick={handleNextMonth} className="btn btn-outline btn-sm" title="Next Month">
               <ChevronRight size={16} />
             </button>
-            <button type="button" onClick={handleCurrentMonth} className="btn btn-outline btn-sm" style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-              <span className="desktop-only">Current Month</span>
-              <span className="mobile-only">Today</span>
+            <button type="button" onClick={handleCurrentMonth} className="btn btn-outline btn-sm" style={{ fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }} title="Jump to current month">
+              <span className="desktop-lg-only">Current Month</span>
+              <span className="mobile-tablet-only">Today</span>
             </button>
           </div>
 
@@ -756,7 +756,7 @@ export default function DeliveryCalendarPage() {
         </div>
 
         {selectedDateFilter && (
-          <div className="desktop-only" style={{
+          <div style={{
             marginTop: '12px',
             padding: '12px 16px',
             background: '#f8fafc',
@@ -856,8 +856,9 @@ export default function DeliveryCalendarPage() {
       {/* VIEW MODE: MONTH GRID */}
       {viewMode === 'GRID' ? (
         <div className="card calendar-grid-card">
-          {/* Day of Week Labels */}
-          <div className="calendar-weekdays-header">
+          <div className="calendar-grid-scroll-wrapper">
+            {/* Day of Week Labels */}
+            <div className="calendar-weekdays-header">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dw, i) => (
               <div key={dw} style={{
                 fontSize: '0.78rem',
@@ -1106,6 +1107,7 @@ export default function DeliveryCalendarPage() {
                 </div>
               );
             })}
+          </div>
           </div>
 
           {/* Selected Date Details (Expands right below Month Grid when tapped) */}
