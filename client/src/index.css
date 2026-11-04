@@ -1580,6 +1580,420 @@ body, .main-content, .card, .stat-card, .table-container, .mobile-data-card, .mo
   }
 }
 
+/* ==========================================================================
+   DAILY INDENT & DAILY OPERATIONS (DESKTOP & MOBILE RESPONSIVE SUITE)
+   ========================================================================== */
+
+.indent-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-bottom: 90px;
+}
+
+/* Top Stepper Bar */
+.indent-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  padding: 8px 16px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-color);
+}
+
+.indent-step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.indent-step-item:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.indent-step-item.active {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.indent-step-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-color);
+  color: var(--text-muted);
+}
+
+.indent-step-item.active .indent-step-badge {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.indent-step-item.completed .indent-step-badge {
+  background: #10b981;
+  color: white;
+  border-color: #10b981;
+}
+
+.indent-step-divider {
+  width: 24px;
+  height: 2px;
+  background: var(--border-color);
+}
+
+/* Stat Cards Grids */
+.indent-stat-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.indent-stat-grid-6 {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.indent-stat-grid-5 {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.indent-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.indent-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.indent-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.indent-stat-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.indent-stat-value {
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+/* Filter / Search Bar */
+.indent-filter-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.indent-search-input {
+  flex: 1;
+  min-width: 220px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.indent-search-input input {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  outline: none;
+}
+
+.indent-search-input input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.indent-search-input svg {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* Tables */
+.indent-table-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.indent-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.88rem;
+}
+
+.indent-table th {
+  background: var(--bg-table-header);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.indent-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.indent-table tr:last-child td {
+  border-bottom: none;
+}
+
+.indent-table tr:hover td {
+  background: var(--bg-table-hover);
+}
+
+/* Inline Add Row Card */
+.indent-add-row-card {
+  background: #f8fafc;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+[data-theme="dark"] .indent-add-row-card {
+  background: #111827;
+  border-color: #374151;
+}
+
+/* Stepper Pill Controls */
+.indent-stepper-control {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 2px;
+}
+
+.indent-stepper-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 1.1rem;
+  transition: all 0.15s ease;
+}
+
+.indent-stepper-btn:hover:not(:disabled) {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.indent-stepper-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.indent-stepper-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.indent-stepper-val {
+  min-width: 38px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  border: none;
+  background: transparent;
+  outline: none;
+}
+
+/* Mobile Sticky Footer */
+.indent-sticky-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-color);
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 10px)) 18px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 40;
+}
+
+/* Bottom Sheet Modal on Mobile */
+.indent-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.indent-sheet-dialog {
+  background: var(--bg-card);
+  width: 100%;
+  max-width: 540px;
+  border-radius: 24px 24px 0 0;
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  box-shadow: var(--shadow-xl);
+  padding: 16px 20px calc(24px + env(safe-area-inset-bottom, 12px)) 20px;
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.indent-sheet-handle {
+  width: 44px;
+  height: 5px;
+  background: var(--border-color);
+  border-radius: 9999px;
+  margin: 0 auto 14px auto;
+}
+
+/* Responsive Adaptations */
+@media (max-width: 768px) {
+  .indent-stat-grid-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+  .indent-stat-grid-6 {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 8px !important;
+  }
+  .indent-stat-grid-5 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .indent-stat-card {
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+  }
+  .indent-stat-icon {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 10px !important;
+  }
+  .indent-stat-value {
+    font-size: 1.1rem !important;
+  }
+  .indent-stepper {
+    width: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+  .indent-table-container {
+    display: none; /* Hide heavy table on mobile in favor of mobile card list */
+  }
+  .indent-mobile-list {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+@media (min-width: 769px) {
+  .indent-mobile-list {
+    display: none !important;
+  }
+  .indent-sheet-dialog {
+    border-radius: 20px !important;
+    margin-bottom: auto !important;
+    margin-top: auto !important;
+    border-bottom: 1px solid var(--border-color) !important;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .indent-stat-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .indent-stat-grid-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .indent-stat-grid-5 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+
 
 
 
