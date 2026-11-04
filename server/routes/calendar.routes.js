@@ -428,6 +428,17 @@ router.post('/vacations', verifyToken, async (req, res) => {
       }
     }
 
+    // Automatically synchronize monthly bill for this customer so skipped pause days revert advance money
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const vacMonths = new Set(targetDates.map(d => d.slice(0, 7)));
+      for (const vm of vacMonths) {
+        await syncCustomerBillingAfterSubscriptionChange(customer.id, vm);
+      }
+    } catch (bErr) {
+      console.warn('Auto bill sync on vacation creation notice:', bErr.message);
+    }
+
     const message = segments.length === 1 && segments[0].start_date === segments[0].end_date
       ? `Milk paused for ${customer.name} on ${segments[0].start_date}. Resumes next day.`
       : `Milk paused for ${customer.name} across ${targetDates.length} selected day(s).`;
@@ -505,6 +516,19 @@ router.delete('/vacations/:id', verifyToken, async (req, res) => {
         }
       }
       curr = addDays(curr, 1);
+    }
+
+    // Automatically synchronize monthly bill so resumed deliveries are added back into the advance schedule
+    try {
+      const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+      const startMonth = vacation.start_date.slice(0, 7);
+      const endMonth = vacation.end_date.slice(0, 7);
+      await syncCustomerBillingAfterSubscriptionChange(vacation.customer_id, startMonth);
+      if (endMonth !== startMonth) {
+        await syncCustomerBillingAfterSubscriptionChange(vacation.customer_id, endMonth);
+      }
+    } catch (bErr) {
+      console.warn('Auto bill sync on vacation cancellation notice:', bErr.message);
     }
 
     res.json({ message: 'Vacation / pause cancelled successfully and normal deliveries restored.' });

@@ -846,7 +846,7 @@ router.put('/:id/status', verifyToken, async (req, res) => {
     // Recalculate amounts and charges for this customer on this date
     await recalculateCustomerDayDeliveries(delivery.customer_id, delivery.delivery_date);
 
-    // If customer has no active subscriptions or already has a delivered bill, sync bill & pending balance
+    // Automatically synchronize billing and wallet balance if a bill exists or customer has subscriptions
     try {
       const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
       const delMonth = delivery.delivery_date.slice(0, 7);
@@ -856,11 +856,11 @@ router.put('/:id/status', verifyToken, async (req, res) => {
           AND start_date <= ? AND (end_date IS NULL OR end_date = '' OR end_date >= ?)
       `).get(delivery.customer_id, `${delMonth}-31`, `${delMonth}-01`);
 
-      const existingDelBill = await db.prepare(`
-        SELECT id FROM bills WHERE customer_id = ? AND billing_month = ? AND (notes LIKE '%Delivered Milk%' OR total_deliveries_count < 28)
+      const existingBill = await db.prepare(`
+        SELECT id FROM bills WHERE customer_id = ? AND billing_month = ? AND status != 'CANCELLED'
       `).get(delivery.customer_id, delMonth);
 
-      if (!hasActiveSub || Number(hasActiveSub.count) === 0 || existingDelBill) {
+      if (existingBill || !hasActiveSub || Number(hasActiveSub.count) === 0) {
         await syncCustomerBillingAfterSubscriptionChange(delivery.customer_id, delMonth);
       }
     } catch (syncErr) {
@@ -1006,11 +1006,11 @@ router.post('/bulk-status', verifyToken, async (req, res) => {
             AND start_date <= ? AND (end_date IS NULL OR end_date = '' OR end_date >= ?)
         `).get(Number(cId), `${dMonth}-31`, `${dMonth}-01`);
 
-        const existingDelBill = await db.prepare(`
-          SELECT id FROM bills WHERE customer_id = ? AND billing_month = ? AND (notes LIKE '%Delivered Milk%' OR total_deliveries_count < 28)
+        const existingBill = await db.prepare(`
+          SELECT id FROM bills WHERE customer_id = ? AND billing_month = ? AND status != 'CANCELLED'
         `).get(Number(cId), dMonth);
 
-        if (!hasActiveSub || Number(hasActiveSub.count) === 0 || existingDelBill) {
+        if (existingBill || !hasActiveSub || Number(hasActiveSub.count) === 0) {
           await syncCustomerBillingAfterSubscriptionChange(Number(cId), dMonth);
         }
       }
@@ -1488,17 +1488,15 @@ router.post('/temporary-change', verifyToken, async (req, res) => {
       }
     }
 
-    // 4. Refresh monthly bill if exists for this customer/month (only if already DELIVERED)
-    if (targetDel && targetDel.status === 'DELIVERED') {
-      const billingMonth = targetDate.slice(0, 7);
-      const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?').get(customer.id, billingMonth);
-      if (existingBill && existingBill.billing_type !== 'PREPAID' && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
-        try {
-          const { generateBillForCustomer } = require('../services/billingService');
-          await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
-        } catch (e) {
-          console.warn('Auto bill refresh on temporary change notice:', e.message);
-        }
+    // 4. Refresh monthly bill if exists for this customer/month
+    const billingMonth = targetDate.slice(0, 7);
+    const existingBill = await db.prepare('SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ? AND status != "CANCELLED"').get(customer.id, billingMonth);
+    if (existingBill && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
+      try {
+        const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+        await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
+      } catch (e) {
+        console.warn('Auto bill refresh on temporary change notice:', e.message);
       }
     }
 
@@ -1694,16 +1692,16 @@ router.post('/extra', verifyToken, async (req, res) => {
       deliveryId = result.lastInsertRowid;
     }
 
-    // If a monthly bill exists for this customer in this month, automatically refresh it (except PREPAID advance bills)
+    // If a monthly bill exists for this customer in this month, automatically refresh it
     const billingMonth = targetDate.slice(0, 7);
     const existingBill = await db.prepare(`
-      SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ?
+      SELECT id, billing_type FROM bills WHERE customer_id = ? AND billing_month = ? AND status != 'CANCELLED'
     `).get(customer.id, billingMonth);
 
-    if (existingBill && existingBill.billing_type !== 'PREPAID' && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
+    if (existingBill && existingBill.billing_type !== 'WEEKLY' && customer.billing_type !== 'WEEKLY' && customer.billing_type !== 'COUPON') {
       try {
-        const { generateBillForCustomer } = require('../services/billingService');
-        await generateBillForCustomer(customer, billingMonth, { billingBasis: 'AUTO', forceRegenerate: true });
+        const { syncCustomerBillingAfterSubscriptionChange } = require('../services/billingService');
+        await syncCustomerBillingAfterSubscriptionChange(customer.id, billingMonth);
       } catch (e) {
         console.warn('Auto bill refresh on extra product notice:', e.message);
       }

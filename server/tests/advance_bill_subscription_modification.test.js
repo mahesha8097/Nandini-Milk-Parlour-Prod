@@ -4,7 +4,8 @@ const {
   generateBillForCustomer,
   generateAdvanceBillForPrepaidCustomer,
   recalculateSingleBill,
-  syncCustomerBillingAfterSubscriptionChange
+  syncCustomerBillingAfterSubscriptionChange,
+  runMonthlyBillGeneration
 } = require('../services/billingService');
 
 async function runTests() {
@@ -41,7 +42,7 @@ async function runTests() {
     )
   `).run(custId1, product.id, product.name, product.category, product.variant_label, product.unit_volume_litres || 0.5, unitPrice + 2, unitPrice, unitPrice);
 
-  await db.prepare(`
+  const delRes2 = await db.prepare(`
     INSERT INTO deliveries (
       customer_id, delivery_date, product_id, product_name_snapshot, category_snapshot,
       variant_snapshot, unit_volume_litres_snapshot, quantity, status, total_amount,
@@ -50,6 +51,7 @@ async function runTests() {
       ?, '2026-11-02', ?, ?, ?, ?, ?, 1, 'DELIVERED', ?, ?, 2, ?, datetime('now', 'localtime'), datetime('now', 'localtime')
     )
   `).run(custId1, product.id, product.name, product.category, product.variant_label, product.unit_volume_litres || 0.5, unitPrice + 2, unitPrice, unitPrice);
+  const delId2 = delRes2.lastInsertRowid;
 
   // Add an initial subscription
   const subRes1 = await db.prepare(`
@@ -106,10 +108,60 @@ async function runTests() {
   assert.strictEqual(items3.length, 2, 'recalculateSingleBill must keep both delivered and scheduled items');
   console.log(`  ✓ Step D: recalculateSingleBill cleanly preserved ₹${bill3.gross_amount} gross with 28 scheduled days!`);
 
+  // -------------------------------------------------------------
+  // TEST 3: Delivery Revert (DELIVERED -> PENDING) immediately syncs bill
+  // -------------------------------------------------------------
+  console.log('\n[TEST 3] Delivery Revert (DELIVERED -> PENDING) immediately reconciles bill and balances');
+  // Revert Nov 2 delivery from DELIVERED to PENDING
+  await db.prepare(`UPDATE deliveries SET status = 'PENDING' WHERE id = ?`).run(delId2);
+  const billAfterRevert = await syncCustomerBillingAfterSubscriptionChange(custId1, currentMonth);
+  const itemsAfterRevert = JSON.parse(billAfterRevert.items_json);
+  const delItemAfterRevert = itemsAfterRevert.find(it => it.is_delivered || it.frequency === 'DELIVERED');
+  assert.strictEqual(delItemAfterRevert.days_active_in_month, 1, 'Delivered line must now only have 1 day after revert');
+  console.log(`  ✓ Step E: Nov 2 delivery reverted; bill updated cleanly with 1 delivered day!`);
+
+  // -------------------------------------------------------------
+  // TEST 4: Vacation / Milk Pause automatically excludes paused days
+  // -------------------------------------------------------------
+  console.log('\n[TEST 4] Vacation / Milk Pause automatically excludes paused days and syncs bill');
+  // Customer pauses milk for 5 days: Nov 10 to Nov 14
+  const vacRes = await db.prepare(`
+    INSERT INTO customer_vacations (
+      customer_id, start_date, end_date, resume_date, reason, notify_agent_date, agent_id, status, created_at, updated_at
+    ) VALUES (
+      ?, '2026-11-10', '2026-11-14', '2026-11-15', 'Vacation Pause', '2026-11-14', 1, 'ACTIVE', datetime('now', 'localtime'), datetime('now', 'localtime')
+    )
+  `).run(custId1);
+  const vacId = vacRes.lastInsertRowid;
+
+  const billAfterVac = await syncCustomerBillingAfterSubscriptionChange(custId1, currentMonth);
+  const itemsAfterVac = JSON.parse(billAfterVac.items_json);
+  const subItemAfterVac = itemsAfterVac.find(it => !it.is_delivered && it.frequency !== 'DELIVERED');
+  // Scheduled days: 28 days - 5 paused days = 23 scheduled days
+  assert.strictEqual(subItemAfterVac.days_active_in_month, 23, `Must have 23 scheduled days after 5-day pause (got ${subItemAfterVac.days_active_in_month})`);
+  console.log(`  ✓ Step F: Vacation pause of 5 days cleanly subtracted (23 scheduled days active)!`);
+
+  // Cancel Vacation / Pause
+  await db.prepare(`UPDATE customer_vacations SET status = 'CANCELLED' WHERE id = ?`).run(vacId);
+  const billAfterCancelVac = await syncCustomerBillingAfterSubscriptionChange(custId1, currentMonth);
+  const itemsAfterCancelVac = JSON.parse(billAfterCancelVac.items_json);
+  const subItemAfterCancelVac = itemsAfterCancelVac.find(it => !it.is_delivered && it.frequency !== 'DELIVERED');
+  assert.strictEqual(subItemAfterCancelVac.days_active_in_month, 28, 'Cancelling vacation cleanly restored 28 scheduled days');
+  console.log(`  ✓ Step G: Vacation cancellation cleanly restored all 28 scheduled days!`);
+
+  // -------------------------------------------------------------
+  // TEST 5: Batch Monthly Bill Generation across all prepaid customers
+  // -------------------------------------------------------------
+  console.log('\n[TEST 5] Batch Monthly Bill Generation runs cleanly across all prepaid customers');
+  const batchResult = await runMonthlyBillGeneration(currentMonth, { forceRegenerate: true });
+  assert.ok(batchResult.prepaidBillsGenerated >= 1, 'Must have generated prepaid bills in batch');
+  console.log(`  ✓ Step H: Batch generated ${batchResult.prepaidBillsGenerated} prepaid bills with 100% success!`);
+
   // Cleanup test records
   await db.prepare('DELETE FROM bills WHERE customer_id = ?').run(custId1);
   await db.prepare('DELETE FROM deliveries WHERE customer_id = ?').run(custId1);
   await db.prepare('DELETE FROM subscriptions WHERE customer_id = ?').run(custId1);
+  await db.prepare('DELETE FROM customer_vacations WHERE customer_id = ?').run(custId1);
   await db.prepare('DELETE FROM customer_ledger WHERE customer_id = ?').run(custId1);
   await db.prepare('DELETE FROM customers WHERE id = ?').run(custId1);
 

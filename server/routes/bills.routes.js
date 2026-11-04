@@ -218,6 +218,20 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
           WHERE id = ?
         `).run(newBal, customer.id);
       }
+
+      // Reconcile customer's advance balance (wallet) if advance adjusted changed
+      const oldAdv = parseFloat(existingBill.advance_adjusted) || 0;
+      const advDiff = parseFloat((finalAdvAdj - oldAdv).toFixed(2));
+      if (advDiff !== 0) {
+        const freshCustAdv = await db.prepare('SELECT advance_balance FROM customers WHERE id = ?').get(customer.id);
+        const curAdv = Number(freshCustAdv?.advance_balance || 0);
+        const newAdv = Math.max(0, parseFloat((curAdv - advDiff).toFixed(2)));
+        await db.prepare(`
+          UPDATE customers
+          SET advance_balance = ?, updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(newAdv, customer.id);
+      }
     } else {
       const billNumber = `NB-${billing_month.replace('-', '')}-${customer.id.toString().padStart(4, '0')}`;
 
@@ -261,6 +275,17 @@ router.post('/save-advance-schedule', requireAdmin, async (req, res) => {
           SET pending_balance = pending_balance + ?, updated_at = datetime('now', 'localtime')
           WHERE id = ?
         `).run(finalNet, customer.id);
+      }
+
+      if (finalAdvAdj > 0) {
+        const freshCustAdv = await db.prepare('SELECT advance_balance FROM customers WHERE id = ?').get(customer.id);
+        const curAdv = Number(freshCustAdv?.advance_balance || 0);
+        const newAdv = Math.max(0, parseFloat((curAdv - finalAdvAdj).toFixed(2)));
+        await db.prepare(`
+          UPDATE customers
+          SET advance_balance = ?, updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(newAdv, customer.id);
       }
     }
 
