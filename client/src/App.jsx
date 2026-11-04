@@ -25,6 +25,7 @@ import ZonesPage from './pages/admin/ZonesPage';
 import RoutesPage from './pages/admin/RoutesPage';
 import CouponsPage from './pages/admin/CouponsPage';
 import DeliveryCalendarPage from './pages/admin/DeliveryCalendarPage';
+import DailyIndentPage from './pages/admin/DailyIndentPage';
 
 // Delivery Boy Pages
 import DeliveryBoyDashboard from './pages/delivery/DeliveryBoyDashboard';
@@ -48,7 +49,7 @@ import {
 
 const VALID_ADMIN_TABS = [
   'dashboard', 'customers', 'delivery-boys', 'deliveries', 'calendar', 'routes', 'zones',
-  'daily-requirements', 'bills', 'monthly-bill-generate', 'coupons', 'payments',
+  'daily-requirements', 'daily-indent', 'bills', 'monthly-bill-generate', 'coupons', 'payments',
   'expenses', 'products', 'reports', 'profile', 'settings'
 ];
 
@@ -200,6 +201,8 @@ function MainApplication() {
         return <ZonesPage onNavigate={handleNavigate} />;
       case 'daily-requirements':
         return <DailyRequirementsPage />;
+      case 'daily-indent':
+        return <DailyIndentPage />;
       case 'bills':
         return <BillsPage />;
       case 'monthly-bill-generate':

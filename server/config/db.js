@@ -270,6 +270,56 @@ if (isProduction && process.env.DATABASE_URL) {
             );
             CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
             CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
+
+            CREATE TABLE IF NOT EXISTS daily_indents (
+              id SERIAL PRIMARY KEY,
+              agent_id INTEGER DEFAULT 1,
+              indent_date TEXT NOT NULL,
+              invoice_no TEXT,
+              supplier_name TEXT DEFAULT 'KMF / Nandini Mother Dairy',
+              crate_deposit_amount NUMERIC(10,2) DEFAULT 0,
+              other_charges NUMERIC(10,2) DEFAULT 0,
+              total_inward_amount NUMERIC(10,2) DEFAULT 0,
+              total_sales_amount NUMERIC(10,2) DEFAULT 0,
+              total_procurement_cost NUMERIC(10,2) DEFAULT 0,
+              total_margin_profit NUMERIC(10,2) DEFAULT 0,
+              total_damage_loss NUMERIC(10,2) DEFAULT 0,
+              total_missing_loss NUMERIC(10,2) DEFAULT 0,
+              net_daily_profit NUMERIC(10,2) DEFAULT 0,
+              status TEXT DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'CLOSED')),
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+              updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+              UNIQUE(agent_id, indent_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_pg_daily_indents_date ON daily_indents(agent_id, indent_date);
+
+            CREATE TABLE IF NOT EXISTS daily_indent_items (
+              id SERIAL PRIMARY KEY,
+              indent_id INTEGER NOT NULL REFERENCES daily_indents(id) ON DELETE CASCADE,
+              product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+              product_name TEXT NOT NULL,
+              item_code TEXT,
+              category TEXT DEFAULT 'Milk',
+              unit_label TEXT DEFAULT '500 ml',
+              opening_stock NUMERIC(10,2) DEFAULT 0,
+              inward_qty NUMERIC(10,2) NOT NULL DEFAULT 0,
+              total_available NUMERIC(10,2) DEFAULT 0,
+              purchase_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+              selling_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+              margin_per_unit NUMERIC(10,2) DEFAULT 0,
+              closing_stock NUMERIC(10,2) DEFAULT 0,
+              damaged_qty NUMERIC(10,2) DEFAULT 0,
+              missing_qty NUMERIC(10,2) DEFAULT 0,
+              sold_qty NUMERIC(10,2) DEFAULT 0,
+              sales_revenue NUMERIC(10,2) DEFAULT 0,
+              cost_of_goods_sold NUMERIC(10,2) DEFAULT 0,
+              profit_earned NUMERIC(10,2) DEFAULT 0,
+              notes TEXT,
+              created_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS'),
+              updated_at TEXT NOT NULL DEFAULT TO_CHAR(NOW() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD HH24:MI:SS')
+            );
+            CREATE INDEX IF NOT EXISTS idx_pg_daily_indent_items_indent ON daily_indent_items(indent_id);
           `);
         } catch (e) {
           console.warn('Postgres delivery_corrections / vacations / email_logs / audit_logs init note:', e.message);
@@ -772,7 +822,58 @@ if (isProduction && process.env.DATABASE_URL) {
         created_at TEXT NOT NULL
       );
 
+      -- Daily Indent & Daily Profit Tracking
+      CREATE TABLE IF NOT EXISTS daily_indents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id INTEGER DEFAULT 1,
+        indent_date TEXT NOT NULL,
+        invoice_no TEXT,
+        supplier_name TEXT DEFAULT 'KMF / Nandini Mother Dairy',
+        crate_deposit_amount REAL DEFAULT 0,
+        other_charges REAL DEFAULT 0,
+        total_inward_amount REAL DEFAULT 0,
+        total_sales_amount REAL DEFAULT 0,
+        total_procurement_cost REAL DEFAULT 0,
+        total_margin_profit REAL DEFAULT 0,
+        total_damage_loss REAL DEFAULT 0,
+        total_missing_loss REAL DEFAULT 0,
+        net_daily_profit REAL DEFAULT 0,
+        status TEXT DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'CLOSED')),
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(agent_id, indent_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS daily_indent_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        indent_id INTEGER NOT NULL REFERENCES daily_indents(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        product_name TEXT NOT NULL,
+        item_code TEXT,
+        category TEXT DEFAULT 'Milk',
+        unit_label TEXT DEFAULT '500 ml',
+        opening_stock REAL DEFAULT 0,
+        inward_qty REAL NOT NULL DEFAULT 0,
+        total_available REAL DEFAULT 0,
+        purchase_price REAL NOT NULL DEFAULT 0,
+        selling_price REAL NOT NULL DEFAULT 0,
+        margin_per_unit REAL DEFAULT 0,
+        closing_stock REAL DEFAULT 0,
+        damaged_qty REAL DEFAULT 0,
+        missing_qty REAL DEFAULT 0,
+        sold_qty REAL DEFAULT 0,
+        sales_revenue REAL DEFAULT 0,
+        cost_of_goods_sold REAL DEFAULT 0,
+        profit_earned REAL DEFAULT 0,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       -- Indexes for high performance queries
+      CREATE INDEX IF NOT EXISTS idx_daily_indents_date ON daily_indents(agent_id, indent_date);
+      CREATE INDEX IF NOT EXISTS idx_daily_indent_items_indent ON daily_indent_items(indent_id);
       CREATE INDEX IF NOT EXISTS idx_email_logs_date ON email_report_logs(report_date, report_type);
       CREATE INDEX IF NOT EXISTS idx_deliveries_date ON deliveries(delivery_date);
       CREATE INDEX IF NOT EXISTS idx_deliveries_cust ON deliveries(customer_id);

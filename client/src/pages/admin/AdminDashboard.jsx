@@ -28,6 +28,7 @@ import {
 
 export default function AdminDashboard({ onNavigate }) {
   const [data, setData] = useState(null);
+  const [indentSummary, setIndentSummary] = useState(null);
   const [timeframe, setTimeframe] = useState('daily'); // 'daily' | 'weekly' | 'monthly'
   const [displayMode, setDisplayMode] = useState('cards'); // 'cards' | 'matrix'
   const [loading, setLoading] = useState(true);
@@ -37,8 +38,12 @@ export default function AdminDashboard({ onNavigate }) {
     try {
       setLoading(true);
       setError('');
-      const res = await api.get('/dashboard');
+      const [res, indRes] = await Promise.all([
+        api.get('/dashboard'),
+        api.get('/indents/summary').catch(() => null)
+      ]);
       setData(res);
+      setIndentSummary(indRes);
     } catch (err) {
       setError(err.message || 'Unable to load data. Please check your connection and try again.');
     } finally {
@@ -170,6 +175,13 @@ export default function AdminDashboard({ onNavigate }) {
           Quick Actions
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          <button
+            onClick={() => onNavigate('daily-indent')}
+            className="btn btn-primary btn-sm"
+            style={{ fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <TrendingUp size={15} /> Daily Indent & Shop Profit
+          </button>
           <button onClick={() => onNavigate('customers', { openAdd: true })} className="btn btn-outline btn-sm">
             <PlusCircle size={15} color="var(--primary)" /> Add Customer
           </button>
@@ -353,6 +365,94 @@ export default function AdminDashboard({ onNavigate }) {
           color="#6366f1"
           bgLight="#e0e7ff"
         />
+      </div>
+
+      {/* Parlour Margins & Daily Indent Profit Banner */}
+      <div
+        className="card"
+        style={{
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+          color: 'white',
+          borderRadius: '16px',
+          padding: '20px',
+          marginBottom: '24px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ background: '#38bdf8', color: '#0f172a', fontWeight: 900, fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase' }}>
+                Parlour Margins & Indent
+              </span>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 900, color: 'white', margin: 0 }}>
+                Daily Milk Indent & Shop Profit
+              </h2>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: '#94a3b8', margin: '4px 0 0' }}>
+              Morning inward from KMF, packet margins, closing leftovers, damages & realized shop profit.
+            </p>
+          </div>
+          <button
+            onClick={() => onNavigate('daily-indent')}
+            className="btn"
+            style={{
+              background: '#38bdf8',
+              color: '#0f172a',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              borderRadius: '10px'
+            }}
+          >
+            Open Indent Tracker <TrendingUp size={16} />
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '12px 14px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Today's Net Profit</span>
+            <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#4ade80', marginTop: '2px' }}>
+              ₹{Number(indentSummary?.today?.net_daily_profit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>
+              Sales: ₹{Number(indentSummary?.today?.total_sales_amount || 0).toFixed(0)}
+            </span>
+          </div>
+
+          <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '12px 14px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>This Week's Net Profit</span>
+            <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#38bdf8', marginTop: '2px' }}>
+              ₹{Number(indentSummary?.weekly?.netProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>
+              Weekly Sales: ₹{Number(indentSummary?.weekly?.sales || 0).toFixed(0)}
+            </span>
+          </div>
+
+          <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '12px 14px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>This Month's Net Profit</span>
+            <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#a78bfa', marginTop: '2px' }}>
+              ₹{Number(indentSummary?.monthly?.netProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>
+              Monthly Sales: ₹{Number(indentSummary?.monthly?.sales || 0).toFixed(0)}
+            </span>
+          </div>
+
+          <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '12px 14px', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Today's Inward (KMF)</span>
+            <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#fbbf24', marginTop: '2px' }}>
+              ₹{Number(indentSummary?.today?.total_inward_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <span style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>
+              Status: {indentSummary?.today?.status === 'CLOSED' ? '✓ Reconciled' : 'Open'}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Multi-Period Detailed Section (Daily • Weekly • Monthly) */}

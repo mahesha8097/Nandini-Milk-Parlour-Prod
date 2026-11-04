@@ -25,6 +25,7 @@ const couponRoutes = require('./routes/coupons.routes');
 const calendarRoutes = require('./routes/calendar.routes');
 const publicRoutes = require('./routes/public.routes');
 const cronRoutes = require('./routes/cron.routes');
+const indentRoutes = require('./routes/indent.routes');
 
 const { runMonthlyBillGeneration } = require('./services/billingService');
 
@@ -112,6 +113,7 @@ app.use('/api/coupons', couponRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/cron', cronRoutes);
+app.use('/api/indents', indentRoutes);
 
 // Public downloadable template for bulk customer onboarding
 app.get('/api/download/customer-template', (req, res) => {
