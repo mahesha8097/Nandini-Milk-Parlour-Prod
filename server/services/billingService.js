@@ -254,8 +254,8 @@ async function reconcileCustomerPastMonths(customerId, targetMonth, options = {}
     remainingUnpaidPastDues = Math.abs(netBalance);
   }
 
-  // Update customer's advance_balance and pending_balance if not opted out
-  if (options.updateCustomerRow !== false) {
+  // Update customer's advance_balance and pending_balance only if explicitly requested
+  if (options.updateCustomerRow === true) {
     await db.prepare(`
       UPDATE customers
       SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
@@ -332,251 +332,6 @@ async function calculateCustomerPendingDues(customerId, { excludeBillId = null, 
     surplusAdvance,
     unpaidBillsList,
     allPriorBills: priorBills
-  };
-}
-
-/**
- * Calculates and synchronizes the live advance_balance and pending_balance for a customer.
- * Universally supports all customer types: PREPAID, POSTPAID, WEEKLY, DAILY, COUPON.
- * 
- * For PREPAID customers:
- * - Mark delivery (DELIVERED): delivered amount is minused daily from advance balance, showing remaining advance balance.
- * - Revert delivery (PENDING/SKIPPED): delivered amount is restored back to advance balance.
- * - Paid Advance bills fund the month; daily deliveries consume that paid advance day-by-day.
- * - If delivered products exceed available advance funds, excess becomes pending balance.
- * 
- * For POSTPAID customers:
- * - Live pending balance dynamically reflects unpaid past dues + unbilled delivered products in current cycle.
- * - Daily marked deliveries accumulate into live pending balance.
- * 
- * For WEEKLY, DAILY, and COUPON customers:
- * - Accurately updates live balance upon daily delivery changes.
- * 
- * When persist = true, updates customers table row with the live balances.
- */
-async function syncCustomerLiveBalance(customerId, options = { persist: true }) {
-  if (!customerId) return null;
-  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
-  if (!customer) return null;
-
-  const currentMonthStr = (options.targetMonth && options.targetMonth.length === 7)
-    ? options.targetMonth
-    : getLocalDateString().slice(0, 7);
-  const monthStart = `${currentMonthStr}-01`;
-  const daysInMonth = getDaysInMonth(currentMonthStr);
-  const monthEnd = `${currentMonthStr}-${daysInMonth.toString().padStart(2, '0')}`;
-
-  // 1. Reconcile past concluded months (< currentMonthStr) strictly without touching current month balances
-  const { surplusAdvance, remainingUnpaidPastDues } = await reconcileCustomerPastMonths(customerId, currentMonthStr, { updateCustomerRow: false });
-
-  // 2. Fetch current month deliveries marked DELIVERED
-  const currentDeliveries = await db.prepare(`
-    SELECT id, delivery_date, product_id, quantity, unit_price_snapshot,
-           total_product_amount, delivery_charge_snapshot, total_amount, status
-    FROM deliveries
-    WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ?
-    ORDER BY delivery_date ASC, id ASC
-  `).all(customerId, monthStart, monthEnd);
-
-  const deliveredDeliveries = (currentDeliveries || []).filter(d => d.status === 'DELIVERED' && Number(d.quantity) > 0);
-  const currentDeliveredAmt = parseFloat(deliveredDeliveries.reduce((sum, d) => {
-    const itemAmt = Number(d.total_amount !== undefined && d.total_amount !== null
-      ? d.total_amount
-      : (Number(d.unit_price_snapshot || 0) * Number(d.quantity || 0) + Number(d.delivery_charge_snapshot || 0)));
-    return sum + itemAmt;
-  }, 0).toFixed(2));
-
-  // 3. Fetch active bills for current period
-  const currentBills = await db.prepare(`
-    SELECT * FROM bills
-    WHERE customer_id = ? AND status != 'CANCELLED'
-      AND (billing_month = ? OR (start_date <= ? AND end_date >= ?))
-    ORDER BY id DESC
-  `).all(customerId, currentMonthStr, monthEnd, monthStart) || [];
-
-  // 4. Fetch current month payments (where is_deleted = 0)
-  const billIds = currentBills.map(b => b.id);
-  let currentPaymentsQuery = `
-    SELECT id, bill_id, amount, payment_type, payment_date
-    FROM payments
-    WHERE customer_id = ? AND is_deleted = 0 AND (payment_date >= ?`;
-  const paymentQueryParams = [customerId, monthStart];
-  if (billIds.length > 0) {
-    currentPaymentsQuery += ` OR bill_id IN (${billIds.map(() => '?').join(',')})`;
-    paymentQueryParams.push(...billIds);
-  }
-  currentPaymentsQuery += `)`;
-
-  const currentPayments = await db.prepare(currentPaymentsQuery).all(...paymentQueryParams) || [];
-
-  // Account for bills marked PAID or with paid_amount where no separate payment row exists
-  const paymentBillIds = new Set(currentPayments.filter(p => p.bill_id).map(p => p.bill_id));
-  let extraPaidFromBills = 0;
-  for (const b of currentBills) {
-    if (!paymentBillIds.has(b.id)) {
-      if (b.status === 'PAID') {
-        extraPaidFromBills += Number(b.gross_amount || 0);
-      } else if (Number(b.paid_amount || 0) > 0) {
-        extraPaidFromBills += Number(b.paid_amount);
-      }
-    }
-  }
-
-  const currentPaymentsAmt = parseFloat((currentPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0) + extraPaidFromBills).toFixed(2));
-
-  // Initial opening advance baseline (from customer_ledger INIT entry or advance_balance)
-  const initLedger = await db.prepare(`
-    SELECT credit, advance_balance_after FROM customer_ledger
-    WHERE customer_id = ? AND reference_id = 'INIT'
-    LIMIT 1
-  `).get(customerId);
-  let openingAdvance = initLedger ? Number(initLedger.credit || initLedger.advance_balance_after || 0) : 0;
-  if (openingAdvance === 0 && surplusAdvance === 0 && currentPaymentsAmt === 0 && Number(customer.advance_balance || 0) > 0) {
-    openingAdvance = Number(customer.advance_balance);
-  }
-
-  let liveAdvanceBalance = 0;
-  let livePendingBalance = 0;
-
-  const billingType = customer.billing_type || 'POSTPAID';
-
-  if (billingType === 'PREPAID') {
-    // Check if an Advance Bill exists for this month
-    const advanceBill = currentBills.find(b => b.billing_type === 'PREPAID' || b.notes?.includes('Advance Bill'));
-
-    if (advanceBill) {
-      const billPaid = Number(advanceBill.paid_amount || 0);
-      const billNet = Number(advanceBill.net_payable || 0);
-      const advanceAdjusted = Number(advanceBill.advance_adjusted || 0);
-
-      // Funds available for advance: surplus + opening + bill paid + advance adjusted + extra payments beyond bill
-      const extraPayments = Math.max(0, currentPaymentsAmt - billPaid);
-      const totalAvailableAdvance = parseFloat((surplusAdvance + openingAdvance + billPaid + advanceAdjusted + extraPayments).toFixed(2));
-
-      if (totalAvailableAdvance >= currentDeliveredAmt) {
-        liveAdvanceBalance = parseFloat((totalAvailableAdvance - currentDeliveredAmt).toFixed(2));
-        const unpaidOnBill = Math.max(0, parseFloat((billNet - billPaid).toFixed(2)));
-        livePendingBalance = parseFloat((remainingUnpaidPastDues + unpaidOnBill).toFixed(2));
-      } else {
-        liveAdvanceBalance = 0;
-        const excessDelivered = parseFloat((currentDeliveredAmt - totalAvailableAdvance).toFixed(2));
-        const unpaidOnBill = Math.max(0, parseFloat((billNet - billPaid).toFixed(2)));
-        livePendingBalance = parseFloat((remainingUnpaidPastDues + Math.max(unpaidOnBill, excessDelivered)).toFixed(2));
-      }
-    } else {
-      // Pure wallet / advance balance model (No Advance Bill)
-      const totalFunds = parseFloat((surplusAdvance + openingAdvance + currentPaymentsAmt).toFixed(2));
-
-      if (totalFunds >= currentDeliveredAmt) {
-        liveAdvanceBalance = parseFloat((totalFunds - currentDeliveredAmt).toFixed(2));
-        livePendingBalance = remainingUnpaidPastDues;
-      } else {
-        liveAdvanceBalance = 0;
-        const excess = parseFloat((currentDeliveredAmt - totalFunds).toFixed(2));
-        livePendingBalance = parseFloat((remainingUnpaidPastDues + excess).toFixed(2));
-      }
-    }
-  } else if (billingType === 'POSTPAID') {
-    // Postpaid customer
-    const deliveredBill = currentBills.find(b => b.billing_type === 'POSTPAID' || !b.notes?.includes('Advance Bill'));
-
-    if (deliveredBill) {
-      const unpaidOnBill = Math.max(0, parseFloat((Number(deliveredBill.net_payable || 0) - Number(deliveredBill.paid_amount || 0)).toFixed(2)));
-      const billEndDate = deliveredBill.end_date || deliveredBill.bill_date || monthEnd;
-      const unbilledDeliveries = deliveredDeliveries.filter(d => d.delivery_date > billEndDate);
-      const unbilledAmt = parseFloat(unbilledDeliveries.reduce((sum, d) => sum + Number(d.total_amount || 0), 0).toFixed(2));
-      const extraPayments = Math.max(0, parseFloat((currentPaymentsAmt - Number(deliveredBill.paid_amount || 0)).toFixed(2)));
-
-      const netDue = parseFloat((remainingUnpaidPastDues + unpaidOnBill + unbilledAmt - extraPayments - surplusAdvance).toFixed(2));
-      if (netDue >= 0) {
-        livePendingBalance = netDue;
-        liveAdvanceBalance = 0;
-      } else {
-        livePendingBalance = 0;
-        liveAdvanceBalance = Math.abs(netDue);
-      }
-    } else {
-      const netDue = parseFloat((remainingUnpaidPastDues + currentDeliveredAmt - currentPaymentsAmt - surplusAdvance).toFixed(2));
-      if (netDue >= 0) {
-        livePendingBalance = netDue;
-        liveAdvanceBalance = 0;
-      } else {
-        livePendingBalance = 0;
-        liveAdvanceBalance = Math.abs(netDue);
-      }
-    }
-  } else if (billingType === 'WEEKLY') {
-    const latestBill = currentBills[0];
-    let unpaidOnBill = 0;
-    let unbilledAmt = 0;
-    if (latestBill) {
-      unpaidOnBill = Math.max(0, parseFloat((Number(latestBill.net_payable || 0) - Number(latestBill.paid_amount || 0)).toFixed(2)));
-      const billEndDate = latestBill.end_date || latestBill.bill_date;
-      const unbilledDels = deliveredDeliveries.filter(d => d.delivery_date > billEndDate);
-      unbilledAmt = parseFloat(unbilledDels.reduce((sum, d) => sum + Number(d.total_amount || 0), 0).toFixed(2));
-    } else {
-      unbilledAmt = currentDeliveredAmt;
-    }
-
-    const netDue = parseFloat((remainingUnpaidPastDues + unpaidOnBill + unbilledAmt - currentPaymentsAmt - surplusAdvance).toFixed(2));
-    if (netDue >= 0) {
-      livePendingBalance = netDue;
-      liveAdvanceBalance = 0;
-    } else {
-      livePendingBalance = 0;
-      liveAdvanceBalance = Math.abs(netDue);
-    }
-  } else if (billingType === 'DAILY') {
-    let unpaidDaily = 0;
-    for (const d of deliveredDeliveries) {
-      const hasSpotPayment = currentPayments.some(p => p.payment_date === d.delivery_date && Number(p.amount) >= Number(d.total_amount || 0));
-      if (!hasSpotPayment) {
-        unpaidDaily += Number(d.total_amount || 0);
-      }
-    }
-    const netDue = parseFloat((remainingUnpaidPastDues + unpaidDaily - surplusAdvance).toFixed(2));
-    if (netDue >= 0) {
-      livePendingBalance = netDue;
-      liveAdvanceBalance = 0;
-    } else {
-      livePendingBalance = 0;
-      liveAdvanceBalance = Math.abs(netDue);
-    }
-  } else if (billingType === 'COUPON') {
-    let extraProductsDue = 0;
-    for (const d of deliveredDeliveries) {
-      if (Number(d.delivery_charge_snapshot || 0) > 0) {
-        extraProductsDue += Number(d.delivery_charge_snapshot);
-      }
-    }
-    const netDue = parseFloat((remainingUnpaidPastDues + extraProductsDue - currentPaymentsAmt - surplusAdvance).toFixed(2));
-    if (netDue >= 0) {
-      livePendingBalance = netDue;
-      liveAdvanceBalance = 0;
-    } else {
-      livePendingBalance = 0;
-      liveAdvanceBalance = Math.abs(netDue);
-    }
-  }
-
-  // 5. If persist is true and balances changed, update customers table
-  if (options.persist !== false) {
-    if (Number(customer.advance_balance) !== liveAdvanceBalance || Number(customer.pending_balance) !== livePendingBalance) {
-      await db.prepare(`
-        UPDATE customers
-        SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
-        WHERE id = ?
-      `).run(liveAdvanceBalance, livePendingBalance, customerId);
-    }
-  }
-
-  return {
-    customerId,
-    advance_balance: liveAdvanceBalance,
-    pending_balance: livePendingBalance,
-    currentDeliveredAmt,
-    surplusAdvance,
-    remainingUnpaidPastDues
   };
 }
 
@@ -1104,16 +859,11 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     currentAdvance = Number(freshCustomer.advance_balance);
   }
 
-  // If regenerating existing bill, restore previous balances before reapplying
+  // If regenerating existing bill, restore previous advance_adjusted before reapplying
   if (existing && forceRegenerate) {
     const prevAdvanceAdjusted = Number(existing.advance_adjusted || 0);
-    let prevCashPaid = Number(existing.paid_amount || 0);
-    if (existing.status === 'ADVANCE_PAID' || Number(existing.net_payable || 0) === 0) {
-      prevCashPaid = 0;
-    }
-
-    // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
-    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
+    // Only restore advance_adjusted (wallet balance). Never add cash payments to advance balance, as that doubles payments!
+    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted).toFixed(2));
   }
 
   let advanceToAdjust = 0;
@@ -1346,16 +1096,11 @@ async function generateDeliveredMilkBill(customer, billingMonth, forceRegenerate
     currentAdvance = Number(freshCustomer.advance_balance);
   }
 
-  // If regenerating existing bill, restore previous balances before reapplying
+  // If regenerating existing bill, restore previous advance_adjusted before reapplying
   if (existing && forceRegenerate) {
     const prevAdvanceAdjusted = Number(existing.advance_adjusted || 0);
-    let prevCashPaid = Number(existing.paid_amount || 0);
-    if (existing.status === 'ADVANCE_PAID' || Number(existing.net_payable || 0) === 0) {
-      prevCashPaid = 0;
-    }
-
-    // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
-    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
+    // Only restore advance_adjusted (wallet balance). Never add cash payments to advance balance, as that doubles payments!
+    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted).toFixed(2));
   }
 
   let advanceToAdjust = 0;
@@ -1724,16 +1469,11 @@ async function generateWeeklyBillForCustomer(customer, startDate, endDate, optio
     currentAdvance = Number(freshCustomer.advance_balance);
   }
 
-  // If regenerating existing bill, restore previous balances before reapplying
+  // If regenerating existing bill, restore previous advance_adjusted before reapplying
   if (existing && forceRegenerate) {
     const prevAdvanceAdjusted = Number(existing.advance_adjusted || 0);
-    let prevCashPaid = Number(existing.paid_amount || 0);
-    if (existing.status === 'ADVANCE_PAID' || Number(existing.net_payable || 0) === 0) {
-      prevCashPaid = 0;
-    }
-
-    // Restore advance balance: add back advance adjusted plus any cash payments made towards this bill
-    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted + prevCashPaid).toFixed(2));
+    // Only restore advance_adjusted (wallet balance). Never add cash payments to advance balance, as that doubles payments!
+    currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted).toFixed(2));
   }
 
   let advanceToAdjust = 0;
@@ -2816,7 +2556,6 @@ module.exports = {
   parseCustomDays,
   formatCustomDaysSummary,
   mergePendingBillsForCustomer,
-  syncCustomerBillingAfterSubscriptionChange,
-  syncCustomerLiveBalance
+  syncCustomerBillingAfterSubscriptionChange
 };
 
