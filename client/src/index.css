@@ -927,11 +927,14 @@ h1, h2, h3, h4, h5, h6 {
   bottom: 0;
   left: 0;
   right: 0;
-  background: var(--bg-card);
+  height: 64px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-top: 1px solid var(--border-color);
-  padding: 8px 12px;
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 4px)) 12px;
   z-index: 900;
-  box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
 }
 
 @media (max-width: 768px) {
@@ -946,17 +949,61 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  color: var(--text-secondary);
-  font-size: 0.7rem;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
   font-weight: 600;
   background: transparent;
   border: none;
   cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 12px;
+  transition: all 0.15s ease-in-out;
+  min-width: 52px;
+  position: relative;
+  touch-action: manipulation;
 }
 
 .mobile-nav-item.active {
-  color: var(--primary);
+  color: var(--primary) !important;
+  font-weight: 800;
+}
+
+.mobile-nav-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 1px;
+  width: 18px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+/* Dedicated Modern Delivery Task Screen */
+.delivery-task-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .delivery-task-card {
+    border-radius: 16px !important;
+    padding: 14px 12px !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04) !important;
+    gap: 12px !important;
+    margin-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+  }
 }
 
 /* ==========================================================================
@@ -1157,14 +1204,17 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Mobile Nav Bar */
 [data-theme="dark"] .mobile-nav {
-  background-color: #000000 !important;
+  background: rgba(10, 10, 10, 0.95) !important;
   border-top-color: #262626 !important;
 }
 [data-theme="dark"] .mobile-nav-item {
-  color: #94a3b8;
+  color: #94a3b8 !important;
 }
 [data-theme="dark"] .mobile-nav-item.active {
   color: #38bdf8 !important;
+}
+[data-theme="dark"] .mobile-nav-item.active::after {
+  background: #38bdf8 !important;
 }
 
 /* Target all light/white backgrounds (Both HEX and Chrome's serialized RGB) */

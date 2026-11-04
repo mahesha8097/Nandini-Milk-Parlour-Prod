@@ -7,6 +7,8 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Plus,
   AlertCircle,
   Bell,
@@ -37,7 +39,8 @@ export default function DeliveryCalendarPage() {
   const todayStr = getLocalDateString();
   const [selectedMonth, setSelectedMonth] = useState(() => todayStr.slice(0, 7)); // YYYY-MM
   const [selectedDateFilter, setSelectedDateFilter] = useState(null); // specific day clicked in month
-  const [viewMode, setViewMode] = useState('GRID'); // 'GRID' | 'LIST'
+  const [viewMode, setViewMode] = useState(() => (typeof window !== 'undefined' && window.innerWidth <= 768 ? 'LIST' : 'GRID')); // 'GRID' | 'LIST'
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [routeFilter, setRouteFilter] = useState('ALL');
 
@@ -509,57 +512,76 @@ export default function DeliveryCalendarPage() {
           background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-card)',
           border: `1.5px solid ${notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--border-color)'}`,
           borderRadius: '12px',
-          padding: '12px 14px',
+          padding: '10px 14px',
           display: 'flex',
-          alignItems: 'flex-start',
-          gap: '10px'
+          flexDirection: 'column',
+          gap: '8px'
         }}>
-          <div style={{
-            background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-surface)',
-            color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)',
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0
-          }}>
-            <XCircle size={20} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.76rem', fontWeight: 800, color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                Today's Paused Deliveries ({notifications.pausedCount})
-              </span>
-              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-                {formatDisplayDate(todayStr)}
-              </span>
-            </div>
-            {notifications.pausedCount > 0 ? (
-              <div style={{ marginTop: '3px' }}>
-                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: 'var(--accent-red)' }}>
-                  ⛔ DO NOT DELIVER: {notifications.pausedCount} customer{notifications.pausedCount > 1 ? 's' : ''} requested milk stop today.
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                  {notifications.pausedToday.slice(0, 3).map((p, i) => (
-                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '0.72rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px' }}>
-                      {p.flat_no ? `${p.flat_no} - ` : ''}{p.customer_name}
-                    </span>
-                  ))}
-                  {notifications.pausedCount > 3 && (
-                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-red)' }}>
-                      +{notifications.pausedCount - 3} more
-                    </span>
-                  )}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+              <div style={{
+                background: notifications.pausedCount > 0 ? 'var(--accent-red-light)' : 'var(--bg-surface)',
+                color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <XCircle size={18} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.pausedCount > 0 ? 'var(--accent-red)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                  Today's Pauses ({notifications.pausedCount})
+                </span>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  {formatDisplayDate(todayStr)}
                 </div>
               </div>
-            ) : (
-              <p style={{ margin: '3px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                No active delivery pauses today. Normal route delivery in progress.
-              </p>
+            </div>
+
+            {notifications.pausedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setAlertsExpanded(prev => !prev)}
+                className="btn btn-outline btn-sm"
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.72rem',
+                  fontWeight: 800,
+                  borderColor: 'var(--accent-red)',
+                  color: 'var(--accent-red)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px'
+                }}
+              >
+                <span>{alertsExpanded ? 'Hide' : 'View'}</span>
+                {alertsExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
             )}
           </div>
+
+          {notifications.pausedCount > 0 ? (
+            <div className={alertsExpanded ? '' : 'hide-mobile'} style={{ marginTop: '2px' }}>
+              <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-red)' }}>
+                ⛔ DO NOT DELIVER: {notifications.pausedCount} customer{notifications.pausedCount > 1 ? 's' : ''} requested milk stop today.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                {notifications.pausedToday.map((p, i) => (
+                  <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '0.72rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px' }}>
+                    {p.flat_no ? `${p.flat_no} - ` : ''}{p.customer_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="desktop-only" style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              No active delivery pauses today.
+            </p>
+          )}
         </div>
 
         {/* Banner 2: 1-Day Prior Resume Reminder (Agent Procurement Notice) */}
@@ -567,52 +589,76 @@ export default function DeliveryCalendarPage() {
           background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-card)',
           border: `1.5px solid ${notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--border-color)'}`,
           borderRadius: '12px',
-          padding: '12px 14px',
+          padding: '10px 14px',
           display: 'flex',
-          alignItems: 'flex-start',
-          gap: '10px'
+          flexDirection: 'column',
+          gap: '8px'
         }}>
-          <div style={{
-            background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-surface)',
-            color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)',
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0
-          }}>
-            <Bell size={20} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.76rem', fontWeight: 800, color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                🔔 1-Day Prior Alert: Resumes Tomorrow ({notifications.resumingCount})
-              </span>
-              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-                Tomorrow: {formatDisplayDate(notifications.tomorrow || addDays(todayStr, 1))}
-              </span>
-            </div>
-            {notifications.resumingCount > 0 ? (
-              <div style={{ marginTop: '3px' }}>
-                <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: 'var(--primary)' }}>
-                  Procure milk today: {notifications.resumingCount} customer{notifications.resumingCount > 1 ? 's' : ''} resume milk tomorrow!
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                  {notifications.resumingTomorrow.map((r, i) => (
-                    <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: '0.72rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px' }}>
-                      {r.flat_no ? `${r.flat_no} - ` : ''}{r.customer_name} ({r.products_summary || 'Milk'})
-                    </span>
-                  ))}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+              <div style={{
+                background: notifications.resumingCount > 0 ? 'var(--primary-light)' : 'var(--bg-surface)',
+                color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <Bell size={18} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: notifications.resumingCount > 0 ? 'var(--primary)' : 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                  Resumes Tomorrow ({notifications.resumingCount})
+                </span>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  Tomorrow: {formatDisplayDate(notifications.tomorrow || addDays(todayStr, 1))}
                 </div>
               </div>
-            ) : (
-              <p style={{ margin: '3px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                No customer delivery pauses are scheduled to resume tomorrow.
-              </p>
+            </div>
+
+            {notifications.resumingCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setAlertsExpanded(prev => !prev)}
+                className="btn btn-outline btn-sm"
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.72rem',
+                  fontWeight: 800,
+                  borderColor: 'var(--primary)',
+                  color: 'var(--primary)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px'
+                }}
+              >
+                <span>{alertsExpanded ? 'Hide' : 'View'}</span>
+                {alertsExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
             )}
           </div>
+
+          {notifications.resumingCount > 0 ? (
+            <div className={alertsExpanded ? '' : 'hide-mobile'} style={{ marginTop: '2px' }}>
+              <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: 'var(--primary)' }}>
+                Procure milk: {notifications.resumingCount} customer{notifications.resumingCount > 1 ? 's' : ''} resume tomorrow!
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                {notifications.resumingTomorrow.map((r, i) => (
+                  <span key={i} style={{ background: 'var(--bg-card)', border: '1px solid var(--primary)', color: 'var(--primary)', fontSize: '0.72rem', fontWeight: 700, padding: '2px 7px', borderRadius: '4px' }}>
+                    {r.flat_no ? `${r.flat_no} - ` : ''}{r.customer_name} ({r.products_summary || 'Milk'})
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="desktop-only" style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              No customer pauses resume tomorrow.
+            </p>
+          )}
         </div>
       </div>
 
