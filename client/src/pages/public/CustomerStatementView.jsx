@@ -83,15 +83,30 @@ export default function CustomerStatementView() {
       const canvas = await html2canvas(invoiceRef.current, {
         scale: 2,
         backgroundColor: '#0a0a0a',
-        useCORS: true
+        useCORS: true,
+        logging: false,
+        onclone: (clonedDoc) => {
+          const noPrints = clonedDoc.querySelectorAll('.no-download, .no-print');
+          noPrints.forEach((el) => {
+            el.style.display = 'none';
+          });
+          const container = clonedDoc.getElementById('full-customer-invoice');
+          if (container) {
+            container.style.maxWidth = '760px';
+            container.style.margin = '0 auto';
+            container.style.padding = '24px';
+          }
+        }
       });
+      const customerClean = (customer?.name || 'Customer').replace(/[^a-zA-Z0-9]/g, '_');
+      const periodClean = (data?.periodLabel || bill?.billingMonth || selectedMonth || 'statement').replace(/[^a-zA-Z0-9]/g, '_');
       const link = document.createElement('a');
-      link.download = `Nandini_Delivery_Invoice_${selectedMonth || 'statement'}.png`;
+      link.download = `Invoice_${customerClean}_${periodClean}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
       console.error('Download error:', err);
-      alert('Could not download image: ' + err.message);
+      alert('Could not download invoice: ' + err.message);
     } finally {
       setCapturing(false);
     }
@@ -206,6 +221,43 @@ export default function CustomerStatementView() {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       paddingBottom: '60px'
     }}>
+      <style>{`
+        @media print {
+          body, html {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+          }
+          header, .no-print, .no-download {
+            display: none !important;
+          }
+          main {
+            max-width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          #full-customer-invoice {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #cbd5e1 !important;
+            box-shadow: none !important;
+            padding: 16px !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+          }
+          #full-customer-invoice * {
+            color: #0f172a !important;
+            border-color: #e2e8f0 !important;
+          }
+          #full-customer-invoice table th {
+            background-color: #f1f5f9 !important;
+            color: #1e293b !important;
+            font-weight: 800 !important;
+          }
+          #full-customer-invoice table td {
+            border-bottom: 1px solid #e2e8f0 !important;
+          }
+        }
+      `}</style>
       {/* Top Mobile Bar matching user's screenshot */}
       <header style={{
         position: 'sticky',
@@ -347,8 +399,9 @@ export default function CustomerStatementView() {
           </div>
         )}
         
-        {/* Printable/Savable Statement Summary Card */}
+        {/* Printable/Savable Statement Summary Card with Date-Wise Delivered Products */}
         <div 
+          id="full-customer-invoice"
           ref={invoiceRef}
           style={{
             backgroundColor: '#0a0a0a',
@@ -379,7 +432,7 @@ export default function CustomerStatementView() {
               }}>
                 {parlour.businessName}
               </div>
-              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#ffffff' }}>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#ffffff' }}>
                 {customer.name}
               </h2>
               <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -467,7 +520,7 @@ export default function CustomerStatementView() {
                 {isWeekly ? 'Weekly Bill' : (isPrepaid ? 'Month Bill (Advance)' : 'Month Bill')}
               </div>
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#38bdf8', marginTop: '2px' }}>
-                ₹ {monthBillValue.toFixed(2)}
+                ₹{monthBillValue.toFixed(2)}
               </div>
               {summary.deliveryChargesTotal > 0 && (
                 <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px', fontWeight: 600 }}>
@@ -490,20 +543,20 @@ export default function CustomerStatementView() {
               {advanceSettledValue > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4ade80', marginBottom: '6px', fontWeight: 700 }}>
                   <span>Advance Settled:</span>
-                  <span>- ₹ {advanceSettledValue.toFixed(2)}</span>
+                  <span>- ₹{advanceSettledValue.toFixed(2)}</span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '0.95rem', color: '#ffffff' }}>
                 <span>Net Payable:</span>
                 <span style={{ color: netPayableValue === 0 ? '#4ade80' : '#38bdf8' }}>
-                  ₹ {netPayableValue.toFixed(2)} {netPayableValue === 0 ? '(All Clear ✓)' : ''}
+                  ₹{netPayableValue.toFixed(2)} {netPayableValue === 0 ? '(All Clear ✓)' : ''}
                 </span>
               </div>
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+          {/* Action Buttons (Excluded from downloaded PNG and printed paper) */}
+          <div className="no-print no-download" data-html2canvas-ignore="true" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
             <button
               onClick={handleDownloadInvoice}
               disabled={capturing}
@@ -573,86 +626,216 @@ export default function CustomerStatementView() {
               </a>
             )}
           </div>
-        </div>
 
-        {/* Payment Records Section (Safely logged in database) */}
-        {payments && payments.length > 0 && (
-          <div style={{
-            backgroundColor: '#0a0a0a',
-            border: '1px solid #1e293b',
-            borderRadius: '16px',
-            padding: '16px 20px',
-            marginBottom: '20px'
-          }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '12px'
-            }}>
-              <div style={{
-                fontSize: '0.85rem',
-                fontWeight: 800,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                color: '#4ade80',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <CheckCircle2 size={16} color="#4ade80" />
-                <span>Payment Records ({payments.length})</span>
+          {/* DATE-WISE DELIVERED PRODUCTS BREAKDOWN TABLE */}
+          <div style={{ marginTop: '16px', borderTop: '1px solid #1e293b', paddingTop: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>
+                  Date-Wise Delivered Products Schedule
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                  All marked deliveries with date, product name & packet quantity
+                </div>
               </div>
-              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                Secure Database Log
+              <span style={{ fontSize: '0.76rem', color: '#38bdf8', fontWeight: 800, background: 'rgba(56, 189, 248, 0.1)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+                {summary.totalDeliveredDays || days.filter(d => d.status === 'DELIVERED').length} Delivered Days
               </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {payments.map(p => (
-                <div
-                  key={p.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    backgroundColor: '#141414',
-                    border: '1px solid #262626',
-                    borderRadius: '10px',
-                    padding: '10px 14px',
-                    fontSize: '0.85rem'
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 800, color: '#ffffff', letterSpacing: '-0.01em' }}>
-                      {p.receiptNumber}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
-                      {p.paymentDate} • Paid via {p.paymentMethod}{p.referenceNumber ? ` • Ref: ${p.referenceNumber}` : ''}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 800, color: '#4ade80', fontSize: '1rem' }}>
-                      ₹{Number(p.amount).toFixed(2)}
-                    </div>
-                    <span style={{
-                      display: 'inline-block',
-                      fontSize: '0.68rem',
-                      fontWeight: 800,
-                      color: '#22c55e',
-                      backgroundColor: 'rgba(34, 197, 94, 0.12)',
-                      padding: '1px 6px',
-                      borderRadius: '4px',
-                      marginTop: '2px'
-                    }}>
-                      RECEIVED ✓
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid #1e293b' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#111827', color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1.5px solid #1e293b' }}>
+                    <th style={{ padding: '9px 12px' }}>Date</th>
+                    <th style={{ padding: '9px 12px' }}>Product Delivered</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Quantity</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'right' }}>Rate</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {days.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: '16px', textAlign: 'center', color: '#64748b' }}>
+                        No delivery entries found for this period.
+                      </td>
+                    </tr>
+                  ) : (
+                    days.map((day, dIdx) => {
+                      const isSkipped = day.status === 'SKIPPED';
+                      const isDelivered = day.status === 'DELIVERED';
+                      const hasItems = day.items && day.items.length > 0;
+
+                      if (!hasItems || (isSkipped && day.totalItems === 0)) {
+                        return (
+                          <tr key={day.date} style={{ borderBottom: '1px solid #1e293b', background: dIdx % 2 === 0 ? '#000000' : '#0a0a0a', opacity: 0.65 }}>
+                            <td style={{ padding: '8px 12px', color: '#94a3b8', fontWeight: 600 }}>
+                              {day.formattedDate || day.date}
+                            </td>
+                            <td style={{ padding: '8px 12px', color: '#64748b', fontStyle: 'italic' }}>
+                              Delivery Paused / Skipped
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'center', color: '#64748b' }}>0 pkts</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>—</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>₹0.00</td>
+                          </tr>
+                        );
+                      }
+
+                      return day.items.map((it, itIdx) => (
+                        <tr
+                          key={`${day.date}-${itIdx}`}
+                          style={{
+                            borderBottom: '1px solid #1e293b',
+                            background: dIdx % 2 === 0 ? '#000000' : '#0a0a0a'
+                          }}
+                        >
+                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap' }}>
+                            {itIdx === 0 ? (
+                              <div>
+                                <span>{day.formattedDate || day.date}</span>
+                                {day.deliveredTime && (
+                                  <div style={{ fontSize: '0.68rem', color: '#4ade80', fontWeight: 600, marginTop: '1px' }}>
+                                    ✓ {day.deliveredTime}
+                                  </div>
+                                )}
+                              </div>
+                            ) : ''}
+                          </td>
+                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#f8fafc' }}>
+                            <div>{it.productName}</div>
+                            {it.variantLabel && (
+                              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{it.variantLabel}</div>
+                            )}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 800, color: '#38bdf8' }}>
+                            {it.quantity} {it.quantity === 1 ? 'pkt' : 'pkts'}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1' }}>
+                            ₹{Number(it.unitPrice || 0).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: '#ffffff' }}>
+                            ₹{Number(it.totalAmount || (it.quantity * it.unitPrice)).toFixed(2)}
+                          </td>
+                        </tr>
+                      ));
+                    })
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: '#111827', borderTop: '2px solid #334155', fontWeight: 800 }}>
+                    <td colSpan={2} style={{ padding: '10px 12px', color: '#ffffff' }}>
+                      TOTAL DELIVERED
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'center', color: '#38bdf8', fontSize: '0.9rem' }}>
+                      {summary.totalDeliveredItems || summary.totalItemsCount || 0} pkts
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '0.75rem' }}>
+                      Net Total:
+                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#4ade80', fontSize: '0.95rem' }}>
+                      ₹{Number(netPayableValue !== undefined ? netPayableValue : monthBillValue || 0).toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
-        )}
+
+          {/* Payment Records Section (Inside printable/downloadable invoice) */}
+          {payments && payments.length > 0 && (
+            <div style={{
+              backgroundColor: '#141414',
+              border: '1px solid #1e293b',
+              borderRadius: '12px',
+              padding: '12px 16px',
+              marginTop: '16px'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '8px'
+              }}>
+                <div style={{
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  color: '#4ade80',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <CheckCircle2 size={15} color="#4ade80" />
+                  <span>Payment Records ({payments.length})</span>
+                </div>
+                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                  Official Receipts
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {payments.map(p => (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      backgroundColor: '#0a0a0a',
+                      border: '1px solid #262626',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      fontSize: '0.82rem'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800, color: '#ffffff' }}>
+                        {p.receiptNumber}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                        {p.paymentDate} • Paid via {p.paymentMethod}{p.referenceNumber ? ` • Ref: ${p.referenceNumber}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 800, color: '#4ade80' }}>
+                        ₹{Number(p.amount).toFixed(2)}
+                      </div>
+                      <span style={{
+                        display: 'inline-block',
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        color: '#22c55e'
+                      }}>
+                        RECEIVED ✓
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Parlour Support & Contact Footer (Inside printable/downloadable invoice) */}
+          <div style={{
+            marginTop: '20px',
+            paddingTop: '12px',
+            borderTop: '1px solid #1e293b',
+            textAlign: 'center',
+            fontSize: '0.76rem',
+            color: '#94a3b8'
+          }}>
+            <div style={{ fontWeight: 800, color: '#ffffff' }}>
+              {parlour.businessName}
+            </div>
+            <div>For delivery queries or updates, contact {parlour.phone || '7022754524'}</div>
+            <div style={{ marginTop: '2px', color: '#64748b' }}>
+              {parlour.invoiceFooter || 'Thank you for choosing Nandini Milk! Pure & Fresh.'}
+            </div>
+          </div>
+        </div>
 
         {/* Section Heading */}
         <div style={{
@@ -805,7 +988,7 @@ export default function CustomerStatementView() {
                             Total Amount
                           </div>
                           <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.95rem' }}>
-                            ₹ {day.totalAmount.toFixed(2)}
+                            ₹{day.totalAmount.toFixed(2)}
                             {day.deliveryCharge > 0 && (
                               <span style={{ fontSize: '0.7rem', color: '#38bdf8', fontWeight: 600, marginLeft: '6px' }}>
                                 (incl. ₹{day.deliveryCharge.toFixed(2)} delivery)
@@ -824,6 +1007,32 @@ export default function CustomerStatementView() {
                         )}
                       </div>
                     </div>
+
+                    {/* Product Summary directly visible on date card */}
+                    {day.items && day.items.length > 0 && (
+                      <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {day.items.map((it, itmIdx) => (
+                          <span
+                            key={itmIdx}
+                            style={{
+                              background: 'rgba(56, 189, 248, 0.1)',
+                              border: '1px solid rgba(56, 189, 248, 0.25)',
+                              color: '#93c5fd',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <span>🥛 {it.quantity}x {it.productName}</span>
+                            {it.variantLabel && <span style={{ opacity: 0.8 }}>({it.variantLabel})</span>}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Expanded Item Breakdown */}

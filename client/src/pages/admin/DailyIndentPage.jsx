@@ -1251,3 +1251,4 @@ export default function DailyIndentPage() {
     </div>
   );
 }
+
