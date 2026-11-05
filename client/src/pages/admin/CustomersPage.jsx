@@ -65,6 +65,97 @@ function renderBillingBadge(c) {
   return <span className="badge badge-warning">Postpaid</span>;
 }
 
+function renderDeliveredPriceCell(c) {
+  const delPrice = Number(c.delivered_milk_price || 0);
+  const days = Number(c.delivered_days_count || 0);
+  const items = Number(c.delivered_items_count || 0);
+
+  if (delPrice <= 0 && days === 0) {
+    return (
+      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: '600' }}>
+        ₹0.00
+      </span>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ fontWeight: '800', color: '#0369a1', fontSize: '0.92rem' }}>
+        ₹{delPrice.toFixed(2)}
+      </div>
+      <div style={{ fontSize: '0.72rem', color: '#0284c7', fontWeight: '700', marginTop: '2px' }}>
+        {days} {days === 1 ? 'day' : 'days'} ({items} {items === 1 ? 'pkt' : 'pkts'})
+      </div>
+    </div>
+  );
+}
+
+function renderPendingAmountCell(c) {
+  const advancePaid = Number(c.advance_balance || 0);
+  const deliveredMilk = Number(c.delivered_milk_price || 0);
+  const recordedPending = Number(c.pending_balance || 0);
+
+  if (c.billing_type === 'PREPAID') {
+    const remainingAdvance = advancePaid - deliveredMilk;
+    if (remainingAdvance >= 0) {
+      return (
+        <div>
+          <span style={{ fontWeight: '800', color: '#16a34a', fontSize: '0.9rem' }}>
+            ₹0.00
+          </span>
+          <div
+            style={{ fontSize: '0.72rem', color: '#15803d', fontWeight: '700', marginTop: '2px' }}
+            title={`Advance Paid: ₹${advancePaid.toFixed(2)} minus Delivered Milk: ₹${deliveredMilk.toFixed(2)}`}
+          >
+            Rem. Adv: ₹{remainingAdvance.toFixed(2)}
+          </div>
+        </div>
+      );
+    } else {
+      const overdue = Math.abs(remainingAdvance);
+      return (
+        <div>
+          <span style={{ fontWeight: '800', color: '#dc2626', fontSize: '0.9rem' }}>
+            ₹{overdue.toFixed(2)}
+          </span>
+          <div style={{ fontSize: '0.72rem', color: '#b91c1c', fontWeight: '700', marginTop: '2px' }}>
+            Adv. Exhausted
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (c.billing_type === 'COUPON') {
+    return (
+      <div>
+        <span style={{ fontWeight: '800', color: '#16a34a', fontSize: '0.9rem' }}>
+          ₹0.00
+        </span>
+        <div style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: '700', marginTop: '2px' }}>
+          Coupons Used
+        </div>
+      </div>
+    );
+  }
+
+  // POSTPAID / WEEKLY
+  const due = recordedPending > 0 ? recordedPending : deliveredMilk;
+  const isDue = due > 0;
+  return (
+    <div>
+      <span style={{ fontWeight: '800', color: isDue ? '#dc2626' : 'var(--text-primary)', fontSize: '0.9rem' }}>
+        ₹{due.toFixed(2)}
+      </span>
+      {recordedPending > 0 && deliveredMilk > 0 && Math.abs(recordedPending - deliveredMilk) > 1 && (
+        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+          Unbilled: ₹{deliveredMilk.toFixed(2)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ZoneBuildingThumbnail({ name = '', index = 0 }) {
   const lower = (name || '').toLowerCase();
   const colors = [
@@ -444,6 +535,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
 
       const totalAdvance = sorted.reduce((sum, c) => sum + (c.advance_balance || 0), 0);
       const totalPending = sorted.reduce((sum, c) => sum + (c.pending_balance || 0), 0);
+      const totalDeliveredMilk = sorted.reduce((sum, c) => sum + (c.delivered_milk_price || 0), 0);
       const totalSubscriptions = sorted.reduce((sum, c) => sum + (c.subscriptions?.length || 0), 0);
 
       return {
@@ -452,6 +544,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
         totalCustomers: sorted.length,
         totalAdvance,
         totalPending,
+        totalDeliveredMilk,
         totalSubscriptions
       };
     });
@@ -720,6 +813,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
   // Metrics summary
   const totalCustomersCount = customers.length;
   const totalAdvanceAmount = customers.reduce((s, c) => s + (c.advance_balance || 0), 0);
+  const totalDeliveredMilkAmount = customers.reduce((s, c) => s + (c.delivered_milk_price || 0), 0);
   const totalPendingAmount = customers.reduce((s, c) => s + (c.pending_balance || 0), 0);
 
   return (
@@ -801,7 +895,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
       {/* Top Overview Metric Badges */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
         gap: '12px',
         marginBottom: '20px'
       }}>
@@ -819,13 +913,25 @@ export default function CustomersPage({ initialOpenAdd = false }) {
 
         <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #16a34a' }}>
           <div style={{ fontSize: '0.74rem', color: '#166534', fontWeight: '700', textTransform: 'uppercase' }}>
-            Total Advance Balance
+            Total Advance Paid
           </div>
           <div style={{ fontSize: '1.45rem', fontWeight: '800', color: '#15803d', marginTop: '2px' }}>
             ₹{totalAdvanceAmount.toFixed(2)}
           </div>
           <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
             Prepaid account balances
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '12px 16px', borderLeft: '4px solid #0284c7' }}>
+          <div style={{ fontSize: '0.74rem', color: '#0369a1', fontWeight: '700', textTransform: 'uppercase' }}>
+            Delivered Milk (Month)
+          </div>
+          <div style={{ fontSize: '1.45rem', fontWeight: '800', color: '#0284c7', marginTop: '2px' }}>
+            ₹{totalDeliveredMilkAmount.toFixed(2)}
+          </div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+            Live delivered milk total
           </div>
         </div>
 
@@ -837,7 +943,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
             ₹{totalPendingAmount.toFixed(2)}
           </div>
           <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-            Uncollected monthly bills
+            Uncollected dues / bills
           </div>
         </div>
 
@@ -1332,7 +1438,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       <th>Billing</th>
                       <th>Phone & Route</th>
                       <th>Delivery Boy</th>
-                      <th>Advance Balance</th>
+                      <th>Advance Paid</th>
+                      <th>Delivered Milk Price</th>
                       <th>Pending Amount</th>
                       <th>Active Subscriptions</th>
                       <th>Actions</th>
@@ -1428,11 +1535,17 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                           <span style={{ fontWeight: '800', color: '#16a34a' }}>
                             ₹{c.advance_balance?.toFixed(2) || '0.00'}
                           </span>
+                          {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
+                            <div style={{ fontSize: '0.72rem', color: '#92400e', fontWeight: '700', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <Ticket size={11} /> {c.coupon_balance || 0} coupons
+                            </div>
+                          )}
                         </td>
                         <td>
-                          <span style={{ fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>
-                            ₹{c.pending_balance?.toFixed(2) || '0.00'}
-                          </span>
+                          {renderDeliveredPriceCell(c)}
+                        </td>
+                        <td>
+                          {renderPendingAmountCell(c)}
                         </td>
                         <td>
                           {c.subscriptions && c.subscriptions.length > 0 ? (
@@ -1548,20 +1661,33 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                     </div>
 
                     {/* Balance Information */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '2px' }}>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: '6px',
+                      padding: '8px 10px',
+                      background: '#f8fafc',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      marginTop: '2px'
+                    }}>
                       <div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Balance</div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Paid</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
+                        {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
+                          <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700' }}>
+                            {c.coupon_balance || 0} coupons
+                          </div>
+                        )}
                       </div>
-                      {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700', textTransform: 'uppercase' }}>Coupons Left</div>
-                          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#d97706' }}>{c.coupon_balance || 0}</div>
-                        </div>
-                      )}
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.65rem', color: '#0369a1', fontWeight: '700', textTransform: 'uppercase' }}>Delivered Milk</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#0284c7' }}>₹{(c.delivered_milk_price || 0).toFixed(2)}</div>
+                        <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{c.delivered_days_count || 0} days</div>
+                      </div>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Pending Amount</div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{c.pending_balance?.toFixed(2) || '0.00'}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Pending / Due</div>
+                        {renderPendingAmountCell(c)}
                       </div>
                     </div>
 
@@ -1746,7 +1872,8 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       <th>Billing</th>
                       <th>Phone & Route</th>
                       <th>Delivery Boy</th>
-                      <th>Advance Balance</th>
+                      <th>Advance Paid</th>
+                      <th>Delivered Milk Price</th>
                       <th>Pending Amount</th>
                       <th>Active Subscriptions</th>
                       <th>Actions</th>
@@ -1862,9 +1989,10 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                           )}
                         </td>
                         <td>
-                          <span style={{ fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>
-                            ₹{c.pending_balance?.toFixed(2) || '0.00'}
-                          </span>
+                          {renderDeliveredPriceCell(c)}
+                        </td>
+                        <td>
+                          {renderPendingAmountCell(c)}
                         </td>
                         <td>
                           {c.subscriptions && c.subscriptions.length > 0 ? (
@@ -2006,20 +2134,34 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '2px' }}>
+                    {/* Balance Information */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: '6px',
+                      padding: '8px 10px',
+                      background: '#f8fafc',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      marginTop: '2px'
+                    }}>
                       <div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Balance</div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Paid</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
+                        {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
+                          <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700' }}>
+                            {c.coupon_balance || 0} coupons
+                          </div>
+                        )}
                       </div>
-                      {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700', textTransform: 'uppercase' }}>Coupons Left</div>
-                          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#d97706' }}>{c.coupon_balance || 0}</div>
-                        </div>
-                      )}
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.65rem', color: '#0369a1', fontWeight: '700', textTransform: 'uppercase' }}>Delivered Milk</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#0284c7' }}>₹{(c.delivered_milk_price || 0).toFixed(2)}</div>
+                        <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{c.delivered_days_count || 0} days</div>
+                      </div>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Pending Amount</div>
-                        <div style={{ fontSize: '0.95rem', fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{c.pending_balance?.toFixed(2) || '0.00'}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Pending / Due</div>
+                        {renderPendingAmountCell(c)}
                       </div>
                     </div>
 

@@ -585,17 +585,56 @@ export default function CustomerProfileModal({
             </div>
 
             <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)' }}>ADVANCE BALANCE</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#166534' }}>ADVANCE PAID</div>
               <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#16a34a', marginTop: '2px' }}>
                 ₹{customer.advance_balance?.toFixed(2) || '0.00'}
               </div>
             </div>
 
             <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)' }}>PENDING AMOUNT</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: '800', color: customer.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)', marginTop: '2px' }}>
-                ₹{customer.pending_balance?.toFixed(2) || '0.00'}
+              <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#0369a1' }}>DELIVERED MILK (THIS MONTH)</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#0284c7', marginTop: '2px' }}>
+                ₹{(customer.delivered_milk_price || 0).toFixed(2)}
               </div>
+              <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                {customer.delivered_days_count || 0} days ({customer.delivered_items_count || 0} packets)
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)' }}>PENDING / NET BALANCE</div>
+              {customer.billing_type === 'PREPAID' ? (
+                <div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: ((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0 ? '#dc2626' : '#16a34a', marginTop: '2px' }}>
+                    {((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0 
+                      ? `₹${Math.abs((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)).toFixed(2)}`
+                      : '₹0.00'}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: ((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0 ? '#b91c1c' : '#15803d', fontWeight: '700', marginTop: '2px' }}>
+                    {((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0
+                      ? 'Advance Exhausted'
+                      : `Rem. Adv: ₹${((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)).toFixed(2)}`}
+                  </div>
+                </div>
+              ) : customer.billing_type === 'COUPON' ? (
+                <div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#16a34a', marginTop: '2px' }}>
+                    ₹0.00
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: '#d97706', fontWeight: '700', marginTop: '2px' }}>
+                    Coupons Used
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: (customer.pending_balance > 0 || (customer.delivered_milk_price || 0) > 0) ? '#dc2626' : 'var(--text-primary)', marginTop: '2px' }}>
+                    ₹{(customer.pending_balance > 0 ? customer.pending_balance : (customer.delivered_milk_price || 0)).toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                    Unbilled / Monthly Due
+                  </div>
+                </div>
+              )}
             </div>
 
             {(customer.billing_type === 'COUPON' || (customer.coupon_balance !== undefined && customer.coupon_balance > 0)) && (

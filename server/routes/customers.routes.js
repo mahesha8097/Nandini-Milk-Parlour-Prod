@@ -132,7 +132,36 @@ router.get('/', verifyToken, async (req, res) => {
 
     const customers = await db.prepare(query).all(...params);
 
-    // Attach active subscriptions summary for quick list view (Supports both SQLite & Async Postgres)
+    // Calculate current billing month range (e.g. 2026-11-01 to 2026-11-30)
+    const now = new Date();
+    const currentMonthStr = (req.query.month && req.query.month.length === 7) ? req.query.month : now.toISOString().slice(0, 7);
+    const monthStart = `${currentMonthStr}-01`;
+    const [cYear, cMonth] = currentMonthStr.split('-').map(Number);
+    const daysInCurrentMonth = new Date(cYear, cMonth, 0).getDate();
+    const monthEnd = `${currentMonthStr}-${String(daysInCurrentMonth).padStart(2, '0')}`;
+
+    // Live aggregation of delivered milk price and delivered days count for the month
+    const delStats = await db.prepare(`
+      SELECT 
+        customer_id,
+        COUNT(DISTINCT delivery_date) as delivered_days_count,
+        COUNT(id) as delivered_items_count,
+        COALESCE(SUM(total_amount), 0) as delivered_milk_price
+      FROM deliveries
+      WHERE delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED'
+      GROUP BY customer_id
+    `).all(monthStart, monthEnd) || [];
+
+    const delMap = new Map();
+    for (const ds of (delStats || [])) {
+      delMap.set(Number(ds.customer_id), {
+        delivered_days_count: Number(ds.delivered_days_count || 0),
+        delivered_items_count: Number(ds.delivered_items_count || 0),
+        delivered_milk_price: parseFloat(Number(ds.delivered_milk_price || 0).toFixed(2))
+      });
+    }
+
+    // Attach active subscriptions summary and live delivered milk stats
     const enrichedCustomers = await Promise.all((customers || []).map(async (c) => {
       const subs = await db.prepare(`
         SELECT s.*, p.name as product_name, p.variant_label, p.category, p.unit_volume_litres,
@@ -141,8 +170,19 @@ router.get('/', verifyToken, async (req, res) => {
         JOIN products p ON s.product_id = p.id
         WHERE s.customer_id = ? AND s.is_active = 1
       `).all(c.id);
+
+      const dStat = delMap.get(Number(c.id)) || {
+        delivered_days_count: 0,
+        delivered_items_count: 0,
+        delivered_milk_price: 0
+      };
+
       return {
         ...c,
+        delivered_days_count: dStat.delivered_days_count,
+        delivered_items_count: dStat.delivered_items_count,
+        delivered_milk_price: dStat.delivered_milk_price,
+        billing_month: currentMonthStr,
         subscriptions: subs || []
       };
     }));
@@ -229,6 +269,27 @@ router.get('/:id', verifyToken, async (req, res) => {
     if (!customer) {
       return res.status(404).json({ error: 'Customer not found' });
     }
+
+    const now = new Date();
+    const currentMonthStr = (req.query.month && req.query.month.length === 7) ? req.query.month : now.toISOString().slice(0, 7);
+    const monthStart = `${currentMonthStr}-01`;
+    const [cYear, cMonth] = currentMonthStr.split('-').map(Number);
+    const daysInCurrentMonth = new Date(cYear, cMonth, 0).getDate();
+    const monthEnd = `${currentMonthStr}-${String(daysInCurrentMonth).padStart(2, '0')}`;
+
+    const delStat = await db.prepare(`
+      SELECT 
+        COUNT(DISTINCT delivery_date) as delivered_days_count,
+        COUNT(id) as delivered_items_count,
+        COALESCE(SUM(total_amount), 0) as delivered_milk_price
+      FROM deliveries
+      WHERE customer_id = ? AND delivery_date >= ? AND delivery_date <= ? AND status = 'DELIVERED'
+    `).get(customerId, monthStart, monthEnd);
+
+    customer.delivered_days_count = Number(delStat?.delivered_days_count || 0);
+    customer.delivered_items_count = Number(delStat?.delivered_items_count || 0);
+    customer.delivered_milk_price = parseFloat(Number(delStat?.delivered_milk_price || 0).toFixed(2));
+    customer.billing_month = currentMonthStr;
 
     // Subscriptions
     const subscriptions = await db.prepare(`
