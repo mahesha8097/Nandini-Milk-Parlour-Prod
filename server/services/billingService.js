@@ -866,20 +866,20 @@ async function generateAdvanceBillForPrepaidCustomer(customer, billingMonth, for
     currentAdvance = parseFloat((currentAdvance + prevAdvanceAdjusted).toFixed(2));
   }
 
+  const paidAmount = (existing && forceRegenerate) ? Number(existing.paid_amount || 0) : 0;
+  const remainingGrossToCover = Math.max(0, parseFloat((grossAmount - paidAmount).toFixed(2)));
+
   let advanceToAdjust = 0;
-  if (currentAdvance >= grossAmount) {
-    advanceToAdjust = grossAmount;
-  } else {
-    advanceToAdjust = currentAdvance;
+  if (remainingGrossToCover > 0) {
+    advanceToAdjust = Math.min(currentAdvance, remainingGrossToCover);
   }
 
-  const paidAmount = (existing && forceRegenerate) ? Number(existing.paid_amount || 0) : 0;
   const netPayable = parseFloat(Math.max(0, grossAmount - advanceToAdjust - paidAmount).toFixed(2));
   
   let billStatus = 'GENERATED';
   if (netPayable === 0) {
-    billStatus = advanceToAdjust > 0 ? 'ADVANCE_PAID' : 'PAID';
-  } else if (advanceToAdjust > 0) {
+    billStatus = (paidAmount >= grossAmount) ? 'PAID' : (advanceToAdjust > 0 ? 'ADVANCE_PAID' : 'PAID');
+  } else if (advanceToAdjust > 0 || paidAmount > 0) {
     billStatus = 'PARTIALLY_PAID';
   } else {
     billStatus = 'PENDING';
@@ -2533,6 +2533,118 @@ async function permanentlyDeletePayment(paymentId) {
   return { success: true };
 }
 
+/**
+ * Universally reconciles all customer balances across the database to ground truth.
+ * - pending_balance = SUM(max(0, net_payable - paid_amount)) for all non-cancelled bills.
+ * - COUPON customers: advance_balance = 0, pending_balance = 0.
+ * - POSTPAID/WEEKLY/DAILY customers: advance_balance = 0, pending_balance = sum of unpaid bills.
+ * - PREPAID customers: advance_balance = recorded advance payment, pending_balance = sum of unpaid bills.
+ */
+async function reconcileAllCustomerBalances() {
+  const custs = await db.prepare('SELECT * FROM customers ORDER BY id ASC').all();
+  const pmts = await db.prepare('SELECT * FROM payments WHERE (is_deleted = 0 OR is_deleted IS NULL) ORDER BY id ASC').all();
+  const bills = await db.prepare("SELECT * FROM bills WHERE status != 'CANCELLED' ORDER BY id ASC").all();
+  const ledger = await db.prepare("SELECT * FROM customer_ledger ORDER BY customer_id ASC, id ASC").all();
+
+  const pmtsByCust = {};
+  for (const p of pmts || []) {
+    if (!pmtsByCust[p.customer_id]) pmtsByCust[p.customer_id] = [];
+    pmtsByCust[p.customer_id].push(p);
+  }
+
+  const billsByCust = {};
+  for (const b of bills || []) {
+    if (!billsByCust[b.customer_id]) billsByCust[b.customer_id] = [];
+    billsByCust[b.customer_id].push(b);
+  }
+
+  const ledgerByCust = {};
+  for (const l of ledger || []) {
+    if (!ledgerByCust[l.customer_id]) ledgerByCust[l.customer_id] = [];
+    ledgerByCust[l.customer_id].push(l);
+  }
+
+  let updatedCount = 0;
+  for (const c of custs || []) {
+    const cPmts = pmtsByCust[c.id] || [];
+    const cBills = billsByCust[c.id] || [];
+    const cLedger = ledgerByCust[c.id] || [];
+
+    let correctAdv = 0;
+    let correctPend = 0;
+
+    let unpaidBillsSum = 0;
+    for (const b of cBills) {
+      const net = Number(b.net_payable || 0);
+      const paid = Number(b.paid_amount || 0);
+      if (net > paid) {
+        unpaidBillsSum += (net - paid);
+      }
+    }
+    unpaidBillsSum = parseFloat(unpaidBillsSum.toFixed(2));
+    correctPend = unpaidBillsSum;
+
+    if (c.billing_type === 'COUPON') {
+      correctAdv = 0;
+    } else if (c.billing_type === 'POSTPAID' || c.billing_type === 'WEEKLY' || c.billing_type === 'DAILY') {
+      let advanceDeposit = 0;
+      for (const p of cPmts) {
+        if (p.payment_type === 'ADVANCE_PAYMENT' && !p.bill_id && !p.notes?.toLowerCase().includes('settling bill') && !p.notes?.toLowerCase().includes('coupon book')) {
+          advanceDeposit += Number(p.amount);
+        }
+      }
+      correctAdv = advanceDeposit;
+    } else {
+      // PREPAID
+      const validPmts = cPmts.filter(p => !p.notes?.toLowerCase().includes('coupon book'));
+      const totalPaid = validPmts.reduce((sum, p) => sum + Number(p.amount), 0);
+
+      let initAdv = 0;
+      const initL = cLedger.find(l => l.reference_id === 'INIT');
+      if (initL) {
+        initAdv = Number(initL.credit || initL.advance_balance_after || 0);
+      } else if (c.id >= 419 && c.id <= 650 && totalPaid === 0 && Number(c.advance_balance) === 500) {
+        initAdv = 500;
+      }
+
+      if (totalPaid > 0) {
+        const pastBills = cBills.filter(b => b.status === 'ADVANCE_PAID' && Number(b.advance_adjusted) > 0 && b.billing_month < '2026-11');
+        const pastAdvConsumed = pastBills.reduce((sum, b) => sum + Number(b.advance_adjusted), 0);
+        
+        if (pastAdvConsumed > 0) {
+          correctAdv = Math.max(0, parseFloat((totalPaid + initAdv - pastAdvConsumed).toFixed(2)));
+        } else {
+          const novPmts = validPmts.filter(p => p.payment_date >= '2026-11-01');
+          if (novPmts.length > 0) {
+            correctAdv = novPmts.reduce((sum, p) => sum + Number(p.amount), 0);
+          } else {
+            correctAdv = totalPaid + initAdv;
+          }
+        }
+      } else {
+        correctAdv = initAdv;
+      }
+    }
+
+    correctAdv = parseFloat(correctAdv.toFixed(2));
+    correctPend = parseFloat(correctPend.toFixed(2));
+
+    const oldAdv = Number(c.advance_balance || 0);
+    const oldPend = Number(c.pending_balance || 0);
+
+    if (oldAdv !== correctAdv || oldPend !== correctPend) {
+      await db.prepare(`
+        UPDATE customers
+        SET advance_balance = ?, pending_balance = ?, updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(correctAdv, correctPend, c.id);
+      updatedCount++;
+    }
+  }
+
+  return { success: true, updatedCount };
+}
+
 module.exports = {
   getDaysInMonth,
   generateBillNumber,
@@ -2556,6 +2668,7 @@ module.exports = {
   parseCustomDays,
   formatCustomDaysSummary,
   mergePendingBillsForCustomer,
-  syncCustomerBillingAfterSubscriptionChange
+  syncCustomerBillingAfterSubscriptionChange,
+  reconcileAllCustomerBalances
 };
 

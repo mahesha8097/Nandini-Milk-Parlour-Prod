@@ -916,4 +916,16 @@ router.post('/:customerId/bills/generate', requireAdmin, async (req, res) => {
   }
 });
 
+// Reconcile all customer balances across parlour (Admin only)
+router.post('/reconcile-balances', requireAdmin, async (req, res) => {
+  try {
+    const { reconcileAllCustomerBalances } = require('../services/billingService');
+    const result = await reconcileAllCustomerBalances();
+    res.json({ message: 'All customer balances reconciled successfully', ...result });
+  } catch (err) {
+    console.error('Reconcile balances error:', err);
+    res.status(500).json({ error: err.message || 'Failed to reconcile customer balances' });
+  }
+});
+
 module.exports = router;

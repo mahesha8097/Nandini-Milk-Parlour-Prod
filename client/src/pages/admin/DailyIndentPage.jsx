@@ -388,7 +388,7 @@ export default function DailyIndentPage() {
 
     const confirmed = window.confirm(
       `Confirm Day Close for ${formatDisplayDate(currentDate)}?\n\n` +
-        `Closing stock will be carried forward as opening stock for ${formatDisplayDate(nextDate)}.`
+      `Closing stock will be carried forward as opening stock for ${formatDisplayDate(nextDate)}.`
     );
     if (!confirmed) return;
 
@@ -625,8 +625,8 @@ export default function DailyIndentPage() {
               {activeStep === 'INDENT'
                 ? 'Nandini Dairy – Daily Indent Management'
                 : activeStep === 'CLOSING'
-                ? 'Daily Operations – Day Close & Stock'
-                : 'Daily Operations & Profit Analytics'}
+                  ? 'Daily Operations – Day Close & Stock'
+                  : 'Daily Operations & Profit Analytics'}
             </h1>
             <span
               style={{
@@ -646,8 +646,8 @@ export default function DailyIndentPage() {
             {activeStep === 'INDENT'
               ? 'Record daily quantities ordered from the dairy to track purchase cost, sales, wastage and profit.'
               : activeStep === 'CLOSING'
-              ? 'Enter end-of-day stock, record damaged/expired items and shortages. Closing stock will be carried forward to next day.'
-              : 'Detailed breakdown of daily margins, gross profit, wastage loss, and monthly trends.'}
+                ? 'Enter end-of-day stock, record damaged/expired items and shortages. Closing stock will be carried forward to next day.'
+                : 'Detailed breakdown of daily margins, gross profit, wastage loss, and monthly trends.'}
           </p>
         </div>
 
@@ -859,9 +859,8 @@ export default function DailyIndentPage() {
           <button
             type="button"
             onClick={() => setActiveStep('INDENT')}
-            className={`indent-step-item ${activeStep === 'INDENT' ? 'active' : ''} ${
-              totals.totalInwardQty > 0 ? 'completed' : ''
-            }`}
+            className={`indent-step-item ${activeStep === 'INDENT' ? 'active' : ''} ${totals.totalInwardQty > 0 ? 'completed' : ''
+              }`}
           >
             <span className="indent-step-badge">
               {totals.totalInwardQty > 0 ? <Check size={14} /> : '1'}
@@ -874,9 +873,8 @@ export default function DailyIndentPage() {
           <button
             type="button"
             onClick={() => setActiveStep('CLOSING')}
-            className={`indent-step-item ${activeStep === 'CLOSING' ? 'active' : ''} ${
-              status === 'CLOSED' ? 'completed' : ''
-            }`}
+            className={`indent-step-item ${activeStep === 'CLOSING' ? 'active' : ''} ${status === 'CLOSED' ? 'completed' : ''
+              }`}
           >
             <span className="indent-step-badge">
               {status === 'CLOSED' ? <Check size={14} /> : '2'}
