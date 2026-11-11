@@ -132,13 +132,13 @@ async function issueCouponBook({
 
   const bookId = insertBook.lastInsertRowid;
 
-  // 2. Increase customer coupon_balance
+  // 2. Increase customer coupon_balance and set billing_type to COUPON
   const currentCouponBal = parseInt(customer.coupon_balance, 10) || 0;
   const newCouponBal = currentCouponBal + couponsCount;
 
   await db.prepare(`
     UPDATE customers
-    SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
+    SET coupon_balance = ?, billing_type = 'COUPON', updated_at = datetime('now', 'localtime')
     WHERE id = ?
   `).run(newCouponBal, customerId);
 

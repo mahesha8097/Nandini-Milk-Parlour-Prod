@@ -42,6 +42,7 @@ import {
   Trash2,
   RefreshCw,
   Wallet,
+  Ticket,
   Route as RouteIcon
 } from 'lucide-react';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
@@ -214,6 +215,22 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   });
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentModalError, setPaymentModalError] = useState('');
+
+  // Issue / Handover Coupon Book Modal State (Delivery Boy & Admin)
+  const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
+  const [couponModalCustomer, setCouponModalCustomer] = useState(null);
+  const [couponModalData, setCouponModalData] = useState({
+    product_id: '',
+    book_number: '',
+    total_coupons: 50,
+    price_paid: '',
+    payment_method: 'CASH',
+    reference_number: '',
+    notes: '',
+    mark_delivered: true
+  });
+  const [submittingCoupon, setSubmittingCoupon] = useState(false);
+  const [couponModalError, setCouponModalError] = useState('');
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -672,6 +689,9 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             customer_route: first.customer_route,
             customer_serial_no: first.customer_serial_no || first.serial_no || 0,
             flat_no: first.flat_no || '',
+            coupon_balance: first.coupon_balance !== undefined && first.coupon_balance !== null
+              ? Number(first.coupon_balance)
+              : (Number(customers.find((c) => String(c.id) === String(cid))?.coupon_balance) || 0),
             items: validItems,
             rawItems: items,
             hasSpecialInstructions: items.some((it) => it.requirement_reason || (it.requirement_type && it.requirement_type !== 'NORMAL')),
@@ -1021,6 +1041,164 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       alert(err.message || 'Failed to mark delivery');
     } finally {
       setSubmittingPayment(false);
+    }
+  };
+
+  // Helper to calculate coupon price based on product and count
+  const calculateModalCouponPrice = (prod, total) => {
+    const qty = parseInt(total, 10) || 0;
+    if (!prod || qty <= 0) return '0.00';
+    const unitPrice = parseFloat(prod.selling_price || 25);
+    let delCharge = 0;
+    if (prod.delivery_charge_type === 'FIXED_PER_UNIT') {
+      delCharge = parseFloat(prod.fixed_delivery_charge || 0);
+    } else if (prod.delivery_charge_type !== 'NONE') {
+      let vol = prod.unit_volume_litres;
+      if (!vol || vol <= 0) {
+        if (prod.variant_label?.toLowerCase().includes('500')) vol = 0.5;
+        else if (prod.variant_label?.toLowerCase().includes('1')) vol = 1.0;
+        else vol = 0.5;
+      }
+      delCharge = parseFloat((vol * 3.0).toFixed(2));
+    }
+    return (qty * (unitPrice + delCharge)).toFixed(2);
+  };
+
+  // Open Issue / Handover Coupon Book Modal
+  const handleOpenIssueCouponModal = (cust) => {
+    if (!cust) return;
+    const cid = cust.customer_id || cust.id;
+    const fullCust = customers.find((c) => String(c.id) === String(cid)) || cust;
+
+    // Pre-select milk product: match customer's scheduled item or first coupon-eligible milk product
+    const scheduledMilk = (cust.items || []).find((it) => {
+      const p = products.find((prod) => prod.id === it.product_id);
+      return p && (p.is_coupon_eligible === 1 || p.category === 'Milk' || p.category === 'MILK');
+    });
+    const defaultProduct = scheduledMilk
+      ? products.find((p) => p.id === scheduledMilk.product_id)
+      : products.find((p) => p.is_coupon_eligible === 1 || p.category === 'Milk' || p.category === 'MILK') || products[0];
+
+    const prodId = defaultProduct ? String(defaultProduct.id) : '';
+    const prodPrefix = defaultProduct ? (defaultProduct.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
+    const defaultBookNo = `BK-${prodPrefix}-${cid}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`;
+    const defaultTotal = 50;
+    const defaultPrice = calculateModalCouponPrice(defaultProduct, defaultTotal);
+
+    setCouponModalCustomer({
+      ...fullCust,
+      customer_id: cid,
+      customer_name: fullCust.customer_name || fullCust.name,
+      flat_no: fullCust.flat_no,
+      coupon_balance: fullCust.coupon_balance ?? cust.coupon_balance ?? 0,
+      items: cust.items || []
+    });
+
+    setCouponModalData({
+      product_id: prodId,
+      book_number: defaultBookNo,
+      total_coupons: defaultTotal,
+      price_paid: defaultPrice,
+      payment_method: 'CASH',
+      reference_number: '',
+      notes: '',
+      mark_delivered: (cust.items || []).some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED')
+    });
+    setCouponModalError('');
+    setIsCouponModalOpen(true);
+  };
+
+  const handleCouponProductChange = (newProdId) => {
+    const prod = products.find((p) => String(p.id) === String(newProdId));
+    const total = parseInt(couponModalData.total_coupons, 10) || 0;
+    const newPrice = calculateModalCouponPrice(prod, total);
+    const prodPrefix = prod ? (prod.name.toLowerCase().includes('special') ? 'SM' : 'TM') : 'CPN';
+    const cid = couponModalCustomer?.customer_id || '001';
+    const newBookNo = (couponModalData.book_number && couponModalData.book_number.startsWith('BK-'))
+      ? `BK-${prodPrefix}-${cid}-${new Date().toISOString().slice(5, 7)}${Math.floor(100 + Math.random() * 900)}`
+      : couponModalData.book_number;
+
+    setCouponModalData({
+      ...couponModalData,
+      product_id: newProdId,
+      price_paid: couponModalData.payment_method === 'PAY_LATER' ? '0' : newPrice,
+      book_number: newBookNo
+    });
+  };
+
+  const handleCouponTotalChange = (newTotal) => {
+    const total = parseInt(newTotal, 10) || 0;
+    const prod = products.find((p) => String(p.id) === String(couponModalData.product_id));
+    const newPrice = calculateModalCouponPrice(prod, total);
+
+    setCouponModalData({
+      ...couponModalData,
+      total_coupons: total,
+      price_paid: couponModalData.payment_method === 'PAY_LATER' ? '0' : newPrice
+    });
+  };
+
+  const handleSubmitIssueCoupon = async (e) => {
+    if (e) e.preventDefault();
+    if (!couponModalCustomer) return;
+
+    const totalCoupons = parseInt(couponModalData.total_coupons, 10);
+    if (isNaN(totalCoupons) || totalCoupons <= 0) {
+      setCouponModalError('Please enter a valid positive number of coupons.');
+      return;
+    }
+
+    try {
+      setSubmittingCoupon(true);
+      setCouponModalError('');
+
+      const isPayLater = couponModalData.payment_method === 'PAY_LATER';
+      const paidAmt = isPayLater ? 0 : (parseFloat(couponModalData.price_paid) || 0);
+
+      const payload = {
+        customer_id: couponModalCustomer.customer_id,
+        product_id: couponModalData.product_id ? parseInt(couponModalData.product_id, 10) : null,
+        book_number: couponModalData.book_number?.trim() || undefined,
+        total_coupons: totalCoupons,
+        price_paid: paidAmt,
+        payment_method: isPayLater ? 'CASH' : couponModalData.payment_method,
+        issue_date: selectedDate || getLocalDateString(),
+        notes: couponModalData.notes 
+          ? `${couponModalData.notes} (Handed over during delivery)`
+          : `Handed over by delivery boy at doorstep`.trim()
+      };
+
+      const res = await api.post('/coupons/issue', payload);
+
+      // If requested, mark today's pending items as DELIVERED now
+      if (couponModalData.mark_delivered && couponModalCustomer.items?.length > 0) {
+        const pendingItems = couponModalCustomer.items.filter((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED');
+        if (pendingItems.length > 0) {
+          await api.post('/deliveries/bulk-status', {
+            deliveryIds: pendingItems.map((it) => it.id),
+            status: 'DELIVERED'
+          });
+        }
+      }
+
+      setIsCouponModalOpen(false);
+      showToast(res.message || `Coupon Book #${res.book?.book_number || ''} issued successfully!`);
+
+      // Update customers in state with new coupon balance and COUPON billing type
+      setCustomers((prev) =>
+        prev.map((c) =>
+          String(c.id) === String(couponModalCustomer.customer_id)
+            ? { ...c, coupon_balance: res.newCouponBalance, billing_type: 'COUPON' }
+            : c
+        )
+      );
+
+      await refreshDeliveriesOnly();
+    } catch (err) {
+      console.error('Handover coupon error:', err);
+      setCouponModalError(err.message || 'Failed to issue coupon book.');
+    } finally {
+      setSubmittingCoupon(false);
     }
   };
 
@@ -2886,6 +3064,22 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             Daily Pay
                           </span>
                         )}
+                        {cust.billing_type === 'COUPON' && (
+                          <span style={{
+                            background: (cust.coupon_balance || 0) <= 0 ? '#fef2f2' : '#ecfdf5',
+                            color: (cust.coupon_balance || 0) <= 0 ? '#b91c1c' : '#047857',
+                            border: (cust.coupon_balance || 0) <= 0 ? '1px solid #fecaca' : '1px solid #a7f3d0',
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            🎟️ {(cust.coupon_balance || 0) <= 0 ? '0 Coupons (Exhausted)' : `${cust.coupon_balance} cpn`}
+                          </span>
+                        )}
                       </div>
 
                       {/* Status & Payment Badges */}
@@ -3134,6 +3328,40 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                           >
                             <Wallet size={13} />
                             <span>{cust.paidTodayAmount > 0 ? `Paid ₹${cust.paidTodayAmount.toFixed(2)} ✓` : `Collect ₹${cust.totalAmount?.toFixed(2) || '0.00'}`}</span>
+                          </button>
+                        )}
+
+                        {/* Quick Coupon Book Action Button if coupons are exhausted */}
+                        {cust.billing_type === 'COUPON' && (cust.coupon_balance || 0) <= 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenIssueCouponModal(cust);
+                            }}
+                            className="btn btn-sm"
+                            style={{
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '5px',
+                              fontWeight: '800',
+                              fontSize: '0.78rem',
+                              padding: '7px 8px',
+                              borderRadius: '8px',
+                              background: '#fef2f2',
+                              color: '#b91c1c',
+                              border: '1.5px solid #fca5a5',
+                              boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
+                              minHeight: '38px',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Coupons exhausted! Hand over and record new coupon book"
+                          >
+                            <Ticket size={13} />
+                            <span>+ Give Coupon Book</span>
                           </button>
                         )}
 
@@ -3568,8 +3796,16 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     💰 Due: ₹{activeCustomer.totalAmount?.toFixed(2) || '0.00'}
                   </span>
                 ) : activeCustomer.billing_type === 'COUPON' ? (
-                  <span style={{ color: '#047857', fontWeight: 800 }}>
-                    🎟️ Coupon Customer {activeCustomer.coupon_balance !== undefined ? `(Bal: ${activeCustomer.coupon_balance})` : ''}
+                  <span style={{
+                    color: (activeCustomer.coupon_balance || 0) > 0 ? '#047857' : '#dc2626',
+                    fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    🎟️ {(activeCustomer.coupon_balance || 0) > 0
+                      ? `Coupon Customer (Bal: ${activeCustomer.coupon_balance})`
+                      : 'Coupons Exhausted (0 Bal)!'}
                   </span>
                 ) : (
                   <span style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>
@@ -3578,25 +3814,54 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={() => handleOpenDailyPaymentModal(activeCustomer, activeCustomer.paidTodayAmount > 0)}
-                style={{
-                  background: activeCustomer.paidTodayAmount > 0 ? '#059669' : '#16a34a',
-                  color: 'white',
-                  border: 'none',
-                  fontWeight: 800,
-                  fontSize: '0.78rem',
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  minHeight: '34px'
-                }}
-              >
-                {activeCustomer.paidTodayAmount > 0 ? 'Edit Pay' : 'Enter Pay'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                {activeCustomer.billing_type === 'COUPON' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenIssueCouponModal(activeCustomer)}
+                    style={{
+                      background: (activeCustomer.coupon_balance || 0) <= 0 ? '#dc2626' : '#047857',
+                      color: 'white',
+                      border: 'none',
+                      fontWeight: 800,
+                      fontSize: '0.78rem',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      minHeight: '34px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      boxShadow: (activeCustomer.coupon_balance || 0) <= 0 ? '0 2px 8px rgba(220, 38, 38, 0.35)' : 'none'
+                    }}
+                    title="Give & Add New Coupon Book to customer directly"
+                  >
+                    <Ticket size={14} />
+                    <span>+ Give Book</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenDailyPaymentModal(activeCustomer, activeCustomer.paidTodayAmount > 0)}
+                  style={{
+                    background: activeCustomer.paidTodayAmount > 0 ? '#059669' : '#16a34a',
+                    color: 'white',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: '0.78rem',
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    minHeight: '34px'
+                  }}
+                >
+                  {activeCustomer.paidTodayAmount > 0 ? 'Edit Pay' : 'Enter Pay'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -4113,6 +4378,32 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               >
                 <PlusCircle size={16} color="#d97706" style={{ flexShrink: 0 }} />
                 <span>+ Extra Product</span>
+              </button>
+
+              {/* Delivery Person Key: Handover & Add New Coupon Book */}
+              <button
+                type="button"
+                onClick={() => handleOpenIssueCouponModal(activeCustomer)}
+                style={{
+                  background: activeCustomer.billing_type === 'COUPON' && (activeCustomer.coupon_balance || 0) <= 0 ? '#fef2f2' : '#ecfdf5',
+                  color: activeCustomer.billing_type === 'COUPON' && (activeCustomer.coupon_balance || 0) <= 0 ? '#b91c1c' : '#047857',
+                  border: activeCustomer.billing_type === 'COUPON' && (activeCustomer.coupon_balance || 0) <= 0 ? '1.5px solid #fca5a5' : '1.5px solid #a7f3d0',
+                  fontWeight: 800,
+                  fontSize: '0.82rem',
+                  padding: '10px 10px',
+                  borderRadius: '10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  minHeight: '44px',
+                  whiteSpace: 'nowrap'
+                }}
+                title="Give & Record New Coupon Book directly while delivering"
+              >
+                <Ticket size={16} color={activeCustomer.billing_type === 'COUPON' && (activeCustomer.coupon_balance || 0) <= 0 ? '#dc2626' : '#059669'} style={{ flexShrink: 0 }} />
+                <span>+ Coupon Book</span>
               </button>
 
               {activeCustomer.customer_category === 'BULK_HOTEL' && (
@@ -5731,6 +6022,317 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               onClick={() => setIsDailyPaymentModalOpen(false)}
               className="btn btn-outline"
               style={{ fontSize: '0.84rem', padding: '10px 14px', borderRadius: '10px', minHeight: '40px' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8. Hand Over / Issue Coupon Book Modal (For Delivery Person & Admin) */}
+      <Modal
+        isOpen={isCouponModalOpen}
+        onClose={() => !submittingCoupon && setIsCouponModalOpen(false)}
+        title="🎟️ Give New Coupon Book"
+        maxWidth="500px"
+      >
+        <form onSubmit={handleSubmitIssueCoupon} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Customer & Current Balance Info Card */}
+          <div style={{
+            background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)',
+            border: '1.5px solid #86efac',
+            borderRadius: '12px',
+            padding: '14px 16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Customer
+                </div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                  {couponModalCustomer?.customer_name}
+                </div>
+                {couponModalCustomer?.flat_no && (
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e3a8a' }}>
+                    Flat / House: {couponModalCustomer.flat_no}
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Current Balance
+                </div>
+                <div style={{
+                  fontSize: '0.98rem',
+                  fontWeight: 900,
+                  color: (couponModalCustomer?.coupon_balance || 0) <= 0 ? '#dc2626' : '#15803d',
+                  background: (couponModalCustomer?.coupon_balance || 0) <= 0 ? '#fef2f2' : '#dcfce7',
+                  border: (couponModalCustomer?.coupon_balance || 0) <= 0 ? '1px solid #fecaca' : '1px solid #bbf7d0',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  marginTop: '2px',
+                  display: 'inline-block'
+                }}>
+                  {(couponModalCustomer?.coupon_balance || 0) <= 0 ? '0 (Exhausted)' : `${couponModalCustomer?.coupon_balance} coupons`}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {couponModalError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fca5a5',
+              color: '#b91c1c',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              fontSize: '0.84rem',
+              fontWeight: 700
+            }}>
+              {couponModalError}
+            </div>
+          )}
+
+          {/* Product Selection */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" style={{ fontWeight: 800, fontSize: '0.85rem' }}>
+              Select Milk Product *
+            </label>
+            <select
+              className="form-input"
+              style={{ fontWeight: 700, fontSize: '0.9rem' }}
+              value={couponModalData.product_id}
+              onChange={(e) => handleCouponProductChange(e.target.value)}
+              required
+            >
+              <option value="">-- Choose Milk Product --</option>
+              {products
+                .filter((p) => p.is_coupon_eligible === 1 || p.category === 'Milk' || p.category === 'MILK')
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} {p.variant_label ? `(${p.variant_label})` : ''} — ₹{parseFloat(p.selling_price || 0).toFixed(2)}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          {/* Book Number (Physical Booklet Number) */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" style={{ fontWeight: 800, fontSize: '0.85rem' }}>
+              Coupon Book # (Booklet ID) *
+            </label>
+            <input
+              type="text"
+              className="form-input"
+              style={{ fontWeight: 800, fontSize: '0.92rem', letterSpacing: '0.02em' }}
+              placeholder="e.g. 1023 or BK-TM-665-1102"
+              value={couponModalData.book_number}
+              onChange={(e) => setCouponModalData({ ...couponModalData, book_number: e.target.value })}
+              required
+            />
+            <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '3px' }}>
+              Auto-generated. You can edit to match the serial number on the printed coupon booklet.
+            </div>
+          </div>
+
+          {/* Total Coupons with Quick Preset Chips */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label className="form-label" style={{ fontWeight: 800, fontSize: '0.85rem', marginBottom: 0 }}>
+                Total Coupons in Book *
+              </label>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0369a1' }}>
+                Quick sizes:
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+              {[25, 30, 50, 60].map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  onClick={() => handleCouponTotalChange(count)}
+                  style={{
+                    flex: '1 1 auto',
+                    padding: '6px 10px',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    border: couponModalData.total_coupons === count ? '2px solid #059669' : '1px solid #cbd5e1',
+                    background: couponModalData.total_coupons === count ? '#ecfdf5' : 'white',
+                    color: couponModalData.total_coupons === count ? '#047857' : '#475569'
+                  }}
+                >
+                  {count} pkts
+                </button>
+              ))}
+            </div>
+            <input
+              type="number"
+              min="1"
+              max="500"
+              className="form-input"
+              style={{ fontWeight: 800, fontSize: '0.95rem' }}
+              value={couponModalData.total_coupons}
+              onChange={(e) => handleCouponTotalChange(e.target.value)}
+              required
+            />
+          </div>
+
+          {/* Amount Collected & Payment Mode */}
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '12px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ fontSize: '0.82rem', fontWeight: 800, color: '#1e293b' }}>
+                Payment for Coupon Book
+              </label>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#059669' }}>
+                Book Price: ₹{couponModalData.price_paid || '0.00'}
+              </span>
+            </div>
+
+            {/* Payment Method Selector Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={() => setCouponModalData({ ...couponModalData, payment_method: 'CASH' })}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: '8px',
+                  border: couponModalData.payment_method === 'CASH' ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                  background: couponModalData.payment_method === 'CASH' ? '#f0fdf4' : 'white',
+                  color: couponModalData.payment_method === 'CASH' ? '#15803d' : '#475569',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  textAlign: 'center'
+                }}
+              >
+                💵 Cash
+              </button>
+              <button
+                type="button"
+                onClick={() => setCouponModalData({ ...couponModalData, payment_method: 'UPI' })}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: '8px',
+                  border: couponModalData.payment_method === 'UPI' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                  background: couponModalData.payment_method === 'UPI' ? '#eff6ff' : 'white',
+                  color: couponModalData.payment_method === 'UPI' ? '#1d4ed8' : '#475569',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  textAlign: 'center'
+                }}
+              >
+                📱 UPI / QR
+              </button>
+              <button
+                type="button"
+                onClick={() => setCouponModalData({ ...couponModalData, payment_method: 'PAY_LATER', price_paid: '0' })}
+                style={{
+                  padding: '8px 4px',
+                  borderRadius: '8px',
+                  border: couponModalData.payment_method === 'PAY_LATER' ? '2px solid #d97706' : '1px solid #cbd5e1',
+                  background: couponModalData.payment_method === 'PAY_LATER' ? '#fffbeb' : 'white',
+                  color: couponModalData.payment_method === 'PAY_LATER' ? '#b45309' : '#475569',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  textAlign: 'center'
+                }}
+              >
+                ⏳ Pay Later
+              </button>
+            </div>
+
+            {/* Amount Paid input (if not Pay Later) */}
+            {couponModalData.payment_method !== 'PAY_LATER' && (
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontWeight: 900, color: '#0f172a' }}>
+                  ₹
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="form-input"
+                  style={{ paddingLeft: '28px', fontSize: '1rem', fontWeight: 800, color: '#15803d' }}
+                  placeholder="Amount collected"
+                  value={couponModalData.price_paid}
+                  onChange={(e) => setCouponModalData({ ...couponModalData, price_paid: e.target.value })}
+                  required
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Auto-Recovery Notice */}
+          <div style={{
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '10px',
+            padding: '10px 12px',
+            fontSize: '0.78rem',
+            color: '#1e40af',
+            lineHeight: 1.4
+          }}>
+            ⚡ <strong>Instant Auto-Recovery:</strong> Any milk deliveries already marked while coupons were exhausted will be recovered into this book automatically.
+          </div>
+
+          {/* Checkbox: Mark today's delivery items as DELIVERED now */}
+          {couponModalCustomer?.items?.some((it) => it.status !== 'DELIVERED' && it.status !== 'SKIPPED') && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700, color: '#334155' }}>
+              <input
+                type="checkbox"
+                checked={couponModalData.mark_delivered}
+                onChange={(e) => setCouponModalData({ ...couponModalData, mark_delivered: e.target.checked })}
+                style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
+              />
+              <span>Mark today's milk delivery as <strong>DELIVERED</strong> now</span>
+            </label>
+          )}
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+            <button
+              type="submit"
+              disabled={submittingCoupon}
+              className="btn btn-primary"
+              style={{
+                background: '#16a34a',
+                borderColor: '#16a34a',
+                fontWeight: 900,
+                fontSize: '0.98rem',
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                borderRadius: '12px',
+                minHeight: '48px',
+                boxShadow: '0 2px 10px rgba(22, 163, 74, 0.25)'
+              }}
+            >
+              <Ticket size={18} style={{ flexShrink: 0 }} />
+              <span>{submittingCoupon ? 'Issuing Book...' : 'Confirm & Hand Over Book ➔'}</span>
+            </button>
+            <button
+              type="button"
+              disabled={submittingCoupon}
+              onClick={() => setIsCouponModalOpen(false)}
+              className="btn btn-outline"
+              style={{ minHeight: '38px', borderRadius: '10px', fontSize: '0.84rem' }}
             >
               Cancel
             </button>

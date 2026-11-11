@@ -116,8 +116,8 @@ router.get('/customers/:id', verifyToken, async (req, res) => {
   }
 });
 
-// Issue / Add a new coupon book or record leftover physical coupons (Admin only)
-router.post('/issue', requireAdmin, async (req, res) => {
+// Issue / Add a new coupon book or record leftover physical coupons (Admin & Delivery Boy on route)
+router.post('/issue', verifyToken, async (req, res) => {
   try {
     const {
       customer_id,
@@ -139,6 +139,18 @@ router.post('/issue', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Total coupons count is required and must be greater than 0' });
     }
 
+    const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Role check: Delivery boys can issue coupon books for customers within their agent / parlour
+    if (req.user?.role === 'DELIVERY_BOY') {
+      if (customer.agent_id && req.agentId && customer.agent_id !== req.agentId) {
+        return res.status(403).json({ error: 'Access denied: Customer does not belong to your assigned parlour' });
+      }
+    }
+
     const isLeftoverCoupon = Boolean(is_leftover || is_opening_balance);
     const finalPricePaid = isLeftoverCoupon
       ? 0
@@ -154,7 +166,7 @@ router.post('/issue', requireAdmin, async (req, res) => {
       issueDate: issue_date,
       notes,
       isLeftover: isLeftoverCoupon,
-      agentId: req.agentId || 1,
+      agentId: req.agentId || customer.agent_id || 1,
       recordedByUserId: req.user?.id || null
     });
 
