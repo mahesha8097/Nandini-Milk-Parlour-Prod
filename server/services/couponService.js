@@ -209,10 +209,15 @@ async function issueCouponBook({
     );
   }
 
+  // 5. Automatically recover past deliveries made while coupons were exhausted
+  const recovery = await recoverCustomerUnrecoveredDeliveries(customerId);
+
   const createdBook = await db.prepare('SELECT * FROM coupon_books WHERE id = ?').get(bookId);
   return {
     book: createdBook,
-    newCouponBalance: newCouponBal
+    newCouponBalance: recovery.remainingCouponBalance !== undefined ? recovery.remainingCouponBalance : newCouponBal,
+    recoveredDeliveries: recovery.recoveredDeliveriesCount || 0,
+    recoveredCoupons: recovery.recoveredCouponsCount || 0
   };
 }
 
@@ -294,7 +299,7 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
     return null; // Not a coupon customer or no books issued
   }
 
-  // Check if delivery product is coupon-eligible (Milk products only; Curd/Ghee/etc are non-coupon billed items)
+  // Check if delivery product is coupon-eligible (Milk products or products with a specific coupon book)
   let isCouponEligible = false;
   let prodObj = null;
   if (delivery.product_id) {
@@ -309,6 +314,12 @@ async function syncCouponsForDelivery(deliveryId, options = {}) {
   } else if (delivery.product_name_snapshot) {
     const nameLower = delivery.product_name_snapshot.toLowerCase();
     isCouponEligible = nameLower.includes('milk') && !nameLower.includes('curd');
+  }
+
+  // Also check if customer specifically holds a coupon book for this product_id (e.g. Curd 500g book)
+  if (!isCouponEligible && delivery.product_id) {
+    const hasProductBook = await db.prepare('SELECT 1 FROM coupon_books WHERE customer_id = ? AND product_id = ? LIMIT 1').get(customer.id, delivery.product_id);
+    if (hasProductBook) isCouponEligible = true;
   }
 
   // 1. Determine target coupons to deduct for this delivery
@@ -520,24 +531,141 @@ async function revertCouponsForDelivery(deliveryId) {
 }
 
 /**
+ * Automatically recover past deliveries that were delivered while coupon books were exhausted
+ * once a new book is added or coupons are replenished.
+ * Recovers in chronological order (oldest delivery first).
+ */
+async function recoverCustomerUnrecoveredDeliveries(customerId) {
+  if (!customerId) return { recoveredDeliveriesCount: 0, recoveredCouponsCount: 0 };
+
+  const customer = await db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!customer) return { recoveredDeliveriesCount: 0, recoveredCouponsCount: 0 };
+
+  // Check if customer has any active books with remaining coupons
+  const activeBooks = await db.prepare(`
+    SELECT * FROM coupon_books
+    WHERE customer_id = ? AND status = 'ACTIVE' AND remaining_coupons > 0
+    ORDER BY issue_date ASC, id ASC
+  `).all(customerId);
+
+  if (!activeBooks || activeBooks.length === 0) {
+    return {
+      customerId,
+      customerName: customer.name,
+      recoveredDeliveriesCount: 0,
+      recoveredCouponsCount: 0,
+      remainingCouponBalance: 0
+    };
+  }
+
+  // Find only deliveries for this customer that have unrecovered / missing coupon deductions
+  const deliveries = await db.prepare(`
+    SELECT d.id, d.delivery_date, d.product_id, d.product_name_snapshot, d.quantity, d.status
+    FROM deliveries d
+    WHERE d.customer_id = ? AND d.status = 'DELIVERED'
+      AND NOT EXISTS (
+        SELECT 1 FROM coupon_transactions ct 
+        WHERE ct.delivery_id = d.id AND ct.transaction_type = 'DELIVERY_USAGE'
+      )
+    ORDER BY d.delivery_date ASC, d.id ASC
+  `).all(customerId);
+
+  let recoveredDeliveriesCount = 0;
+  let recoveredCouponsCount = 0;
+
+  for (const del of (deliveries || [])) {
+    // Check if there are still active books with remaining coupons
+    const hasRemaining = await db.prepare(`
+      SELECT 1 FROM coupon_books
+      WHERE customer_id = ? AND status = 'ACTIVE' AND remaining_coupons > 0
+      LIMIT 1
+    `).get(customerId);
+    if (!hasRemaining) break;
+
+    const syncRes = await syncCouponsForDelivery(del.id);
+    if (syncRes && syncRes.deducted > 0) {
+      recoveredDeliveriesCount += 1;
+      recoveredCouponsCount += syncRes.deducted;
+    }
+  }
+
+  // Clear any dangling pending debt for coupon customers (milk covered by coupon books)
+  if (customer.billing_type === 'COUPON') {
+    await db.prepare(`
+      UPDATE customers
+      SET pending_balance = 0, updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(customerId);
+  }
+
+  // Recalculate true aggregate balance
+  const sumRow = await db.prepare(`
+    SELECT COALESCE(SUM(remaining_coupons), 0) as total_remaining
+    FROM coupon_books
+    WHERE customer_id = ? AND status = 'ACTIVE'
+  `).get(customerId);
+
+  const finalBal = parseInt(sumRow?.total_remaining, 10) || 0;
+
+  await db.prepare(`
+    UPDATE customers
+    SET coupon_balance = ?, updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `).run(finalBal, customerId);
+
+  return {
+    customerId,
+    customerName: customer.name,
+    recoveredDeliveriesCount,
+    recoveredCouponsCount,
+    remainingCouponBalance: finalBal
+  };
+}
+
+/**
  * Reconcile all customer deliveries for an agent to guarantee 100% coupon balance accuracy
  */
 async function reconcileAllCustomerCoupons(agentId = 1) {
   try {
-    const deliveries = await db.prepare(`
-      SELECT d.id
-      FROM deliveries d
-      JOIN customers c ON d.customer_id = c.id
-      WHERE (c.agent_id = ? OR c.agent_id IS NULL)
-        AND (c.billing_type = 'COUPON' OR EXISTS (SELECT 1 FROM coupon_books cb WHERE cb.customer_id = c.id))
-      ORDER BY d.delivery_date ASC, d.id ASC
-    `).all(agentId);
+    const targetCusts = await db.prepare(`
+      SELECT DISTINCT c.id, c.name
+      FROM customers c
+      WHERE (c.agent_id = ? OR c.agent_id IS NULL OR ? = 1)
+        AND (c.billing_type = 'COUPON' OR c.coupon_balance > 0 OR EXISTS (SELECT 1 FROM coupon_books cb WHERE cb.customer_id = c.id))
+        AND EXISTS (
+          SELECT 1 FROM deliveries d
+          WHERE d.customer_id = c.id AND d.status = 'DELIVERED'
+            AND NOT EXISTS (
+              SELECT 1 FROM coupon_transactions ct 
+              WHERE ct.delivery_id = d.id AND ct.transaction_type = 'DELIVERY_USAGE'
+            )
+        )
+      ORDER BY c.id ASC
+    `).all(agentId, agentId);
 
-    for (const del of deliveries) {
-      await syncCouponsForDelivery(del.id);
+    const details = [];
+    let totalRecoveredDeliveries = 0;
+    let totalRecoveredCoupons = 0;
+
+    for (const c of (targetCusts || [])) {
+      const res = await recoverCustomerUnrecoveredDeliveries(c.id);
+      if (res && res.recoveredCouponsCount > 0) {
+        totalRecoveredDeliveries += res.recoveredDeliveriesCount;
+        totalRecoveredCoupons += res.recoveredCouponsCount;
+        details.push(res);
+      }
     }
+
+    return {
+      success: true,
+      totalCustomersChecked: targetCusts.length,
+      totalRecoveredDeliveries,
+      totalRecoveredCoupons,
+      details
+    };
   } catch (err) {
     console.warn('reconcileAllCustomerCoupons warning:', err.message);
+    throw err;
   }
 }
 
@@ -671,6 +799,11 @@ async function updateCouponBook({
     WHERE id = ?
   `).run(updatedBalance, book.customer_id);
 
+  // If coupons are available, recover any unrecovered deliveries automatically
+  if (newRemaining > 0) {
+    await recoverCustomerUnrecoveredDeliveries(book.customer_id);
+  }
+
   const updatedBook = await db.prepare(`
     SELECT cb.*, p.name as product_name, p.variant_label as product_variant
     FROM coupon_books cb
@@ -678,9 +811,11 @@ async function updateCouponBook({
     WHERE cb.id = ?
   `).get(bookId);
 
+  const freshCust = await db.prepare('SELECT coupon_balance FROM customers WHERE id = ?').get(book.customer_id);
+
   return {
     book: updatedBook,
-    newCouponBalance: updatedBalance
+    newCouponBalance: parseInt(freshCust?.coupon_balance, 10) || updatedBalance
   };
 }
 
@@ -880,6 +1015,7 @@ module.exports = {
   syncCouponsForDelivery,
   calculateCouponsForDelivery,
   reconcileAllCustomerCoupons,
+  recoverCustomerUnrecoveredDeliveries,
   adjustCouponBalance,
   getCustomerCouponDetails,
   getCouponMonthEndSummary

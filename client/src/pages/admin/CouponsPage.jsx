@@ -31,6 +31,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
   const [activeTab, setActiveTab] = useState('CUSTOMERS'); // 'CUSTOMERS' or 'BOOKS'
   const [loading, setLoading] = useState(true);
   const [booksLoading, setBooksLoading] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
 
   // Month-end report data
   const [summaryData, setSummaryData] = useState({
@@ -406,6 +407,30 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     }
   };
 
+  const handleReconcileCoupons = async (customerId = null) => {
+    try {
+      setReconciling(true);
+      const res = await api.post('/coupons/reconcile', customerId ? { customer_id: customerId } : {});
+      setMessage({
+        type: 'success',
+        text: res.message || 'Coupon deliveries recovered successfully!'
+      });
+      await fetchSummary();
+      await fetchBooks();
+      if (selectedCustomer) {
+        await fetchCustomerHistory(selectedCustomer.customerId || selectedCustomer.id);
+      }
+    } catch (err) {
+      console.error('Coupon reconcile error:', err);
+      setMessage({
+        type: 'error',
+        text: err.message || 'Failed to reconcile coupon deliveries'
+      });
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   const handleAdjustSubmit = async (e) => {
     e.preventDefault();
     if (!adjustForm.customer_id) return;
@@ -517,6 +542,24 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
           >
             <RefreshCw size={16} className={loading || booksLoading ? 'animate-spin' : ''} />
             Refresh
+          </button>
+          <button
+            onClick={() => handleReconcileCoupons()}
+            disabled={reconciling}
+            className="btn btn-outline"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderColor: '#10b981',
+              color: '#047857',
+              background: '#ecfdf5',
+              fontWeight: 600
+            }}
+            title="Automatically recover deliveries marked while coupons were exhausted into their new coupon books"
+          >
+            <RefreshCw size={16} className={reconciling ? 'animate-spin' : ''} />
+            {reconciling ? 'Recovering...' : 'Recover Exhausted Deliveries'}
           </button>
           <button
             onClick={() => handleOpenLeftoverModal()}
@@ -2584,6 +2627,14 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         Issued Coupon Books
                       </h4>
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <button
+                          onClick={() => handleReconcileCoupons(selectedCustomer?.customerId || selectedCustomer?.id)}
+                          disabled={reconciling}
+                          style={{ background: 'none', border: 'none', color: '#059669', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          title="Recover any deliveries made while coupons were exhausted into this customer's active book"
+                        >
+                          <RefreshCw size={13} className={reconciling ? 'animate-spin' : ''} /> {reconciling ? 'Recovering...' : 'Recover Past Deliveries'}
+                        </button>
                         <button
                           onClick={() => handleOpenLeftoverModal(selectedCustomer)}
                           style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}

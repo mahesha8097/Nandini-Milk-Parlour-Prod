@@ -8,7 +8,8 @@ const {
   adjustCouponBalance,
   getCustomerCouponDetails,
   getCouponMonthEndSummary,
-  reconcileAllCustomerCoupons
+  reconcileAllCustomerCoupons,
+  recoverCustomerUnrecoveredDeliveries
 } = require('../services/couponService');
 
 // Get all coupon books with customer and product details (Admin only)
@@ -73,6 +74,33 @@ router.get('/summary', requireAdmin, async (req, res) => {
   }
 });
 
+// Reconcile and recover unrecovered deliveries for all or specific coupon customer (Admin only)
+router.post('/reconcile', requireAdmin, async (req, res) => {
+  try {
+    const customerId = req.body?.customer_id || req.query?.customer_id;
+    if (customerId) {
+      const result = await recoverCustomerUnrecoveredDeliveries(parseInt(customerId, 10));
+      return res.json({
+        message: result.recoveredCouponsCount > 0
+          ? `Successfully recovered ${result.recoveredDeliveriesCount} deliveries (${result.recoveredCouponsCount} coupons) for ${result.customerName}!`
+          : `All deliveries for ${result.customerName} are already in sync!`,
+        ...result
+      });
+    }
+
+    const summary = await reconcileAllCustomerCoupons(req.agentId || 1);
+    res.json({
+      message: summary.totalRecoveredCoupons > 0
+        ? `Successfully recovered ${summary.totalRecoveredDeliveries} deliveries (${summary.totalRecoveredCoupons} coupons) across ${summary.details.length} customer(s)!`
+        : 'All coupon deliveries and balances are already 100% in sync!',
+      ...summary
+    });
+  } catch (err) {
+    console.error('Coupon reconcile error:', err);
+    res.status(500).json({ error: err.message || 'Failed to reconcile coupon deliveries' });
+  }
+});
+
 // Get single customer coupon details and history (Admin or Delivery Boy)
 router.get('/customers/:id', verifyToken, async (req, res) => {
   try {
@@ -131,9 +159,11 @@ router.post('/issue', requireAdmin, async (req, res) => {
     });
 
     res.status(201).json({
-      message: isLeftoverCoupon
-        ? `Added ${result.book.total_coupons} leftover physical coupons (₹0.00) for customer!`
-        : `Coupon Book #${result.book.book_number} issued successfully!`,
+      message: result.recoveredDeliveries > 0
+        ? `Coupon Book #${result.book.book_number} issued! Automatically recovered ${result.recoveredDeliveries} past deliveries (${result.recoveredCoupons} coupons) into this book!`
+        : (isLeftoverCoupon
+          ? `Added ${result.book.total_coupons} leftover physical coupons (₹0.00) for customer!`
+          : `Coupon Book #${result.book.book_number} issued successfully!`),
       ...result
     });
   } catch (err) {
@@ -177,7 +207,9 @@ router.post('/leftover', requireAdmin, async (req, res) => {
     });
 
     res.status(201).json({
-      message: `Successfully credited ${count} leftover physical coupons (₹0.00) to customer!`,
+      message: result.recoveredDeliveries > 0
+        ? `Successfully credited ${count} leftover physical coupons (₹0.00) and recovered ${result.recoveredDeliveries} past deliveries (${result.recoveredCoupons} coupons)!`
+        : `Successfully credited ${count} leftover physical coupons (₹0.00) to customer!`,
       ...result
     });
   } catch (err) {
