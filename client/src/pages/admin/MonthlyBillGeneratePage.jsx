@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../api/client';
 import html2canvas from 'html2canvas';
 import {
+  RotateCcw,
   Printer,
   User,
   Package,
