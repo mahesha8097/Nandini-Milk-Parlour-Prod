@@ -925,12 +925,12 @@ export default function ZonesPage({ onNavigate }) {
                       </td>
                       <td>
                         <span style={{ fontWeight: '800', color: '#16a34a' }}>
-                          ₹{c.advance_balance?.toFixed(2) || '0.00'}
+                          ₹{Number(c.advance_balance || 0).toFixed(2)}
                         </span>
                       </td>
                       <td>
-                        <span style={{ fontWeight: '800', color: c.pending_balance > 0 ? '#dc2626' : 'var(--text-primary)' }}>
-                          ₹{c.pending_balance?.toFixed(2) || '0.00'}
+                        <span style={{ fontWeight: '800', color: Number(c.pending_balance) > 0 ? '#dc2626' : 'var(--text-primary)' }}>
+                          ₹{Number(c.pending_balance || 0).toFixed(2)}
                         </span>
                       </td>
                       <td style={{ textAlign: 'center' }}>

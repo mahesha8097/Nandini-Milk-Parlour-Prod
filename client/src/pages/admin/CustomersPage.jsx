@@ -1533,7 +1533,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                         </td>
                         <td>
                           <span style={{ fontWeight: '800', color: '#16a34a' }}>
-                            ₹{c.advance_balance?.toFixed(2) || '0.00'}
+                            ₹{Number(c.advance_balance || 0).toFixed(2)}
                           </span>
                           {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
                             <div style={{ fontSize: '0.72rem', color: '#92400e', fontWeight: '700', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -1673,7 +1673,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                     }}>
                       <div>
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Paid</div>
-                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#16a34a' }}>₹{Number(c.advance_balance || 0).toFixed(2)}</div>
                         {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
                           <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700' }}>
                             {c.coupon_balance || 0} coupons
@@ -1682,7 +1682,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       </div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '0.65rem', color: '#0369a1', fontWeight: '700', textTransform: 'uppercase' }}>Delivered Milk</div>
-                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#0284c7' }}>₹{(c.delivered_milk_price || 0).toFixed(2)}</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#0284c7' }}>₹{Number(c.delivered_milk_price || 0).toFixed(2)}</div>
                         <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{c.delivered_days_count || 0} days</div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
@@ -1980,7 +1980,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                         </td>
                         <td>
                           <span style={{ fontWeight: '800', color: '#16a34a' }}>
-                            ₹{c.advance_balance?.toFixed(2) || '0.00'}
+                            ₹{Number(c.advance_balance || 0).toFixed(2)}
                           </span>
                           {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
                             <div style={{ fontSize: '0.72rem', color: '#92400e', fontWeight: '700', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -2147,7 +2147,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                     }}>
                       <div>
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Advance Paid</div>
-                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#16a34a' }}>₹{c.advance_balance?.toFixed(2) || '0.00'}</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#16a34a' }}>₹{Number(c.advance_balance || 0).toFixed(2)}</div>
                         {(c.billing_type === 'COUPON' || (c.coupon_balance !== undefined && c.coupon_balance > 0)) && (
                           <div style={{ fontSize: '0.68rem', color: '#92400e', fontWeight: '700' }}>
                             {c.coupon_balance || 0} coupons
@@ -2156,7 +2156,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                       </div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '0.65rem', color: '#0369a1', fontWeight: '700', textTransform: 'uppercase' }}>Delivered Milk</div>
-                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#0284c7' }}>₹{(c.delivered_milk_price || 0).toFixed(2)}</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#0284c7' }}>₹{Number(c.delivered_milk_price || 0).toFixed(2)}</div>
                         <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{c.delivered_days_count || 0} days</div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
@@ -2538,7 +2538,7 @@ export default function CustomersPage({ initialOpenAdd = false }) {
                   justifyContent: 'space-between'
                 }}>
                   <span style={{ fontWeight: '800', color: '#16a34a', fontSize: '1rem' }}>
-                    ₹{(formData.advance_balance ?? 0).toFixed(2)}
+                    ₹{(Number(formData.advance_balance) || 0).toFixed(2)}
                   </span>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                     Managed via Payments & Bills

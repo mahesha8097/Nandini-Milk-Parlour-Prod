@@ -70,20 +70,20 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
   );
 
   // Summary calculations
-  const grossAmount = bill.gross_amount || 0;
-  const advanceAdjusted = bill.advance_adjusted || 0;
-  const paidAmount = bill.paid_amount || 0;
+  const grossAmount = Number(bill.gross_amount) || 0;
+  const advanceAdjusted = Number(bill.advance_adjusted) || 0;
+  const paidAmount = Number(bill.paid_amount) || 0;
   const totalReceived = bill.status === 'ADVANCE_PAID'
     ? advanceAdjusted
     : parseFloat(((advanceAdjusted || 0) + (paidAmount || 0)).toFixed(2));
-  const netPayable = bill.net_payable !== undefined ? bill.net_payable : Math.max(0, grossAmount - advanceAdjusted);
-  const previousDue = bill.previous_due || 0;
+  const netPayable = bill.net_payable !== undefined ? (Number(bill.net_payable) || 0) : Math.max(0, grossAmount - advanceAdjusted);
+  const previousDue = Number(bill.previous_due) || 0;
   
   // Advance balance breakdown
-  const remainingAdvance = bill.customer_advance_balance !== undefined ? Number(bill.customer_advance_balance) : 0;
+  const remainingAdvance = bill.customer_advance_balance !== undefined ? (Number(bill.customer_advance_balance) || 0) : 0;
   const totalAdvancePaid = parseFloat((remainingAdvance + advanceAdjusted).toFixed(2));
   const hasAdvance = totalAdvancePaid > 0 || advanceAdjusted > 0 || bill.billing_type === 'PREPAID';
-  const currentPending = bill.customer_pending_balance !== undefined ? Number(bill.customer_pending_balance) : (previousDue + netPayable);
+  const currentPending = bill.customer_pending_balance !== undefined ? (Number(bill.customer_pending_balance) || 0) : (previousDue + netPayable);
 
   const handlePrint = () => {
     const printElement = document.getElementById('printable-invoice-content');
@@ -273,11 +273,12 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
       const itemsList = items.map(it => {
         const pName = it.product_name || it.product_name_snapshot;
         const vLabel = it.variant_label || it.variant_snapshot || 'Pkt';
-        const totalQty = it.total_quantity || it.quantity || 1;
+        const totalQty = Number(it.total_quantity || it.quantity) || 1;
         const perDay = it.quantity_per_day || (it.days_active_in_month ? Math.round(totalQty / it.days_active_in_month) : null);
         const days = it.days_active_in_month || it.delivered_days_count || bill.total_deliveries_count;
         const subSchedule = perDay && days ? ` (${perDay}/day × ${days} days)` : '';
-        return `• ${pName} (${vLabel}) × ${totalQty}${subSchedule} = ₹${(it.total_line_amount || it.total_amount || 0).toFixed(2)}`;
+        const lineAmt = Number(it.total_line_amount || it.total_amount) || 0;
+        return `• ${pName} (${vLabel}) × ${totalQty}${subSchedule} = ₹${lineAmt.toFixed(2)}`;
       }).join('\n');
       baseMsg += `*Item & Schedule Details:* \n${itemsList}\n\n`;
     }
@@ -715,10 +716,10 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
                 <tbody>
                   {items.map((item, idx) => {
                     const itemName = item.product_name || item.product_name_snapshot;
-                    const qty = item.total_quantity || item.quantity || 1;
+                    const qty = Number(item.total_quantity || item.quantity) || 1;
                     const unitLabel = item.variant_label || item.variant_snapshot || 'Pkt';
-                    const baseMrp = item.unit_price || item.unit_price_snapshot || 0;
-                    const lineAmount = item.total_line_amount || item.total_amount || (baseMrp * qty);
+                    const baseMrp = Number(item.unit_price || item.unit_price_snapshot) || 0;
+                    const lineAmount = Number(item.total_line_amount || item.total_amount) || (baseMrp * qty);
                     const effectivePrice = qty > 0 ? (lineAmount / qty) : baseMrp;
 
                     return (

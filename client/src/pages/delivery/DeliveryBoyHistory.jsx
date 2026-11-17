@@ -93,7 +93,7 @@ export default function DeliveryBoyHistory() {
                     </td>
                     <td>{d.product_name_snapshot} ({d.variant_snapshot})</td>
                     <td>{d.quantity}</td>
-                    <td style={{ fontWeight: '700' }}>₹{d.total_amount?.toFixed(2)}</td>
+                    <td style={{ fontWeight: '700' }}>₹{Number(d.total_amount || 0).toFixed(2)}</td>
                     <td>
                       <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
                         {d.status}
@@ -131,7 +131,7 @@ export default function DeliveryBoyHistory() {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Amount</span>
-                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--primary-dark)' }}>₹{d.total_amount?.toFixed(2)}</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--primary-dark)' }}>₹{Number(d.total_amount || 0).toFixed(2)}</div>
                   </div>
                 </div>
               </div>

@@ -43,6 +43,11 @@ export default function CustomerProfileModal({
   initialTab = 'overview',
   onEditCustomer
 }) {
+  const formatMoney = (val) => {
+    const n = Number(val);
+    return isNaN(n) ? '0.00' : n.toFixed(2);
+  };
+
   const [profile, setProfile] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'overview'); // 'overview' | 'subscriptions' | 'coupons' | 'deliveries' | 'bills' | 'payments' | 'ledger'
   const [loading, setLoading] = useState(true);
@@ -587,14 +592,14 @@ export default function CustomerProfileModal({
             <div>
               <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#166534' }}>ADVANCE PAID</div>
               <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#16a34a', marginTop: '2px' }}>
-                ₹{customer.advance_balance?.toFixed(2) || '0.00'}
+                ₹{formatMoney(customer.advance_balance)}
               </div>
             </div>
 
             <div>
               <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#0369a1' }}>DELIVERED MILK (THIS MONTH)</div>
               <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#0284c7', marginTop: '2px' }}>
-                ₹{(customer.delivered_milk_price || 0).toFixed(2)}
+                ₹{formatMoney(customer.delivered_milk_price)}
               </div>
               <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
                 {customer.delivered_days_count || 0} days ({customer.delivered_items_count || 0} packets)
@@ -605,15 +610,15 @@ export default function CustomerProfileModal({
               <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)' }}>PENDING / NET BALANCE</div>
               {customer.billing_type === 'PREPAID' ? (
                 <div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: ((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0 ? '#dc2626' : '#16a34a', marginTop: '2px' }}>
-                    {((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0 
-                      ? `₹${Math.abs((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)).toFixed(2)}`
+                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: (Number(customer.advance_balance || 0) - Number(customer.delivered_milk_price || 0)) < 0 ? '#dc2626' : '#16a34a', marginTop: '2px' }}>
+                    {(Number(customer.advance_balance || 0) - Number(customer.delivered_milk_price || 0)) < 0 
+                      ? `₹${formatMoney(Math.abs(Number(customer.advance_balance || 0) - Number(customer.delivered_milk_price || 0)))}`
                       : '₹0.00'}
                   </div>
-                  <div style={{ fontSize: '0.74rem', color: ((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0 ? '#b91c1c' : '#15803d', fontWeight: '700', marginTop: '2px' }}>
-                    {((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)) < 0
+                  <div style={{ fontSize: '0.74rem', color: (Number(customer.advance_balance || 0) - Number(customer.delivered_milk_price || 0)) < 0 ? '#b91c1c' : '#15803d', fontWeight: '700', marginTop: '2px' }}>
+                    {(Number(customer.advance_balance || 0) - Number(customer.delivered_milk_price || 0)) < 0
                       ? 'Advance Exhausted'
-                      : `Rem. Adv: ₹${((customer.advance_balance || 0) - (customer.delivered_milk_price || 0)).toFixed(2)}`}
+                      : `Rem. Adv: ₹${formatMoney(Number(customer.advance_balance || 0) - Number(customer.delivered_milk_price || 0))}`}
                   </div>
                 </div>
               ) : customer.billing_type === 'COUPON' ? (
@@ -627,8 +632,8 @@ export default function CustomerProfileModal({
                 </div>
               ) : (
                 <div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: (customer.pending_balance > 0 || (customer.delivered_milk_price || 0) > 0) ? '#dc2626' : 'var(--text-primary)', marginTop: '2px' }}>
-                    ₹{(customer.pending_balance > 0 ? customer.pending_balance : (customer.delivered_milk_price || 0)).toFixed(2)}
+                  <div style={{ fontSize: '1.25rem', fontWeight: '800', color: (Number(customer.pending_balance) > 0 || Number(customer.delivered_milk_price) > 0) ? '#dc2626' : 'var(--text-primary)', marginTop: '2px' }}>
+                    ₹{formatMoney(Number(customer.pending_balance) > 0 ? customer.pending_balance : customer.delivered_milk_price)}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
                     Unbilled / Monthly Due
@@ -1409,9 +1414,9 @@ export default function CustomerProfileModal({
                             <td style={{ fontWeight: '600' }}>{d.delivery_date}</td>
                             <td>{d.product_name_snapshot} ({d.variant_snapshot})</td>
                             <td>{d.quantity}</td>
-                            <td>₹{d.total_product_amount?.toFixed(2)}</td>
-                            <td>₹{d.delivery_charge_snapshot?.toFixed(2)}</td>
-                            <td style={{ fontWeight: '700' }}>₹{d.total_amount?.toFixed(2)}</td>
+                            <td>₹{formatMoney(d.total_product_amount)}</td>
+                            <td>₹{formatMoney(d.delivery_charge_snapshot)}</td>
+                            <td style={{ fontWeight: '700' }}>₹{formatMoney(d.total_amount)}</td>
                             <td>
                               <span className={`badge ${d.status === 'DELIVERED' ? 'badge-success' : d.status === 'SKIPPED' ? 'badge-warning' : 'badge-info'}`}>
                                 {d.status}
@@ -1436,9 +1441,9 @@ export default function CustomerProfileModal({
                           {d.product_name_snapshot} ({d.variant_snapshot}) × {d.quantity} pkt
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-muted)', borderTop: '1px dashed #e2e8f0', paddingTop: '6px' }}>
-                          <span>Product: ₹{d.total_product_amount?.toFixed(2)}</span>
-                          <span>Del: ₹{d.delivery_charge_snapshot?.toFixed(2)}</span>
-                          <span style={{ fontWeight: '800', color: 'var(--text-primary)' }}>Total: ₹{d.total_amount?.toFixed(2)}</span>
+                          <span>Product: ₹{formatMoney(d.total_product_amount)}</span>
+                          <span>Del: ₹{formatMoney(d.delivery_charge_snapshot)}</span>
+                          <span style={{ fontWeight: '800', color: 'var(--text-primary)' }}>Total: ₹{formatMoney(d.total_amount)}</span>
                         </div>
                       </div>
                     ))}
@@ -1682,9 +1687,9 @@ export default function CustomerProfileModal({
                                 <span className="badge badge-gray">{b.billing_type === 'PREPAID' ? 'Full Month Advance' : b.billing_type}</span>
                               )}
                             </td>
-                            <td>₹{b.gross_amount?.toFixed(2)}</td>
-                            <td style={{ color: '#16a34a' }}>₹{b.advance_adjusted?.toFixed(2)}</td>
-                            <td style={{ fontWeight: '800' }}>₹{b.net_payable?.toFixed(2)}</td>
+                            <td>₹{formatMoney(b.gross_amount)}</td>
+                            <td style={{ color: '#16a34a' }}>₹{formatMoney(b.advance_adjusted)}</td>
+                            <td style={{ fontWeight: '800' }}>₹{formatMoney(b.net_payable)}</td>
                             <td>
                               <span className={`badge ${b.status === 'PAID' || b.status === 'ADVANCE_PAID' ? 'badge-success' : b.status === 'PARTIALLY_PAID' ? 'badge-warning' : 'badge-danger'}`}>
                                 {b.status}
@@ -1772,9 +1777,9 @@ export default function CustomerProfileModal({
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', background: '#f8fafc', borderRadius: '8px', fontSize: '0.8rem' }}>
-                          <div>Gross: <strong>₹{b.gross_amount?.toFixed(2)}</strong></div>
-                          <div style={{ color: '#16a34a' }}>Adv: <strong>₹{b.advance_adjusted?.toFixed(2)}</strong></div>
-                          <div style={{ color: b.net_payable > 0 ? '#dc2626' : '#16a34a' }}>Net: <strong>₹{b.net_payable?.toFixed(2)}</strong></div>
+                          <div>Gross: <strong>₹{formatMoney(b.gross_amount)}</strong></div>
+                          <div style={{ color: '#16a34a' }}>Adv: <strong>₹{formatMoney(b.advance_adjusted)}</strong></div>
+                          <div style={{ color: Number(b.net_payable) > 0 ? '#dc2626' : '#16a34a' }}>Net: <strong>₹{formatMoney(b.net_payable)}</strong></div>
                         </div>
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           <button
@@ -1829,7 +1834,7 @@ export default function CustomerProfileModal({
                             <td>{p.payment_date}</td>
                             <td>{p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance' : 'Postpaid'}</td>
                             <td><span className="badge badge-gray">{p.payment_method}</span></td>
-                            <td style={{ fontWeight: '800', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</td>
+                            <td style={{ fontWeight: '800', color: '#16a34a' }}>₹{formatMoney(p.amount)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1844,7 +1849,7 @@ export default function CustomerProfileModal({
                             <span style={{ fontWeight: '800', color: 'var(--primary)', fontFamily: 'monospace', fontSize: '0.78rem' }}>{p.receipt_number}</span>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.payment_date} • {p.payment_method}</div>
                           </div>
-                          <span style={{ fontWeight: '800', fontSize: '1.05rem', color: '#16a34a' }}>₹{p.amount?.toFixed(2)}</span>
+                          <span style={{ fontWeight: '800', fontSize: '1.05rem', color: '#16a34a' }}>₹{formatMoney(p.amount)}</span>
                         </div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                           Type: {p.payment_type === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Postpaid Settlement'}
@@ -1884,15 +1889,15 @@ export default function CustomerProfileModal({
                               <div style={{ fontWeight: '600', fontSize: '0.813rem' }}>{l.transaction_type}</div>
                               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{l.description}</div>
                             </td>
-                            <td style={{ color: l.debit > 0 ? '#dc2626' : 'inherit', fontWeight: l.debit > 0 ? '700' : 'normal' }}>
-                              {l.debit > 0 ? `₹${l.debit?.toFixed(2)}` : '-'}
+                            <td style={{ color: Number(l.debit) > 0 ? '#dc2626' : 'inherit', fontWeight: Number(l.debit) > 0 ? '700' : 'normal' }}>
+                              {Number(l.debit) > 0 ? `₹${formatMoney(l.debit)}` : '-'}
                             </td>
-                            <td style={{ color: l.credit > 0 ? '#16a34a' : 'inherit', fontWeight: l.credit > 0 ? '700' : 'normal' }}>
-                              {l.credit > 0 ? `₹${l.credit?.toFixed(2)}` : '-'}
+                            <td style={{ color: Number(l.credit) > 0 ? '#16a34a' : 'inherit', fontWeight: Number(l.credit) > 0 ? '700' : 'normal' }}>
+                              {Number(l.credit) > 0 ? `₹${formatMoney(l.credit)}` : '-'}
                             </td>
-                            <td style={{ fontWeight: '700', color: '#16a34a' }}>₹{l.advance_balance_after?.toFixed(2)}</td>
-                            <td style={{ fontWeight: '700', color: l.pending_balance_after > 0 ? '#dc2626' : 'inherit' }}>
-                              ₹{l.pending_balance_after?.toFixed(2)}
+                            <td style={{ fontWeight: '700', color: '#16a34a' }}>₹{formatMoney(l.advance_balance_after)}</td>
+                            <td style={{ fontWeight: '700', color: Number(l.pending_balance_after) > 0 ? '#dc2626' : 'inherit' }}>
+                              ₹{formatMoney(l.pending_balance_after)}
                             </td>
                           </tr>
                         ))}
@@ -1909,14 +1914,14 @@ export default function CustomerProfileModal({
                             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{l.transaction_date}</div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            {l.debit > 0 && <span style={{ color: '#dc2626', fontWeight: '800' }}>+₹{l.debit?.toFixed(2)}</span>}
-                            {l.credit > 0 && <span style={{ color: '#16a34a', fontWeight: '800' }}>-₹{l.credit?.toFixed(2)}</span>}
+                            {Number(l.debit) > 0 && <span style={{ color: '#dc2626', fontWeight: '800' }}>+₹{formatMoney(l.debit)}</span>}
+                            {Number(l.credit) > 0 && <span style={{ color: '#16a34a', fontWeight: '800' }}>-₹{formatMoney(l.credit)}</span>}
                           </div>
                         </div>
                         {l.description && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{l.description}</div>}
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', borderTop: '1px dashed #e2e8f0', paddingTop: '6px', marginTop: '2px' }}>
-                          <span>Adv Bal: <strong style={{ color: '#16a34a' }}>₹{l.advance_balance_after?.toFixed(2)}</strong></span>
-                          <span>Pending: <strong style={{ color: l.pending_balance_after > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{l.pending_balance_after?.toFixed(2)}</strong></span>
+                          <span>Adv Bal: <strong style={{ color: '#16a34a' }}>₹{formatMoney(l.advance_balance_after)}</strong></span>
+                          <span>Pending: <strong style={{ color: Number(l.pending_balance_after) > 0 ? '#dc2626' : 'var(--text-primary)' }}>₹{formatMoney(l.pending_balance_after)}</strong></span>
                         </div>
                       </div>
                     ))}
@@ -2060,7 +2065,7 @@ export default function CustomerProfileModal({
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: '0.75rem', color: '#166534' }}>Estimated Amount</div>
-                      <strong style={{ fontSize: '0.98rem', color: '#166534' }}>₹{periodDeliveryStats.estimatedTotal.toFixed(2)}</strong>
+                      <strong style={{ fontSize: '0.98rem', color: '#166534' }}>₹{formatMoney(periodDeliveryStats.estimatedTotal)}</strong>
                     </div>
                   </div>
                 )}

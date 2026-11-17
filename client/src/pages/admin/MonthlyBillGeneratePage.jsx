@@ -237,12 +237,20 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
     // 3. Determine active range in this month
     let startDay = 1;
     if (startDate && startDate > monthStart) {
-      startDay = parseInt(startDate.split('-')[2], 10);
+      const parts = startDate.split('-');
+      if (parts.length >= 3) {
+        const parsed = parseInt(parts[2], 10);
+        if (!isNaN(parsed)) startDay = parsed;
+      }
     }
 
     let endDay = totalDaysInMonth;
     if (endDate && endDate < monthEnd) {
-      endDay = parseInt(endDate.split('-')[2], 10);
+      const parts = endDate.split('-');
+      if (parts.length >= 3) {
+        const parsed = parseInt(parts[2], 10);
+        if (!isNaN(parsed)) endDay = parsed;
+      }
     }
 
     // 4. Support custom_days (e.g. Tuesday, Thursday, Saturday) or Alternate Days
@@ -309,16 +317,16 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
 
         const chargeType = s.delivery_charge_type || prod.delivery_charge_type || 'MILK_RULE';
         const fixedCharge = s.fixed_delivery_charge !== undefined
-          ? s.fixed_delivery_charge
-          : (prod.fixed_delivery_charge !== undefined ? prod.fixed_delivery_charge : 0);
+          ? (Number(s.fixed_delivery_charge) || 0)
+          : (prod.fixed_delivery_charge !== undefined ? (Number(prod.fixed_delivery_charge) || 0) : 0);
 
         return {
           productId: s.product_id,
           productName: s.product_name || prod.name || 'Milk Product',
           variantLabel: s.variant_label || prod.variant_label || 'Pkt',
-          unitVolumeLitres: prod.unit_volume_litres || s.unit_volume_litres || 0.5,
-          unitPrice: s.selling_price || prod.selling_price || 0,
-          quantity: s.quantity || 1,
+          unitVolumeLitres: Number(prod.unit_volume_litres || s.unit_volume_litres) || 0.5,
+          unitPrice: Number(s.selling_price ?? prod.selling_price) || 0,
+          quantity: Number(s.quantity) || 1,
           category: s.category || prod.category || 'Milk',
           deliveryChargeType: chargeType,
           fixedDeliveryCharge: fixedCharge,
@@ -336,12 +344,12 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         productId: firstProd.id,
         productName: firstProd.name,
         variantLabel: firstProd.variant_label,
-        unitVolumeLitres: firstProd.unit_volume_litres || 0.5,
-        unitPrice: firstProd.selling_price,
+        unitVolumeLitres: Number(firstProd.unit_volume_litres) || 0.5,
+        unitPrice: Number(firstProd.selling_price) || 0,
         quantity: 1,
         category: firstProd.category || 'Milk',
         deliveryChargeType: firstProd.delivery_charge_type || 'MILK_RULE',
-        fixedDeliveryCharge: firstProd.fixed_delivery_charge !== undefined ? firstProd.fixed_delivery_charge : 0,
+        fixedDeliveryCharge: Number(firstProd.fixed_delivery_charge) || 0,
         days: defaultDayInfo.days,
         startDate: defaultDayInfo.startDate,
         endDate: defaultDayInfo.endDate,
@@ -370,12 +378,12 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                       productId: savedItem.product_id,
                       productName: savedItem.product_name || 'Milk Product',
                       variantLabel: savedItem.variant_label || 'Pkt',
-                      unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
-                      unitPrice: savedItem.unit_price || 0,
-                      quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
+                      unitVolumeLitres: Number(savedItem.unit_volume_litres) || 0.5,
+                      unitPrice: Number(savedItem.unit_price) || 0,
+                      quantity: Number(savedItem.quantity_per_day || savedItem.quantity) || 1,
                       category: savedItem.category || 'Milk',
                       deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
-                      fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
+                      fixedDeliveryCharge: Number(savedItem.fixed_delivery_charge) || 0,
                       days: itemDays.length || savedItem.days_active_in_month || 0,
                       startDate: savedItem.effective_start || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[0])}` : null),
                       endDate: savedItem.effective_end || (itemDays.length > 0 ? `${targetMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
@@ -416,16 +424,16 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         const itemDayInfo = calculateSubscriptionDaysForMonth(s, newMonth);
         const chargeType = s.delivery_charge_type || prod.delivery_charge_type || 'MILK_RULE';
         const fixedCharge = s.fixed_delivery_charge !== undefined
-          ? s.fixed_delivery_charge
-          : (prod.fixed_delivery_charge !== undefined ? prod.fixed_delivery_charge : 0);
+          ? (Number(s.fixed_delivery_charge) || 0)
+          : (prod.fixed_delivery_charge !== undefined ? (Number(prod.fixed_delivery_charge) || 0) : 0);
 
         return {
           productId: s.product_id,
           productName: s.product_name || prod.name || 'Milk Product',
           variantLabel: s.variant_label || prod.variant_label || 'Pkt',
-          unitVolumeLitres: prod.unit_volume_litres || s.unit_volume_litres || 0.5,
-          unitPrice: s.selling_price || prod.selling_price || 0,
-          quantity: s.quantity || 1,
+          unitVolumeLitres: Number(prod.unit_volume_litres || s.unit_volume_litres) || 0.5,
+          unitPrice: Number(s.selling_price ?? prod.selling_price) || 0,
+          quantity: Number(s.quantity) || 1,
           category: s.category || prod.category || 'Milk',
           deliveryChargeType: chargeType,
           fixedDeliveryCharge: fixedCharge,
@@ -468,12 +476,12 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                         productId: savedItem.product_id,
                         productName: savedItem.product_name || 'Milk Product',
                         variantLabel: savedItem.variant_label || 'Pkt',
-                        unitVolumeLitres: savedItem.unit_volume_litres || 0.5,
-                        unitPrice: savedItem.unit_price || 0,
-                        quantity: savedItem.quantity_per_day || savedItem.quantity || 1,
+                        unitVolumeLitres: Number(savedItem.unit_volume_litres) || 0.5,
+                        unitPrice: Number(savedItem.unit_price) || 0,
+                        quantity: Number(savedItem.quantity_per_day || savedItem.quantity) || 1,
                         category: savedItem.category || 'Milk',
                         deliveryChargeType: savedItem.delivery_charge_type || 'MILK_RULE',
-                        fixedDeliveryCharge: savedItem.fixed_delivery_charge !== undefined ? savedItem.fixed_delivery_charge : 0,
+                        fixedDeliveryCharge: Number(savedItem.fixed_delivery_charge) || 0,
                         days: itemDays.length || savedItem.days_active_in_month || 0,
                         startDate: savedItem.effective_start || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[0])}` : null),
                         endDate: savedItem.effective_end || (itemDays.length > 0 ? `${newMonth}-${pad(itemDays[itemDays.length - 1])}` : null),
@@ -511,16 +519,16 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         const itemDayInfo = calculateSubscriptionDaysForMonth(s, selectedMonth);
         const chargeType = s.delivery_charge_type || prod.delivery_charge_type || 'MILK_RULE';
         const fixedCharge = s.fixed_delivery_charge !== undefined
-          ? s.fixed_delivery_charge
-          : (prod.fixed_delivery_charge !== undefined ? prod.fixed_delivery_charge : 0);
+          ? (Number(s.fixed_delivery_charge) || 0)
+          : (prod.fixed_delivery_charge !== undefined ? (Number(prod.fixed_delivery_charge) || 0) : 0);
 
         return {
           productId: s.product_id,
           productName: s.product_name || prod.name || 'Milk Product',
           variantLabel: s.variant_label || prod.variant_label || 'Pkt',
-          unitVolumeLitres: prod.unit_volume_litres || s.unit_volume_litres || 0.5,
-          unitPrice: s.selling_price || prod.selling_price || 0,
-          quantity: s.quantity || 1,
+          unitVolumeLitres: Number(prod.unit_volume_litres || s.unit_volume_litres) || 0.5,
+          unitPrice: Number(s.selling_price ?? prod.selling_price) || 0,
+          quantity: Number(s.quantity) || 1,
           category: s.category || prod.category || 'Milk',
           deliveryChargeType: chargeType,
           fixedDeliveryCharge: fixedCharge,
@@ -651,8 +659,10 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
 
   const applyRangeToTempDays = (start, end) => {
     if (!start || !end) return;
-    const s = parseInt(start.split('-')[2], 10);
-    const e = parseInt(end.split('-')[2], 10);
+    const sParts = start.split('-');
+    const eParts = end.split('-');
+    const s = sParts.length >= 3 ? parseInt(sParts[2], 10) : NaN;
+    const e = eParts.length >= 3 ? parseInt(eParts[2], 10) : NaN;
     if (isNaN(s) || isNaN(e) || s > e) return;
 
     const days = [];
@@ -3654,9 +3664,9 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
                       </td>
                       <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: '700' }}>{item.totalQty}</td>
                       <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{item.variantLabel}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>{item.unitPrice.toFixed(2)}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>{item.effectiveUnitPrice.toFixed(2)}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '700' }}>{item.lineTotal.toFixed(2)}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>{(Number(item.unitPrice) || 0).toFixed(2)}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>{(Number(item.effectiveUnitPrice) || 0).toFixed(2)}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '700' }}>{(Number(item.lineTotal) || 0).toFixed(2)}</td>
                     </tr>
                   );
                 })}

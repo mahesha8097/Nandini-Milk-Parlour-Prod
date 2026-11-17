@@ -12,7 +12,10 @@ if (isProduction && process.env.DATABASE_URL) {
   // ====================================================================
   // SUPABASE POSTGRESQL (PRODUCTION SERVERLESS MODE)
   // ====================================================================
-  const { Pool } = require('pg');
+  const { Pool, types } = require('pg');
+  // Auto-parse PostgreSQL NUMERIC/DECIMAL (OID 1700) and BIGINT (OID 20) as numbers to prevent string precision mismatches
+  types.setTypeParser(1700, val => (val === null ? null : parseFloat(val)));
+  types.setTypeParser(20, val => (val === null ? null : parseInt(val, 10)));
 
   // Supabase connection pooling (Supports Transaction Pooler on port 6543 or direct 5432)
   const pool = new Pool({

@@ -597,7 +597,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                     </td>
                     <td>
                       <span style={{ fontWeight: '800', fontSize: '1rem', color: 'var(--primary)' }}>
-                        ₹{p.selling_price?.toFixed(2)}
+                        ₹{Number(p.selling_price || 0).toFixed(2)}
                       </span>
                     </td>
                     <td>
@@ -717,7 +717,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                   <div>
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Current Price</div>
                     <div style={{ fontSize: '1.15rem', fontWeight: '800', color: 'var(--primary-dark)' }}>
-                      ₹{p.selling_price?.toFixed(2)}
+                      ₹{Number(p.selling_price || 0).toFixed(2)}
                     </div>
                   </div>
 
@@ -1146,7 +1146,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                 Delete "{deleteTarget?.name}"?
               </h4>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                {deleteTarget?.category} • {deleteTarget?.variant_label} • ₹{deleteTarget?.selling_price?.toFixed(2)}
+                {deleteTarget?.category} • {deleteTarget?.variant_label} • ₹{Number(deleteTarget?.selling_price || 0).toFixed(2)}
               </div>
             </div>
           </div>

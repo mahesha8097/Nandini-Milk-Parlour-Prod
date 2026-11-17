@@ -226,7 +226,7 @@ export default function DeliveryCorrectionModal({ isOpen, onClose, delivery, onS
                 {delivery.product_name_snapshot}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Variant: {delivery.variant_snapshot || 'Standard'} • ₹{delivery.unit_price_snapshot?.toFixed(2)}/unit
+                Variant: {delivery.variant_snapshot || 'Standard'} • ₹{Number(delivery.unit_price_snapshot || 0).toFixed(2)}/unit
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -251,7 +251,7 @@ export default function DeliveryCorrectionModal({ isOpen, onClose, delivery, onS
           >
             <span>Previously Recorded Delivered:</span>
             <span style={{ fontWeight: '800', color: '#b45309' }}>
-              {previousQuantity} pkt{previousQuantity !== 1 ? 's' : ''} (₹{delivery.total_amount?.toFixed(2)})
+              {previousQuantity} pkt{previousQuantity !== 1 ? 's' : ''} (₹{Number(delivery.total_amount || 0).toFixed(2)})
             </span>
           </div>
         </div>

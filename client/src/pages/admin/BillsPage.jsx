@@ -26,6 +26,11 @@ import {
 } from 'lucide-react';
 
 export default function BillsPage() {
+  const formatMoney = (val) => {
+    const n = Number(val);
+    return isNaN(n) ? '0.00' : n.toFixed(2);
+  };
+
   const [bills, setBills] = useState([]);
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [statusFilter, setStatusFilter] = useState('');
@@ -479,24 +484,24 @@ export default function BillsPage() {
                         </span>
                       )}
                     </td>
-                    <td>₹{bill.product_subtotal?.toFixed(2)}</td>
+                    <td>₹{formatMoney(bill.product_subtotal)}</td>
                     <td>
-                      <span style={{ fontWeight: '600', color: bill.delivery_charges_total > 0 ? '#d97706' : 'var(--text-muted)' }}>
-                        ₹{bill.delivery_charges_total?.toFixed(2)}
+                      <span style={{ fontWeight: '600', color: Number(bill.delivery_charges_total) > 0 ? '#d97706' : 'var(--text-muted)' }}>
+                        ₹{formatMoney(bill.delivery_charges_total)}
                       </span>
                     </td>
-                    <td style={{ fontWeight: '700' }}>₹{bill.gross_amount?.toFixed(2)}</td>
+                    <td style={{ fontWeight: '700' }}>₹{formatMoney(bill.gross_amount)}</td>
                     <td style={{ color: '#16a34a', fontWeight: '700' }}>
-                      {bill.advance_adjusted > 0 ? `- ₹${bill.advance_adjusted?.toFixed(2)}` : '₹0.00'}
+                      {Number(bill.advance_adjusted) > 0 ? `- ₹${formatMoney(bill.advance_adjusted)}` : '₹0.00'}
                     </td>
                     <td>
-                      <span style={{ fontWeight: '800', fontSize: '0.95rem', color: bill.net_payable > 0 ? '#dc2626' : 'inherit' }}>
-                        ₹{bill.net_payable?.toFixed(2)}
+                      <span style={{ fontWeight: '800', fontSize: '0.95rem', color: Number(bill.net_payable) > 0 ? '#dc2626' : 'inherit' }}>
+                        ₹{formatMoney(bill.net_payable)}
                       </span>
                     </td>
                     <td>
                       <span style={{ fontWeight: '700', color: '#16a34a' }}>
-                        ₹{bill.customer_advance_balance !== undefined ? Number(bill.customer_advance_balance).toFixed(2) : '0.00'}
+                        ₹{formatMoney(bill.customer_advance_balance)}
                       </span>
                     </td>
                     <td>
@@ -603,18 +608,18 @@ export default function BillsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', marginTop: '4px' }}>
                   <div>
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Gross Bill</div>
-                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-primary)' }}>₹{bill.gross_amount?.toFixed(2)}</div>
+                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-primary)' }}>₹{formatMoney(bill.gross_amount)}</div>
                   </div>
-                  {bill.advance_adjusted > 0 && (
+                  {Number(bill.advance_adjusted) > 0 && (
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: '700', textTransform: 'uppercase' }}>Advance Deducted</div>
-                      <div style={{ fontSize: '0.9rem', fontWeight: '800', color: '#16a34a' }}>-₹{bill.advance_adjusted?.toFixed(2)}</div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: '800', color: '#16a34a' }}>-₹{formatMoney(bill.advance_adjusted)}</div>
                     </div>
                   )}
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>Net Payable</div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: '800', color: bill.net_payable > 0 ? '#dc2626' : '#16a34a' }}>
-                      ₹{bill.net_payable?.toFixed(2)}
+                    <div style={{ fontSize: '1.05rem', fontWeight: '800', color: Number(bill.net_payable) > 0 ? '#dc2626' : '#16a34a' }}>
+                      ₹{formatMoney(bill.net_payable)}
                     </div>
                   </div>
                 </div>
