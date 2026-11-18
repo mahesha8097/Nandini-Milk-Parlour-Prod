@@ -238,9 +238,22 @@ router.get('/statement', async (req, res) => {
       endDate = bill.end_date;
       periodLabel = bill.billing_month || `${startDate} to ${endDate}`;
       displayMonth = (bill.end_date || bill.start_date || '').slice(0, 7);
-      const d1 = new Date(startDate);
-      const d2 = new Date(endDate);
-      daysInPeriod = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+
+      if (bill.billing_type !== 'WEEKLY' && displayMonth && displayMonth.length === 7) {
+        const [y, m] = displayMonth.split('-').map(Number);
+        const actualMonthDays = new Date(y, m, 0).getDate();
+        if (startDate < `${displayMonth}-01`) {
+          startDate = `${displayMonth}-01`;
+        }
+        if (endDate > `${displayMonth}-${String(actualMonthDays).padStart(2, '0')}`) {
+          endDate = `${displayMonth}-${String(actualMonthDays).padStart(2, '0')}`;
+        }
+        daysInPeriod = actualMonthDays;
+      } else {
+        const d1 = new Date(startDate);
+        const d2 = new Date(endDate);
+        daysInPeriod = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+      }
     } else if (typeof targetMonth === 'string' && targetMonth.includes(' to ')) {
       const parts = targetMonth.split(' to ');
       startDate = parts[0].trim();
