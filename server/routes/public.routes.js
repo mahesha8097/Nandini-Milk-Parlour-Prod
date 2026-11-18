@@ -342,6 +342,27 @@ router.get('/statement', async (req, res) => {
         AND (s.end_date IS NULL OR s.end_date = '' OR s.end_date >= ?)
     `).all(customer.id, endDate, startDate);
 
+    const allCustomerSubs = (subscriptions && subscriptions.length > 0)
+      ? subscriptions
+      : await db.prepare(`
+          SELECT s.*, p.name as product_name, p.category, p.variant_label, p.unit_volume_litres, p.selling_price, p.fixed_delivery_charge, p.delivery_charge_type
+          FROM subscriptions s
+          JOIN products p ON s.product_id = p.id
+          WHERE s.customer_id = ? AND s.is_active = 1
+        `).all(customer.id);
+
+    const formattedSubscriptions = (allCustomerSubs || []).map(s => ({
+      id: s.id,
+      productId: s.product_id,
+      productName: s.product_name,
+      category: s.category,
+      variantLabel: s.variant_label,
+      quantity: s.quantity,
+      unitPrice: Number(s.selling_price || 0),
+      frequency: s.frequency || 'DAILY',
+      customDays: s.custom_days
+    }));
+
     // Fetch custom requirements / vacations if any
     const customReqs = await db.prepare(`
       SELECT * FROM daily_delivery_requirements
@@ -666,6 +687,7 @@ router.get('/statement', async (req, res) => {
           daysInMonth
         },
         days: daysList,
+        subscriptions: formattedSubscriptions,
         availableBills,
         payments
       });
@@ -781,6 +803,7 @@ router.get('/statement', async (req, res) => {
           periodLabel: periodLabel || displayMonth
         },
         days: daysList,
+        subscriptions: formattedSubscriptions,
         availableBills,
         payments
       });

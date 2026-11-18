@@ -204,7 +204,7 @@ export default function CustomerStatementView() {
     );
   }
 
-  const { customer, parlour, bill, summary, days, availableBills, payments } = data;
+  const { customer, parlour, bill, summary, days, availableBills, payments, subscriptions } = data;
   const isPrepaid = (data.billingType === 'PREPAID' || (summary && summary.billingType === 'PREPAID'));
   const isWeekly = Boolean(data.isWeekly || (bill && bill.billingType === 'WEEKLY') || customer?.billingType === 'WEEKLY');
   const monthBillValue = (bill ? Number(bill.grossAmount) : Number(summary.monthBillGross || summary.totalDeliveryAmount || 0));
@@ -578,8 +578,89 @@ export default function CustomerStatementView() {
             </div>
           )}
 
+          {/* Scheduled Deliveries Summary (Clean, concise subscription info) */}
+          {((subscriptions && subscriptions.length > 0) || (bill && bill.items && bill.items.length > 0)) && (
+            <div style={{
+              backgroundColor: '#141414',
+              border: '1px solid #262626',
+              borderRadius: '10px',
+              padding: '12px 14px',
+              marginBottom: '16px'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '10px',
+                borderBottom: '1px solid #262626',
+                paddingBottom: '8px'
+              }}>
+                <div style={{
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: '#38bdf8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <Calendar size={15} color="#38bdf8" />
+                  <span>Scheduled Deliveries</span>
+                </div>
+                <span style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  color: '#4ade80',
+                  backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                  border: '1px solid rgba(34, 197, 94, 0.25)',
+                  padding: '2px 8px',
+                  borderRadius: '4px'
+                }}>
+                  {isPrepaid ? 'Monthly Plan' : 'Active Subscription'}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {(subscriptions && subscriptions.length > 0 ? subscriptions : (bill?.items || [])).map((sub, sIdx) => {
+                  const qty = sub.quantity || sub.quantityPerDay || 1;
+                  const name = sub.productName || sub.name;
+                  const variant = sub.variantLabel || sub.variant;
+                  const price = sub.unitPrice || sub.sellingPrice;
+                  const freq = sub.frequency === 'DAILY' || !sub.frequency ? 'Daily' : sub.frequency;
+
+                  return (
+                    <div key={sIdx} style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: '0.85rem',
+                      color: '#ffffff'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1rem' }}>🥛</span>
+                        <div>
+                          <span style={{ fontWeight: 700 }}>{qty}x {name}</span>
+                          {variant && (
+                            <span style={{ fontSize: '0.74rem', color: '#94a3b8', marginLeft: '6px' }}>
+                              ({variant})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: 600, textAlign: 'right' }}>
+                        <span>{freq}</span>
+                        {price ? <span style={{ color: '#cbd5e1', marginLeft: '4px' }}>• ₹{Number(price).toFixed(2)}</span> : ''}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Action Buttons (Excluded from downloaded PNG and printed paper) */}
-          <div className="no-print no-download" data-html2canvas-ignore="true" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+          <div className="no-print no-download" data-html2canvas-ignore="true" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
             <button
               onClick={handleDownloadInvoice}
               disabled={capturing}
@@ -648,122 +729,6 @@ export default function CustomerStatementView() {
                 <span>Pay via UPI (GPay/PhonePe)</span>
               </a>
             )}
-          </div>
-
-          {/* DATE-WISE DELIVERED PRODUCTS BREAKDOWN TABLE */}
-          <div style={{ marginTop: '16px', borderTop: '1px solid #1e293b', paddingTop: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '6px' }}>
-              <div>
-                <div style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>
-                  Date-Wise Delivered Products Schedule
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
-                  All marked deliveries with date, product name & packet quantity
-                </div>
-              </div>
-              <span style={{ fontSize: '0.76rem', color: '#38bdf8', fontWeight: 800, background: 'rgba(56, 189, 248, 0.1)', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
-                {summary.totalDeliveredDays || days.filter(d => d.status === 'DELIVERED').length} Delivered Days
-              </span>
-            </div>
-
-            <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid #1e293b' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ background: '#111827', color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', borderBottom: '1.5px solid #1e293b' }}>
-                    <th style={{ padding: '9px 12px' }}>Date</th>
-                    <th style={{ padding: '9px 12px' }}>Product Delivered</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Quantity</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'right' }}>Rate</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'right' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {days.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} style={{ padding: '16px', textAlign: 'center', color: '#64748b' }}>
-                        No delivery entries found for this period.
-                      </td>
-                    </tr>
-                  ) : (
-                    days.map((day, dIdx) => {
-                      const isSkipped = day.status === 'SKIPPED';
-                      const isDelivered = day.status === 'DELIVERED';
-                      const hasItems = day.items && day.items.length > 0;
-
-                      if (!hasItems || (isSkipped && day.totalItems === 0)) {
-                        return (
-                          <tr key={day.date} style={{ borderBottom: '1px solid #1e293b', background: dIdx % 2 === 0 ? '#000000' : '#0a0a0a', opacity: 0.65 }}>
-                            <td style={{ padding: '8px 12px', color: '#94a3b8', fontWeight: 600 }}>
-                              {day.formattedDate || day.date}
-                            </td>
-                            <td style={{ padding: '8px 12px', color: '#64748b', fontStyle: 'italic' }}>
-                              Delivery Paused / Skipped
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'center', color: '#64748b' }}>0 pkts</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>—</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>₹0.00</td>
-                          </tr>
-                        );
-                      }
-
-                      return day.items.map((it, itIdx) => (
-                        <tr
-                          key={`${day.date}-${itIdx}`}
-                          style={{
-                            borderBottom: '1px solid #1e293b',
-                            background: dIdx % 2 === 0 ? '#000000' : '#0a0a0a'
-                          }}
-                        >
-                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap' }}>
-                            {itIdx === 0 ? (
-                              <div>
-                                <span>{day.formattedDate || day.date}</span>
-                                {day.deliveredTime && (
-                                  <div style={{ fontSize: '0.68rem', color: '#4ade80', fontWeight: 600, marginTop: '1px' }}>
-                                    ✓ {day.deliveredTime}
-                                  </div>
-                                )}
-                              </div>
-                            ) : ''}
-                          </td>
-                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#f8fafc' }}>
-                            <div>{it.productName}</div>
-                            {it.variantLabel && (
-                              <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{it.variantLabel}</div>
-                            )}
-                          </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 800, color: '#38bdf8' }}>
-                            {it.quantity} {it.quantity === 1 ? 'pkt' : 'pkts'}
-                          </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right', color: '#cbd5e1' }}>
-                            ₹{Number(it.unitPrice || 0).toFixed(2)}
-                          </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: '#ffffff' }}>
-                            ₹{Number(it.totalAmount || (it.quantity * it.unitPrice)).toFixed(2)}
-                          </td>
-                        </tr>
-                      ));
-                    })
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: '#111827', borderTop: '2px solid #334155', fontWeight: 800 }}>
-                    <td colSpan={2} style={{ padding: '10px 12px', color: '#ffffff' }}>
-                      TOTAL DELIVERED
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'center', color: '#38bdf8', fontSize: '0.9rem' }}>
-                      {summary.totalDeliveredItems || summary.totalItemsCount || 0} pkts
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8', fontSize: '0.75rem' }}>
-                      Net Total:
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#4ade80', fontSize: '0.95rem' }}>
-                      ₹{Number(netPayableValue !== undefined ? netPayableValue : monthBillValue || 0).toFixed(2)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
           </div>
 
           {/* Payment Records Section (Inside printable/downloadable invoice) */}
@@ -906,6 +871,43 @@ export default function CustomerStatementView() {
               const isSkipped = day.status === 'SKIPPED';
               const isScheduled = day.status === 'SCHEDULED';
 
+              if (isSkipped) {
+                return (
+                  <div 
+                    key={day.date}
+                    style={{
+                      borderBottom: idx === days.length - 1 ? 'none' : '1px solid #1a1a1a',
+                      padding: '12px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: '#050505',
+                      opacity: 0.7
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '0.92rem', fontWeight: 600, color: '#94a3b8' }}>
+                        {day.formattedDate || day.date}
+                      </span>
+                      <span style={{
+                        fontSize: '0.65rem',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        backgroundColor: '#27272a',
+                        color: '#a1a1aa',
+                        fontWeight: 800,
+                        letterSpacing: '0.04em'
+                      }}>
+                        PAUSED / SKIP
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
+                      No delivery
+                    </span>
+                  </div>
+                );
+              }
+
               return (
                 <div 
                   key={day.date}
@@ -917,7 +919,7 @@ export default function CustomerStatementView() {
                   <div
                     onClick={() => toggleDate(day.date)}
                     style={{
-                      padding: '16px 18px',
+                      padding: '14px 18px',
                       cursor: 'pointer',
                       userSelect: 'none',
                       backgroundColor: isExpanded ? '#0a0a0a' : 'transparent'
@@ -925,11 +927,9 @@ export default function CustomerStatementView() {
                   >
                     {/* Date label & timing */}
                     <div style={{
-                      fontSize: '1rem',
+                      fontSize: '0.95rem',
                       fontWeight: 700,
-                      color: isSkipped ? '#94a3b8' : '#ffffff',
-                      marginBottom: '10px',
-                      letterSpacing: '-0.01em',
+                      color: '#ffffff',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -937,19 +937,7 @@ export default function CustomerStatementView() {
                       gap: '8px'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>{day.formattedDate}</span>
-                        {isSkipped && (
-                          <span style={{
-                            fontSize: '0.65rem',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: '#27272a',
-                            color: '#a1a1aa',
-                            fontWeight: 700
-                          }}>
-                            PAUSED / SKIP
-                          </span>
-                        )}
+                        <span>{day.formattedDate || day.date}</span>
                         {isScheduled && (
                           <span style={{
                             fontSize: '0.65rem',
@@ -965,8 +953,8 @@ export default function CustomerStatementView() {
                         )}
                       </div>
 
-                      {/* Time to time indicator */}
-                      {day.deliveredTime && (
+                      {/* Delivered time of milk */}
+                      {isDelivered && (
                         <div style={{
                           fontSize: '0.75rem',
                           fontWeight: 700,
@@ -980,161 +968,128 @@ export default function CustomerStatementView() {
                           gap: '4px'
                         }}>
                           <Clock size={12} color="#4ade80" />
-                          <span>Delivered at {day.deliveredTime}</span>
+                          <span>{day.deliveredTime ? `Delivered at ${day.deliveredTime}` : 'Delivered ✓'}</span>
                         </div>
                       )}
                     </div>
 
-                    {/* Subline: Total Items & Total Amount */}
+                    {/* Subline: Product badges & Total Amount */}
                     <div style={{
+                      marginTop: '8px',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-between'
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '8px'
                     }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '40px',
-                        fontSize: '0.85rem'
-                      }}>
-                        <div>
-                          <div style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 500, marginBottom: '2px' }}>
-                            Total Items
-                          </div>
-                          <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.95rem' }}>
-                            {day.totalItems}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 500, marginBottom: '2px' }}>
-                            Total Amount
-                          </div>
-                          <div style={{ color: '#ffffff', fontWeight: 700, fontSize: '0.95rem' }}>
-                            ₹{day.totalAmount.toFixed(2)}
-                            {day.deliveryCharge > 0 && (
-                              <span style={{ fontSize: '0.7rem', color: '#38bdf8', fontWeight: 600, marginLeft: '6px' }}>
-                                (incl. ₹{day.deliveryCharge.toFixed(2)} delivery)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Right Chevron > */}
-                      <div style={{ color: '#0284c7', display: 'flex', alignItems: 'center' }}>
-                        {isExpanded ? (
-                          <ChevronDown size={18} color="#0284c7" />
-                        ) : (
-                          <ChevronRight size={18} color="#0284c7" />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Product Summary directly visible on date card */}
-                    {day.items && day.items.length > 0 && (
-                      <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {day.items.map((it, itmIdx) => (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {day.items && day.items.map((it, itmIdx) => (
                           <span
                             key={itmIdx}
                             style={{
-                              background: 'rgba(56, 189, 248, 0.1)',
-                              border: '1px solid rgba(56, 189, 248, 0.25)',
+                              background: 'rgba(56, 189, 248, 0.08)',
+                              border: '1px solid rgba(56, 189, 248, 0.2)',
                               color: '#93c5fd',
                               fontSize: '0.75rem',
                               fontWeight: 700,
                               padding: '2px 8px',
-                              borderRadius: '4px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
+                              borderRadius: '4px'
                             }}
                           >
-                            <span>🥛 {it.quantity}x {it.productName}</span>
-                            {it.variantLabel && <span style={{ opacity: 0.8 }}>({it.variantLabel})</span>}
+                            🥛 {it.quantity}x {it.productName} {it.variantLabel ? `(${it.variantLabel})` : ''}
                           </span>
                         ))}
                       </div>
-                    )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ color: '#ffffff', fontWeight: 800, fontSize: '0.92rem' }}>
+                            ₹{day.totalAmount.toFixed(2)}
+                          </span>
+                          {day.deliveryCharge > 0 && (
+                            <span style={{ fontSize: '0.68rem', color: '#64748b', marginLeft: '4px' }}>
+                              (incl. ₹{day.deliveryCharge.toFixed(2)} del.)
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ color: '#0284c7' }}>
+                          {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Expanded Item Breakdown */}
-                  {isExpanded && (
+                  {isExpanded && day.items && day.items.length > 0 && (
                     <div style={{
                       backgroundColor: '#0a0a0a',
                       padding: '12px 18px 16px 18px',
                       borderTop: '1px solid #1f1f1f'
                     }}>
-                      {day.items.length === 0 || (isSkipped && day.totalItems === 0) ? (
-                        <div style={{ color: '#94a3b8', fontSize: '0.85rem', fontStyle: 'italic', padding: '6px 0' }}>
-                          Delivery paused / No milk taken on this day.
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {day.items.map((item, itemIdx) => (
-                            <div 
-                              key={item.id || itemIdx}
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '10px 12px',
-                                backgroundColor: '#141414',
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {day.items.map((item, itemIdx) => (
+                          <div 
+                            key={item.id || itemIdx}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '10px 12px',
+                              backgroundColor: '#141414',
+                              borderRadius: '8px',
+                              border: '1px solid #262626'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{
+                                width: '36px',
+                                height: '36px',
                                 borderRadius: '8px',
-                                border: '1px solid #262626'
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <div style={{
-                                  width: '36px',
-                                  height: '36px',
-                                  borderRadius: '8px',
-                                  backgroundColor: '#1e293b',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  flexShrink: 0
-                                }}>
-                                  <Milk size={18} color="#38bdf8" />
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#ffffff' }}>
-                                    {item.productName}
-                                  </div>
-                                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
-                                    {item.variantLabel} • Qty: <strong style={{ color: '#ffffff' }}>{item.quantity}</strong> × ₹{item.unitPrice.toFixed(2)}
-                                    {item.deliveryCharge > 0 ? ` (+₹${item.deliveryCharge.toFixed(2)} delivery)` : ''}
-                                  </div>
-                                  {(item.deliveredTime || day.deliveredTime) && (
-                                    <div style={{ fontSize: '0.72rem', color: '#4ade80', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                                      <Clock size={11} color="#4ade80" />
-                                      <span>Delivered at {item.deliveredTime || day.deliveredTime}</span>
-                                    </div>
-                                  )}
-                                </div>
+                                backgroundColor: '#1e293b',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                <Milk size={18} color="#38bdf8" />
                               </div>
-
-                              <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                                  ₹ {item.totalAmount.toFixed(2)}
+                              <div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#ffffff' }}>
+                                  {item.productName}
                                 </div>
-                                <span style={{
-                                  display: 'inline-block',
-                                  marginTop: '4px',
-                                  fontSize: '0.65rem',
-                                  fontWeight: 800,
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  backgroundColor: item.status === 'DELIVERED' ? 'rgba(34, 197, 94, 0.15)' : (item.status === 'SCHEDULED' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(234, 179, 8, 0.15)'),
-                                  color: item.status === 'DELIVERED' ? '#4ade80' : (item.status === 'SCHEDULED' ? '#38bdf8' : '#facc15')
-                                }}>
-                                  {item.status}
-                                </span>
+                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
+                                  {item.variantLabel} • Qty: <strong style={{ color: '#ffffff' }}>{item.quantity}</strong> × ₹{Number(item.unitPrice || 0).toFixed(2)}
+                                  {item.deliveryCharge > 0 ? ` (+₹${Number(item.deliveryCharge).toFixed(2)} delivery)` : ''}
+                                </div>
+                                {(item.deliveredTime || day.deliveredTime) && (
+                                  <div style={{ fontSize: '0.72rem', color: '#4ade80', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
+                                    <Clock size={11} color="#4ade80" />
+                                    <span>Delivered at {item.deliveredTime || day.deliveredTime}</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
+
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
+                                ₹{Number(item.totalAmount || (item.quantity * item.unitPrice)).toFixed(2)}
+                              </div>
+                              <span style={{
+                                display: 'inline-block',
+                                marginTop: '4px',
+                                fontSize: '0.65rem',
+                                fontWeight: 800,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: item.status === 'DELIVERED' ? 'rgba(34, 197, 94, 0.15)' : (item.status === 'SCHEDULED' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(234, 179, 8, 0.15)'),
+                                color: item.status === 'DELIVERED' ? '#4ade80' : (item.status === 'SCHEDULED' ? '#38bdf8' : '#facc15')
+                              }}>
+                                {item.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
