@@ -13,6 +13,7 @@ export default function CustomerStatementView() {
   const [expandedDates, setExpandedDates] = useState({});
   const [capturing, setCapturing] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [activeTab, setActiveTab] = useState('history'); // 'history' | 'upcoming'
   const invoiceRef = useRef(null);
   const cleanInvoiceRef = useRef(null);
 
@@ -66,8 +67,8 @@ export default function CustomerStatementView() {
   const handleMonthChange = (e) => {
     const newMonth = e.target.value;
     setSelectedMonth(newMonth);
-    const { customerId, billId } = getParams();
-    fetchStatement(customerId, newMonth, billId);
+    const { customerId } = getParams();
+    fetchStatement(customerId, newMonth, '');
   };
 
   const toggleDate = (dateStr) => {
@@ -217,6 +218,26 @@ export default function CustomerStatementView() {
   const upiLink = parlour.upiId
     ? `upi://pay?pa=${encodeURIComponent(parlour.upiId)}&pn=${encodeURIComponent(parlour.businessName)}&am=${encodeURIComponent(netPayableValue || 0)}&cu=INR`
     : null;
+
+  const todayStr = data.todayStr || (new Date().toISOString().slice(0, 10));
+  const yDate = new Date(todayStr + 'T12:00:00Z');
+  yDate.setUTCDate(yDate.getUTCDate() - 1);
+  const yesterdayStr = yDate.toISOString().slice(0, 10);
+
+  // Group days into Live / History (today and past) and Upcoming (future)
+  const historyDays = (days || []).filter(d => d.date <= todayStr);
+  // Sort history days descending so TODAY is first at index 0, YESTERDAY is index 1
+  historyDays.sort((a, b) => b.date.localeCompare(a.date));
+
+  const upcomingDays = (days || []).filter(d => d.date > todayStr);
+  // Sort upcoming days ascending so tomorrow is first
+  upcomingDays.sort((a, b) => a.date.localeCompare(b.date));
+
+  // For the printable / downloadable invoice, show all days in natural chronological order (Day 1 to Day 30)
+  const printableDays = [...(days || [])].sort((a, b) => a.date.localeCompare(b.date));
+
+  // Select days to display in current tab
+  const displayDays = (activeTab === 'upcoming' && upcomingDays.length > 0) ? upcomingDays : historyDays;
 
   return (
     <div style={{
@@ -825,25 +846,81 @@ export default function CustomerStatementView() {
           </div>
         </div>
 
-        {/* Section Heading */}
+        {/* Section Heading & View Selector */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           marginBottom: '12px',
-          padding: '0 4px'
+          padding: '0 4px',
+          flexWrap: 'wrap',
+          gap: '10px'
         }}>
-          <h2 style={{
-            fontSize: '0.95rem',
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            color: '#94a3b8',
-            margin: 0
-          }}>
-            Daily Delivery History
-          </h2>
-          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '20px',
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                border: activeTab === 'history' ? '1.5px solid #38bdf8' : '1px solid #334155',
+                backgroundColor: activeTab === 'history' ? 'rgba(56, 189, 248, 0.16)' : '#0f172a',
+                color: activeTab === 'history' ? '#38bdf8' : '#94a3b8',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <span>🚚 Live Deliveries & History</span>
+              <span style={{
+                fontSize: '0.7rem',
+                padding: '1px 6px',
+                borderRadius: '10px',
+                backgroundColor: activeTab === 'history' ? '#38bdf8' : '#334155',
+                color: activeTab === 'history' ? '#000000' : '#ffffff',
+                fontWeight: 800
+              }}>
+                {historyDays.length}
+              </span>
+            </button>
+
+            {upcomingDays.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('upcoming')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  fontSize: '0.82rem',
+                  fontWeight: 800,
+                  border: activeTab === 'upcoming' ? '1.5px solid #38bdf8' : '1px solid #334155',
+                  backgroundColor: activeTab === 'upcoming' ? 'rgba(56, 189, 248, 0.16)' : '#0f172a',
+                  color: activeTab === 'upcoming' ? '#38bdf8' : '#94a3b8',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>🗓️ Upcoming</span>
+                <span style={{
+                  fontSize: '0.7rem',
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  backgroundColor: activeTab === 'upcoming' ? '#38bdf8' : '#334155',
+                  color: activeTab === 'upcoming' ? '#000000' : '#ffffff',
+                  fontWeight: 800
+                }}>
+                  {upcomingDays.length}
+                </span>
+              </button>
+            )}
+          </div>
+
+          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
             Tap any date to view items & timing
           </span>
         </div>
@@ -855,37 +932,65 @@ export default function CustomerStatementView() {
           borderRadius: '12px',
           overflow: 'hidden'
         }}>
-          {days.length === 0 ? (
+          {displayDays.length === 0 ? (
             <div style={{
               padding: '40px 20px',
               textAlign: 'center',
               color: '#64748b',
               fontSize: '0.9rem'
             }}>
-              No delivery records found for this month.
+              {activeTab === 'upcoming' ? 'No upcoming scheduled deliveries for the rest of this month.' : 'No delivery records found for this month.'}
             </div>
           ) : (
-            days.map((day, idx) => {
+            displayDays.map((day, idx) => {
               const isExpanded = !!expandedDates[day.date];
               const isDelivered = day.status === 'DELIVERED';
               const isSkipped = day.status === 'SKIPPED';
               const isScheduled = day.status === 'SCHEDULED';
+              const isToday = day.date === todayStr;
+              const isYesterday = day.date === yesterdayStr;
 
               if (isSkipped) {
                 return (
                   <div 
                     key={day.date}
                     style={{
-                      borderBottom: idx === days.length - 1 ? 'none' : '1px solid #1a1a1a',
+                      borderBottom: idx === displayDays.length - 1 ? 'none' : '1px solid #1a1a1a',
                       padding: '12px 18px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      backgroundColor: '#050505',
-                      opacity: 0.7
+                      backgroundColor: isToday ? 'rgba(239, 68, 68, 0.06)' : '#050505',
+                      opacity: isToday ? 1 : 0.75,
+                      borderLeft: isToday ? '3px solid #ef4444' : 'none'
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      {isToday && (
+                        <span style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 900,
+                          padding: '2px 7px',
+                          borderRadius: '4px',
+                          backgroundColor: '#ef4444',
+                          color: '#ffffff',
+                          letterSpacing: '0.04em'
+                        }}>
+                          TODAY
+                        </span>
+                      )}
+                      {isYesterday && (
+                        <span style={{
+                          fontSize: '0.65rem',
+                          fontWeight: 800,
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: '#1e293b',
+                          color: '#94a3b8'
+                        }}>
+                          YESTERDAY
+                        </span>
+                      )}
                       <span style={{ fontSize: '0.92rem', fontWeight: 600, color: '#94a3b8' }}>
                         {day.formattedDate || day.date}
                       </span>
@@ -912,7 +1017,9 @@ export default function CustomerStatementView() {
                 <div 
                   key={day.date}
                   style={{
-                    borderBottom: idx === days.length - 1 ? 'none' : '1px solid #1a1a1a',
+                    borderBottom: idx === displayDays.length - 1 ? 'none' : '1px solid #1a1a1a',
+                    borderLeft: isToday ? '3px solid #38bdf8' : (isYesterday ? '3px solid #334155' : 'none'),
+                    backgroundColor: isToday ? 'rgba(56, 189, 248, 0.04)' : 'transparent',
                     transition: 'background-color 0.15s ease'
                   }}
                 >
@@ -936,9 +1043,35 @@ export default function CustomerStatementView() {
                       flexWrap: 'wrap',
                       gap: '8px'
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        {isToday && (
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 900,
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            backgroundColor: '#0284c7',
+                            color: '#ffffff',
+                            letterSpacing: '0.05em'
+                          }}>
+                            TODAY
+                          </span>
+                        )}
+                        {isYesterday && (
+                          <span style={{
+                            fontSize: '0.65rem',
+                            fontWeight: 800,
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: '#1e293b',
+                            color: '#38bdf8',
+                            border: '1px solid #334155'
+                          }}>
+                            YESTERDAY
+                          </span>
+                        )}
                         <span>{day.formattedDate || day.date}</span>
-                        {isScheduled && (
+                        {isScheduled && !isToday && (
                           <span style={{
                             fontSize: '0.65rem',
                             padding: '2px 6px',
@@ -953,23 +1086,41 @@ export default function CustomerStatementView() {
                         )}
                       </div>
 
-                      {/* Delivered time of milk */}
-                      {isDelivered && (
+                      {/* Delivered time of milk or Pending */}
+                      {isDelivered ? (
                         <div style={{
                           fontSize: '0.75rem',
                           fontWeight: 700,
                           color: '#4ade80',
                           backgroundColor: 'rgba(34, 197, 94, 0.12)',
                           border: '1px solid rgba(34, 197, 94, 0.25)',
-                          padding: '2px 8px',
+                          padding: '3px 9px',
                           borderRadius: '6px',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '4px'
+                          gap: '5px'
                         }}>
                           <Clock size={12} color="#4ade80" />
                           <span>{day.deliveredTime ? `Delivered at ${day.deliveredTime}` : 'Delivered ✓'}</span>
                         </div>
+                      ) : (
+                        isToday ? (
+                          <div style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            color: '#facc15',
+                            backgroundColor: 'rgba(234, 179, 8, 0.12)',
+                            border: '1px solid rgba(234, 179, 8, 0.25)',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <Clock size={11} color="#facc15" />
+                            <span>⏳ Pending Delivery</span>
+                          </div>
+                        ) : null
                       )}
                     </div>
 
@@ -1266,7 +1417,7 @@ export default function CustomerStatementView() {
               </tr>
             </thead>
             <tbody>
-              {days.map((day, idx) => {
+              {printableDays.map((day, idx) => {
                 const isSkipped = day.status === 'SKIPPED';
                 const isDelivered = day.status === 'DELIVERED';
                 const hasItems = day.items && day.items.length > 0;

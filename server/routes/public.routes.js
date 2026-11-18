@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../config/db');
 const { calculateDeliveryChargesForCustomerDay } = require('../services/deliveryChargeService');
 const { parseCustomDays } = require('../services/billingService');
+const { getLocalDateString } = require('../utils/dateUtils');
 
 // Helper to format date like "16 Jul 2026, Thursday"
 function formatDeliveryDate(dateStr) {
@@ -74,6 +75,9 @@ router.get('/statement', async (req, res) => {
         }
         if (!targetMonth) {
           targetMonth = bill.billing_month;
+        } else if (targetMonth !== bill.billing_month && !targetMonth.includes(bill.billing_month)) {
+          // Explicit month requested differs from this bill; reset bill so the right bill for targetMonth is found!
+          bill = null;
         }
       }
     }
@@ -277,7 +281,7 @@ router.get('/statement', async (req, res) => {
       displayMonth = ym;
     }
     const daysInMonth = daysInPeriod;
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getLocalDateString();
 
     // Fetch recorded deliveries for this customer within the period
     const deliveryRows = await db.prepare(`
@@ -396,30 +400,64 @@ router.get('/statement', async (req, res) => {
         AND start_date <= ? AND end_date >= ?
     `).all(customer.id, endDate, startDate);
 
-    // Also check if the bill saved custom selected_days or off_days
+    // Also check if the bill saved custom selected_days, activeDates, or off_days
     let billSelectedDays = null;
+    let billActiveDates = null;
     let billOffDays = null;
     if (bill && bill.items_json) {
       try {
         const parsed = typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json;
         if (parsed) {
-          if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
-            billSelectedDays = new Set(parsed.selected_days.map(Number));
-          }
-          if (parsed.off_days && Array.isArray(parsed.off_days)) {
-            billOffDays = new Set(parsed.off_days.map(Number));
-          }
           if (Array.isArray(parsed) && parsed.length > 0) {
-            if (parsed[0].selected_days && Array.isArray(parsed[0].selected_days)) {
-              billSelectedDays = new Set(parsed[0].selected_days.map(Number));
+            const allActiveDates = new Set();
+            const allSelectedDays = new Set();
+            const allOffDays = new Set();
+            let hasDateRestrictions = false;
+
+            for (const it of parsed) {
+              if (it.off_days && Array.isArray(it.off_days)) {
+                it.off_days.forEach(d => allOffDays.add(Number(d)));
+              }
+              if (it.activeDates && Array.isArray(it.activeDates)) {
+                it.activeDates.forEach(dt => allActiveDates.add(dt));
+                hasDateRestrictions = true;
+              }
+              if (it.selected_days && Array.isArray(it.selected_days)) {
+                it.selected_days.forEach(d => allSelectedDays.add(Number(d)));
+                hasDateRestrictions = true;
+              }
+              if (it.selectedDays && Array.isArray(it.selectedDays)) {
+                it.selectedDays.forEach(d => allSelectedDays.add(Number(d)));
+                hasDateRestrictions = true;
+              }
+              // If an item has no explicit date restrictions, it is active across its date range
+              if (!it.selected_days && !it.selectedDays && !it.activeDates) {
+                const sDate = it.effective_start || bill.start_date;
+                const eDate = (it.effective_end && it.effective_end !== 'Ongoing') ? it.effective_end : bill.end_date;
+                if (sDate && eDate) {
+                  const sD = new Date(sDate);
+                  const eD = new Date(eDate);
+                  for (let cur = new Date(sD); cur <= eD; cur.setDate(cur.getDate() + 1)) {
+                    allActiveDates.add(cur.toISOString().slice(0, 10));
+                  }
+                  hasDateRestrictions = true;
+                }
+              }
             }
-            if (parsed[0].off_days && Array.isArray(parsed[0].off_days)) {
-              billOffDays = new Set(parsed[0].off_days.map(Number));
+
+            if (hasDateRestrictions) {
+              billActiveDates = allActiveDates;
+              billSelectedDays = allSelectedDays;
             }
-            if (parsed[0].selectedDays) {
-              const allD = new Set();
-              parsed.forEach(it => (it.selectedDays || []).forEach(d => allD.add(Number(d))));
-              if (allD.size > 0 && !billSelectedDays) billSelectedDays = allD;
+            if (allOffDays.size > 0) {
+              billOffDays = allOffDays;
+            }
+          } else if (typeof parsed === 'object') {
+            if (parsed.selected_days && Array.isArray(parsed.selected_days)) {
+              billSelectedDays = new Set(parsed.selected_days.map(Number));
+            }
+            if (parsed.off_days && Array.isArray(parsed.off_days)) {
+              billOffDays = new Set(parsed.off_days.map(Number));
             }
           }
         }
@@ -479,33 +517,42 @@ router.get('/statement', async (req, res) => {
 
         // Check if this calendar day is an OFF / Paused day:
         const isVacationDay = activeVacations.some(v => v.start_date <= dateStr && v.end_date >= dateStr);
-        const isBillOffDay = (billOffDays && billOffDays.has(d)) || (billSelectedDays && !billSelectedDays.has(d));
+        let isBillOffDay = false;
+        if (billOffDays && billOffDays.has(d)) {
+          isBillOffDay = true;
+        } else if (billActiveDates && billActiveDates.size > 0) {
+          isBillOffDay = !billActiveDates.has(dateStr);
+        } else if (billSelectedDays && billSelectedDays.size > 0) {
+          isBillOffDay = !billSelectedDays.has(d);
+        }
         const isReqSkip = dayReqs.some(r => r.requirement_type === 'SKIP_DELIVERY' || Number(r.required_quantity) === 0 || Number(r.effective_quantity) === 0);
         const isFrequencyOff = (activeSubsOnDay.length === 0 && anySubInMonth);
 
         const isCustomSkip = isBillOffDay || isVacationDay || isReqSkip || isFrequencyOff;
 
+        // Ground truth: If actual recorded delivery items exist in the deliveries table,
+        // respect them authoritative instead of overriding with custom skip
         if (actualItems && actualItems.length > 0) {
           const anyDelivered = actualItems.some(it => it.status === 'DELIVERED');
-          const allSkipped = isCustomSkip || actualItems.every(it => it.status === 'SKIPPED');
+          const allSkipped = actualItems.every(it => it.status === 'SKIPPED');
           const timeStr = actualItems[0].deliveredTime;
 
-          const totalItemsCount = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
+          const totalItemsCount = actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.quantity || 0);
           }, 0);
 
-          const totalDayProductAmt = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
+          const totalDayProductAmt = actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.productAmount || 0);
           }, 0);
 
-          const totalDayDelCharge = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
+          const totalDayDelCharge = actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.deliveryCharge || 0);
           }, 0);
 
-          const totalAmount = isCustomSkip ? 0 : actualItems.reduce((acc, it) => {
+          const totalAmount = actualItems.reduce((acc, it) => {
             if (it.status === 'SKIPPED') return acc;
             return acc + (it.totalAmount || 0);
           }, 0);
@@ -523,9 +570,7 @@ router.get('/statement', async (req, res) => {
             totalAmount: totalAmount,
             deliveryCharge: totalDayDelCharge,
             isProjected: false,
-            items: isCustomSkip
-              ? actualItems.map(it => ({ ...it, status: 'SKIPPED', quantity: 0, totalAmount: 0, deliveryCharge: 0, notes: 'No Milk Required' }))
-              : actualItems
+            items: actualItems
           });
         } else {
           // Scheduled projected day under prepaid plan
@@ -641,6 +686,7 @@ router.get('/statement', async (req, res) => {
       res.json({
         success: true,
         month: displayMonth,
+        todayStr,
         periodLabel: periodLabel || displayMonth,
         isWeekly: Boolean(bill?.billing_type === 'WEEKLY' || customer.billing_type === 'WEEKLY'),
         billingType: 'PREPAID',
@@ -686,6 +732,7 @@ router.get('/statement', async (req, res) => {
           items: bill.items_json ? (typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json) : []
         } : null,
         summary: {
+          todayStr,
           billingType: 'PREPAID',
           totalScheduledDays: (bill && bill.total_deliveries_count) ? bill.total_deliveries_count : scheduledDaysCount,
           totalScheduledItems: scheduledItemsCount,
@@ -758,6 +805,7 @@ router.get('/statement', async (req, res) => {
       res.json({
         success: true,
         month: displayMonth,
+        todayStr,
         periodLabel: periodLabel || displayMonth,
         isWeekly: Boolean(bill?.billing_type === 'WEEKLY' || customer.billing_type === 'WEEKLY'),
         billingType: 'POSTPAID',
@@ -803,6 +851,7 @@ router.get('/statement', async (req, res) => {
           items: bill.items_json ? (typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json) : []
         } : null,
         summary: {
+          todayStr,
           billingType: 'POSTPAID',
           totalDeliveredDays,
           totalDeliveredItems,
