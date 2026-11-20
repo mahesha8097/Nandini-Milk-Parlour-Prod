@@ -32,6 +32,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [couponFilter, setCouponFilter] = useState('ALL');
+  const [deliveryFilter, setDeliveryFilter] = useState('ALL'); // 'ALL' | 'DELIVERY' | 'SHOP_ONLY'
 
   // Add / Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(initialOpenAdd);
@@ -45,6 +46,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
     delivery_charge_type: 'MILK_RULE',
     fixed_delivery_charge: 0,
     is_coupon_eligible: 1,
+    is_delivery_available: 1,
     image_url: '',
     is_active: 1
   });
@@ -101,6 +103,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       delivery_charge_type: 'MILK_RULE',
       fixed_delivery_charge: 0,
       is_coupon_eligible: 1,
+      is_delivery_available: 1,
       image_url: '',
       is_active: 1
     });
@@ -149,6 +152,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       delivery_charge_type: p.delivery_charge_type,
       fixed_delivery_charge: p.fixed_delivery_charge || 0,
       is_coupon_eligible: p.is_coupon_eligible !== undefined ? (p.is_coupon_eligible ? 1 : 0) : (p.category === 'Milk' ? 1 : 0),
+      is_delivery_available: p.is_delivery_available !== undefined ? (p.is_delivery_available ? 1 : 0) : 1,
       image_url: p.image_url || '',
       is_active: p.is_active
     });
@@ -311,6 +315,16 @@ export default function ProductsPage({ initialOpenAdd = false }) {
     }
   };
 
+  const handleToggleDelivery = async (id, e) => {
+    if (e) e.stopPropagation();
+    try {
+      await api.patch(`/products/${id}/toggle-delivery`, {});
+      fetchProducts();
+    } catch (err) {
+      alert(err.message || 'Failed to toggle delivery availability');
+    }
+  };
+
   const handleOpenDelete = (p) => {
     setDeleteTarget(p);
     setDeleteError('');
@@ -376,6 +390,8 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       if (statusFilter === 'INACTIVE' && p.is_active) return false;
       if (couponFilter === 'COUPON' && !p.is_coupon_eligible && p.category !== 'Milk') return false;
       if (couponFilter === 'NON_COUPON' && (p.is_coupon_eligible || p.category === 'Milk')) return false;
+      if (deliveryFilter === 'DELIVERY' && (!p.is_delivery_available || p.is_delivery_available === 0)) return false;
+      if (deliveryFilter === 'SHOP_ONLY' && (p.is_delivery_available && p.is_delivery_available !== 0)) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const name = (p.name || '').toLowerCase();
@@ -388,7 +404,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
       }
       return true;
     });
-  }, [products, searchQuery, categoryFilter, statusFilter, couponFilter]);
+  }, [products, searchQuery, categoryFilter, statusFilter, couponFilter, deliveryFilter]);
 
   return (
     <div className="page-wrapper">
@@ -472,6 +488,17 @@ export default function ProductsPage({ initialOpenAdd = false }) {
               <option value="NON_COUPON">💵 Regular / Non-Coupon</option>
             </select>
 
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.813rem' }}
+              value={deliveryFilter}
+              onChange={(e) => setDeliveryFilter(e.target.value)}
+            >
+              <option value="ALL">🚚 All Visibility</option>
+              <option value="DELIVERY">🚚 Delivery Boy Items Only</option>
+              <option value="SHOP_ONLY">🏪 Shop / Indent Only</option>
+            </select>
+
             {(searchQuery || categoryFilter !== 'ALL' || statusFilter !== 'ALL') && (
               <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>
                 Showing {filteredProducts.length} of {products.length}
@@ -506,6 +533,8 @@ export default function ProductsPage({ initialOpenAdd = false }) {
               setSearchQuery('');
               setCategoryFilter('ALL');
               setStatusFilter('ALL');
+              setCouponFilter('ALL');
+              setDeliveryFilter('ALL');
             }}
             className="btn btn-outline btn-sm"
           >
@@ -524,6 +553,7 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                   <th>Variant / Vol</th>
                   <th>Selling Price</th>
                   <th>Delivery Charge Rule</th>
+                  <th>Delivery Boy Extra</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -608,6 +638,28 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                       ) : (
                         <span className="badge badge-gray">No Delivery Charge</span>
                       )}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleDelivery(p.id, e)}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.74rem',
+                          fontWeight: '700',
+                          borderRadius: '6px',
+                          border: p.is_delivery_available ? '1px solid #86efac' : '1px solid #cbd5e1',
+                          background: p.is_delivery_available ? '#f0fdf4' : '#f8fafc',
+                          color: p.is_delivery_available ? '#166534' : '#64748b',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                        title="Click to toggle whether delivery boys can see and pick this product when adding extra items"
+                      >
+                        {p.is_delivery_available ? '🚚 Available' : '🏪 Shop Only'}
+                      </button>
                     </td>
                     <td>
                       <span className={`badge ${p.is_active ? 'badge-success' : 'badge-danger'}`}>
@@ -743,6 +795,24 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                     style={{ flex: 1, minHeight: '38px', fontSize: '0.82rem', fontWeight: '700' }}
                   >
                     <Edit2 size={14} /> Edit
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleToggleDelivery(p.id, e)}
+                    className="btn btn-outline btn-sm"
+                    style={{
+                      minHeight: '38px',
+                      padding: '6px 10px',
+                      fontSize: '0.78rem',
+                      fontWeight: '700',
+                      color: p.is_delivery_available ? '#166534' : '#64748b',
+                      borderColor: p.is_delivery_available ? '#86efac' : '#cbd5e1',
+                      background: p.is_delivery_available ? '#f0fdf4' : '#f8fafc'
+                    }}
+                    title="Toggle delivery boy visibility"
+                  >
+                    {p.is_delivery_available ? '🚚 Delivery: ON' : '🏪 Shop Only'}
                   </button>
 
                   <button
@@ -1073,6 +1143,39 @@ export default function ProductsPage({ initialOpenAdd = false }) {
                 checked={!!formData.is_coupon_eligible}
                 onChange={(e) => setFormData({ ...formData, is_coupon_eligible: e.target.checked ? 1 : 0 })}
                 style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#10b981' }}
+              />
+            </label>
+          </div>
+
+          {/* Delivery Boy Availability Setting */}
+          <div style={{
+            marginTop: '12px',
+            marginBottom: '16px',
+            padding: '14px 16px',
+            borderRadius: '10px',
+            background: formData.is_delivery_available ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-secondary)',
+            border: formData.is_delivery_available ? '1.5px solid #3b82f6' : '1px solid var(--border-color)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px'
+          }}>
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '0.9rem', color: formData.is_delivery_available ? '#1d4ed8' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>🚚 Available to Delivery Boys (Doorstep Extra Products)</span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.4 }}>
+                {formData.is_delivery_available
+                  ? 'Delivery boys CAN see and pick this product when adding extra items for household customers.'
+                  : 'Hidden from delivery boys (Shop / Indent only). Keeps the delivery boy extra products screen clean and focused.'}
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+              <input
+                type="checkbox"
+                checked={!!formData.is_delivery_available}
+                onChange={(e) => setFormData({ ...formData, is_delivery_available: e.target.checked ? 1 : 0 })}
+                style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
               />
             </label>
           </div>

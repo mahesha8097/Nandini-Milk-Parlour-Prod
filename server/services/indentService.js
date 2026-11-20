@@ -82,7 +82,7 @@ const DEFAULT_NANDINI_TEMPLATE = [
     product_name: 'CURD 1000GM',
     category: 'Curd',
     unit_label: '1 kg',
-    purchase_price: 62.40,
+    purchase_price: 62.39,
     selling_price: 68.00
   },
   {

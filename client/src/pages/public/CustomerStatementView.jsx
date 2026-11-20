@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ArrowLeft, ChevronRight, ChevronDown, Download, Printer, 
   CheckCircle2, Clock, AlertCircle, Calendar, CreditCard, 
-  Smartphone, Share2, Milk, MapPin, Phone
+  Smartphone, Share2, Milk, MapPin, Phone, FileText
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
@@ -12,10 +12,12 @@ export default function CustomerStatementView() {
   const [error, setError] = useState(null);
   const [expandedDates, setExpandedDates] = useState({});
   const [capturing, setCapturing] = useState(false);
+  const [capturingMonthly, setCapturingMonthly] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [activeTab, setActiveTab] = useState('history'); // 'history' | 'upcoming'
   const invoiceRef = useRef(null);
   const cleanInvoiceRef = useRef(null);
+  const monthlyInvoiceRef = useRef(null);
 
   // Parse URL hash or query params
   // E.g. #statement?c=12&m=2026-10 or #orders?c=12&m=2026-10
@@ -79,7 +81,57 @@ export default function CustomerStatementView() {
   };
 
   const handleDownloadInvoice = async () => {
-    const targetElement = cleanInvoiceRef.current || invoiceRef.current;
+    const targetElement = monthlyInvoiceRef.current || cleanInvoiceRef.current || invoiceRef.current;
+    if (!targetElement) return;
+    try {
+      setCapturing(true);
+      const canvas = await html2canvas(targetElement, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false
+      });
+      const customerClean = (customer?.name || 'Customer').replace(/[^a-zA-Z0-9]/g, '_');
+      const periodClean = (data?.periodLabel || bill?.billingMonth || selectedMonth || 'Monthly_Invoice').replace(/[^a-zA-Z0-9]/g, '_');
+      const link = document.createElement('a');
+      link.download = `Invoice_${customerClean}_${periodClean}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Download error:', err);
+      alert('Could not download invoice: ' + err.message);
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const handleDownloadFullMonthlyInvoice = async () => {
+    const targetElement = monthlyInvoiceRef.current || cleanInvoiceRef.current;
+    if (!targetElement) return;
+    try {
+      setCapturingMonthly(true);
+      const canvas = await html2canvas(targetElement, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false
+      });
+      const customerClean = (customer?.name || 'Customer').replace(/[^a-zA-Z0-9]/g, '_');
+      const periodClean = (data?.periodLabel || bill?.billingMonth || selectedMonth || 'Monthly_Invoice').replace(/[^a-zA-Z0-9]/g, '_');
+      const link = document.createElement('a');
+      link.download = `Monthly_Invoice_${customerClean}_${periodClean}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Download monthly invoice error:', err);
+      alert('Could not download full monthly invoice: ' + err.message);
+    } finally {
+      setCapturingMonthly(false);
+    }
+  };
+
+  const handleDownloadDateWiseSheet = async () => {
+    const targetElement = cleanInvoiceRef.current;
     if (!targetElement) return;
     try {
       setCapturing(true);
@@ -105,14 +157,14 @@ export default function CustomerStatementView() {
         }
       });
       const customerClean = (customer?.name || 'Customer').replace(/[^a-zA-Z0-9]/g, '_');
-      const periodClean = (data?.periodLabel || bill?.billingMonth || selectedMonth || 'statement').replace(/[^a-zA-Z0-9]/g, '_');
+      const periodClean = (data?.periodLabel || bill?.billingMonth || selectedMonth || 'Delivery_Sheet').replace(/[^a-zA-Z0-9]/g, '_');
       const link = document.createElement('a');
-      link.download = `Invoice_${customerClean}_${periodClean}.png`;
+      link.download = `Delivery_Sheet_${customerClean}_${periodClean}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) {
-      console.error('Download error:', err);
-      alert('Could not download invoice: ' + err.message);
+      console.error('Download delivery sheet error:', err);
+      alert('Could not download delivery sheet: ' + err.message);
     } finally {
       setCapturing(false);
     }
@@ -238,6 +290,77 @@ export default function CustomerStatementView() {
 
   // Select days to display in current tab
   const displayDays = (activeTab === 'upcoming' && upcomingDays.length > 0) ? upcomingDays : historyDays;
+
+  // Build Item & Schedule products for Full Monthly Invoice (matching official screenshot)
+  const invoiceItems = useMemo(() => {
+    if (bill && bill.items && bill.items.length > 0) {
+      return bill.items.map(it => {
+        const name = it.product_name || it.product_name_snapshot || it.productName || it.name || 'Milk';
+        const variant = it.variant_label || it.variant_snapshot || it.variant || it.variantLabel || '500ml';
+        const qty = Number(it.total_quantity || it.quantity) || 1;
+        const daysActive = it.days_active_in_month || it.scheduled_days_count || it.delivered_days_count || summary.totalScheduledDays || summary.totalDeliveredDays || (bill.total_deliveries_count || 14);
+        const qtyPerDay = it.quantity_per_day || (daysActive ? Math.round(qty / daysActive) : 1);
+        const baseMrp = Number(it.unit_price || it.unit_price_snapshot || it.sellingPrice || it.unitPrice || 0);
+        const lineAmt = Number(it.total_line_amount || it.total_amount || it.amount) || (baseMrp * qty);
+        const effectivePrice = qty > 0 ? (lineAmt / qty) : baseMrp;
+        const freq = it.custom_days || (it.frequency === 'DAILY' || !it.frequency ? 'Daily' : it.frequency);
+
+        return {
+          name,
+          variant,
+          quantity: qty,
+          quantityPerDay: qtyPerDay,
+          daysActive,
+          mrp: baseMrp,
+          price: effectivePrice,
+          amount: lineAmt,
+          frequency: freq
+        };
+      });
+    }
+
+    if (subscriptions && subscriptions.length > 0) {
+      const scheduledDays = summary.totalScheduledDays || summary.totalDeliveredDays || (days ? days.length : 30);
+      return subscriptions.map(sub => {
+        const name = sub.productName || sub.name || 'Milk';
+        const variant = sub.variantLabel || sub.variant || '500ml';
+        const qtyPerDay = sub.quantity || 1;
+        const matchingDays = days ? days.filter(d => d.items && d.items.some(it => (it.productId === sub.productId || it.productName === name) && d.status !== 'SKIPPED')).length : 0;
+        const activeDays = matchingDays > 0 ? matchingDays : Math.round(scheduledDays / Math.max(1, subscriptions.length));
+        const qty = qtyPerDay * (activeDays || 14);
+        const baseMrp = Number(sub.unitPrice || sub.sellingPrice || 0);
+        const delChargePerUnit = summary.deliveryChargesTotal > 0 && summary.totalScheduledItems > 0
+          ? (summary.deliveryChargesTotal / summary.totalScheduledItems)
+          : (summary.deliveryChargesTotal > 0 ? (summary.deliveryChargesTotal / Math.max(1, qty)) : 1.50);
+        const effectivePrice = baseMrp + delChargePerUnit;
+        const lineAmt = effectivePrice * qty;
+        const freq = sub.customDays || (sub.frequency === 'DAILY' || !sub.frequency ? 'Daily' : sub.frequency);
+
+        return {
+          name,
+          variant,
+          quantity: qty,
+          quantityPerDay: qtyPerDay,
+          daysActive: activeDays,
+          mrp: baseMrp,
+          price: effectivePrice,
+          amount: lineAmt,
+          frequency: freq
+        };
+      });
+    }
+
+    return [];
+  }, [bill, subscriptions, summary, days]);
+
+  const invoiceNumberStr = bill?.billNumber || `NB-${(bill?.billingMonth || selectedMonth || '202611').replace('-', '')}-${String(customer?.id || '0749').padStart(4, '0')}`;
+  const invoiceDateStr = bill?.billDate || (selectedMonth ? `${selectedMonth}-01` : '2026-11-01');
+  const invoiceTimeStr = bill?.createdAt
+    ? new Date(bill.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+    : (bill?.created_at ? new Date(bill.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '18:33');
+  const totalVolumeStr = invoiceItems.length > 0
+    ? `${invoiceItems.reduce((acc, it) => acc + (it.quantity || 0), 0)} ${invoiceItems[0]?.variant || '500ml'}`
+    : `${summary.totalScheduledItems || summary.totalDeliveredItems || 0} pkts`;
 
   return (
     <div style={{
@@ -845,6 +968,477 @@ export default function CustomerStatementView() {
             </div>
           </div>
         </div>
+
+        {/* ========================================================================= */}
+        {/* FULL MONTHLY INVOICE DOWNLOAD SECTION (Matching Official Parlour Invoice) */}
+        {/* ========================================================================= */}
+        <section style={{
+          marginTop: '24px',
+          marginBottom: '28px',
+          background: '#0a0a0a',
+          border: '1px solid #1e293b',
+          borderRadius: '16px',
+          padding: '20px',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.4)'
+        }}>
+          {/* Section Header with Download & Print action buttons */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <FileText size={20} color="#38bdf8" />
+                <h3 style={{
+                  margin: 0,
+                  fontSize: '1.1rem',
+                  fontWeight: 900,
+                  color: '#ffffff'
+                }}>
+                  Full Monthly Invoice
+                </h3>
+                <span style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  backgroundColor: isPaid ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                  color: isPaid ? '#4ade80' : '#facc15',
+                  border: `1px solid ${isPaid ? '#22c55e' : '#eab308'}`
+                }}>
+                  {isPaid ? 'PAID ✓' : (bill ? 'PAYMENT DUE' : 'OFFICIAL BILL')}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '3px' }}>
+                Complete monthly tax invoice & scheduled deliveries bill for {bill?.billingMonth || selectedMonth}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleDownloadFullMonthlyInvoice}
+                disabled={capturingMonthly}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '9px 16px',
+                  backgroundColor: '#0284c7',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 800,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 10px rgba(2, 132, 199, 0.4)'
+                }}
+              >
+                <Download size={15} color="#ffffff" />
+                <span>{capturingMonthly ? 'Saving...' : 'Download Full Monthly Invoice'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '9px 14px',
+                  backgroundColor: '#1e293b',
+                  color: '#e2e8f0',
+                  border: '1px solid #334155',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Printer size={15} color="#94a3b8" />
+                <span>Print</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Full Monthly Invoice Rendered Preview Card (Matches User Attached Image Exactly) */}
+          <div style={{
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            paddingBottom: '4px'
+          }}>
+            <div
+              id="official-full-monthly-invoice"
+              ref={monthlyInvoiceRef}
+              style={{
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                padding: '24px 22px',
+                width: '100%',
+                maxWidth: '780px',
+                minWidth: '580px',
+                margin: '0 auto',
+                boxShadow: '0 2px 14px rgba(0, 0, 0, 0.3)',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                boxSizing: 'border-box'
+              }}
+            >
+              {/* Top Centered Header: INVOICE */}
+              <div style={{ textAlign: 'center', marginBottom: '14px' }}>
+                <span style={{
+                  fontSize: '1.25rem',
+                  fontWeight: 900,
+                  letterSpacing: '0.12em',
+                  color: '#0054a6',
+                  textTransform: 'uppercase'
+                }}>
+                  INVOICE
+                </span>
+              </div>
+
+              {/* Business Header & Invoice Meta Info */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                paddingBottom: '12px',
+                borderBottom: '2px solid #0054a6',
+                marginBottom: '14px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '52px',
+                    height: '52px',
+                    borderRadius: '50%',
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    padding: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}>
+                    <img
+                      src={parlour.logo || '/nandini-logo.png'}
+                      alt="Nandini Logo"
+                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '50%' }}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  </div>
+                  <div>
+                    <h2 style={{
+                      fontSize: '1.18rem',
+                      fontWeight: 900,
+                      color: '#0054a6',
+                      margin: 0,
+                      textTransform: 'uppercase',
+                      letterSpacing: '-0.01em'
+                    }}>
+                      {parlour.businessName || 'SS AGENCY [NANDINI MILK PARLOUR]'}
+                    </h2>
+                    <div style={{ fontSize: '0.74rem', color: '#475569', marginTop: '3px', lineHeight: 1.35, maxWidth: '440px' }}>
+                      {parlour.address && `${parlour.address}, `}{parlour.state || 'Karnataka'} {parlour.pincode && `- ${parlour.pincode}`}
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: '#475569', marginTop: '2px' }}>
+                      Phone: {parlour.phone || '7022754524'} | Email: {parlour.email || 'nandini.seegehalli@gmail.com'}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                    Invoice No: <span style={{ color: '#0054a6' }}>{invoiceNumberStr}</span>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '2px' }}>
+                    Date: <strong>{invoiceDateStr}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+                    Time: <strong>{invoiceTimeStr}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+                    Month: <strong>{bill?.billingMonth || selectedMonth}</strong>
+                  </div>
+                  <div style={{ marginTop: '4px' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '0.7rem',
+                      fontWeight: 800,
+                      background: isPaid ? '#dcfce7' : '#fee2e2',
+                      color: isPaid ? '#15803d' : '#b91c1c',
+                      border: `1px solid ${isPaid ? '#86efac' : '#fca5a5'}`
+                    }}>
+                      {isPaid ? 'PAID' : (bill?.status || 'PENDING')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bill To & Delivery Details (2 columns matching screenshot) */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '16px',
+                padding: '10px 14px',
+                background: '#f8fafc',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                marginBottom: '14px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    BILL TO:
+                  </div>
+                  <div style={{ fontSize: '0.94rem', fontWeight: 900, color: '#0f172a', marginTop: '2px' }}>
+                    {customer.name}
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#475569', marginTop: '2px' }}>
+                    Contact: {customer.phone || '9099497014'}
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#475569' }}>
+                    Address: {customer.flatNo ? `Flat ${customer.flatNo}, ` : ''}{customer.address || customer.route || 'seegehalli'}
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    DELIVERY DETAILS:
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#475569', marginTop: '2px' }}>
+                    Route: <strong>{customer.route || 'Route 2'}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#475569' }}>
+                    Category: <strong>{customer.category === 'BULK_HOTEL' ? 'Bulk / Commercial' : 'Household'}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#475569' }}>
+                    Plan: <strong>{isPrepaid ? 'Prepaid (Advance)' : (isWeekly ? 'Weekly' : 'Postpaid')}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#475569' }}>
+                    Schedule: <strong style={{ color: '#0054a6' }}>{summary.totalScheduledDays || summary.totalDeliveredDays || days.length || 30} Scheduled Days (Daily)</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Item & Schedule Table */}
+              <div style={{ marginBottom: '8px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9', borderTop: '1px solid #cbd5e1', borderBottom: '2px solid #cbd5e1' }}>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', width: '36px' }}>#</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'left' }}>ITEM & SCHEDULE</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', width: '70px' }}>QUANTITY</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', width: '65px' }}>UNIT</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'right', width: '75px' }}>MRP (₹)</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'right', width: '80px' }}>PRICE (₹)</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'right', width: '90px' }}>AMOUNT (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceItems.map((item, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#fcfcfd' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{idx + 1}</td>
+                        <td style={{ padding: '6px 8px' }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.name}</div>
+                          <div style={{ marginTop: '2px' }}>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              background: '#eff6ff',
+                              border: '1px solid #bfdbfe',
+                              color: '#0054a6',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              padding: '1px 6px',
+                              borderRadius: '4px'
+                            }}>
+                              📅 {item.daysActive} Scheduled Days ({item.quantityPerDay} {item.variant}/day) • {item.frequency}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 800, color: '#0f172a' }}>{item.quantity}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{item.variant}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', color: '#475569' }}>{Number(item.mrp || 0).toFixed(2)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: '#0f172a' }}>{Number(item.price || 0).toFixed(2)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>{Number(item.amount || 0).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Delivery Schedule Bar */}
+              <div style={{
+                marginTop: '-2px',
+                marginBottom: '14px',
+                padding: '6px 10px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '4px',
+                fontSize: '0.74rem',
+                color: '#334155',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '6px'
+              }}>
+                <div>
+                  🗓️ <strong>Delivery Schedule:</strong> {summary.totalScheduledDays || summary.totalDeliveredDays || days.length || 30} Scheduled Days for <strong>{bill?.billingMonth || selectedMonth}</strong> • Days: {invoiceItems[0]?.frequency || 'Daily'}
+                </div>
+                <div style={{ color: '#0054a6', fontWeight: 800 }}>
+                  Total: {totalVolumeStr}
+                </div>
+              </div>
+
+              {/* Bill Summary Breakdown (Right) */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+                <div style={{ width: '310px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '3px' }}>
+                    <span style={{ color: '#64748b' }}>
+                      {isPrepaid ? 'Sub Total (Scheduled Days):' : 'Sub Total (Delivered Milk):'}
+                    </span>
+                    <span style={{ fontWeight: 600 }}>₹{monthBillValue.toFixed(2)}</span>
+                  </div>
+
+                  {isPrepaid && (
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '4px 8px', margin: '4px 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#0369a1', fontWeight: 700 }}>
+                        <span>Advance Deposited / Paid:</span>
+                        <span>₹{Number(customer.advanceBalance || 0).toFixed(2)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#dc2626', fontWeight: 700, marginTop: '2px' }}>
+                        <span>Advance Settled / Deducted:</span>
+                        <span>- ₹{advanceSettledValue.toFixed(2)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#15803d', fontWeight: 800, borderTop: '1px dashed #86efac', paddingTop: '2px', marginTop: '2px' }}>
+                        <span>Remaining Advance Balance:</span>
+                        <span>₹{Math.max(0, Number(customer.advanceBalance || 0) - advanceSettledValue).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', marginBottom: '3px' }}>
+                    <span style={{ color: '#64748b' }}>Round Off:</span>
+                    <span style={{ fontWeight: 600 }}>₹0.00</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', fontWeight: 800, borderTop: '1px solid #cbd5e1', paddingTop: '4px', marginBottom: '3px', color: '#0f172a' }}>
+                    <span>Total Bill:</span>
+                    <span>₹{monthBillValue.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#16a34a', marginBottom: '3px' }}>
+                    <span>Received / Adjusted:</span>
+                    <span style={{ fontWeight: 700 }}>₹{Number(bill?.paidAmount || 0).toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: netPayableValue > 0 ? '#dc2626' : '#16a34a', marginBottom: '3px' }}>
+                    <span>Net Due (Payable):</span>
+                    <span style={{ fontWeight: 700 }}>₹{netPayableValue.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', fontWeight: 800, borderTop: '1px solid #e2e8f0', paddingTop: '4px', marginTop: '3px', color: netPayableValue > 0 ? '#dc2626' : '#15803d' }}>
+                    <span>Pending Due:</span>
+                    <span>₹{netPayableValue.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Details & Authorized Signatory Section */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '16px',
+                padding: '12px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '6px',
+                marginBottom: '12px',
+                alignItems: 'center'
+              }}>
+                {/* Left: Payment Info */}
+                <div>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    PAYMENT DETAILS
+                  </div>
+                  <div style={{ fontSize: '0.78rem', marginTop: '3px', color: '#0f172a' }}>
+                    Gpay / PhonePe / Paytm: <strong style={{ color: '#0054a6' }}>{parlour.upiPhone || parlour.phone || '7022754524'}</strong>
+                  </div>
+                  {parlour.upiId && (
+                    <div style={{ fontSize: '0.78rem', marginTop: '2px' }}>
+                      UPI ID: <strong style={{ color: '#0054a6' }}>{parlour.upiId}</strong>
+                    </div>
+                  )}
+                  {parlour.upiQr ? (
+                    <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{
+                        width: '64px',
+                        height: '64px',
+                        background: 'white',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '4px',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        <img
+                          src={parlour.upiQr}
+                          alt="UPI QR Code"
+                          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#475569' }}>
+                        <strong style={{ display: 'block', color: '#0f172a' }}>Scan to Pay</strong>
+                        <span>Accepted: UPI • Cash • Bank</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '3px' }}>
+                      Accepted: UPI • Cash • Bank Transfer
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Authorized Signature */}
+                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>
+                  {parlour.signature ? (
+                    <div style={{ height: '44px', marginBottom: '2px', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+                      <img
+                        src={parlour.signature}
+                        alt="Signature"
+                        style={{ maxHeight: '44px', maxWidth: '140px', objectFit: 'contain' }}
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ height: '24px' }}></div>
+                  )}
+                  <div style={{ borderTop: '1px solid #94a3b8', paddingTop: '3px', minWidth: '150px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>Authorized Signatory</div>
+                    <div style={{ fontSize: '0.68rem', color: '#64748b' }}>{parlour.businessName || 'SS Agency [Nandini Milk Parlour]'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Customer-Friendly Quote */}
+              <div style={{ textAlign: 'center', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                <p style={{ margin: 0, fontSize: '0.74rem', color: '#64748b', fontStyle: 'italic' }}>
+                  "Thank you for choosing Nandini Milk Parlour — Freshness delivered with care."
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* Section Heading & View Selector */}
         <div style={{

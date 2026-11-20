@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 import { generateGoogleCalendarPauseUrl, generateGoogleCalendarResumeUrl } from '../../utils/calendarUtils';
+import { buildWhatsAppBillingMessage, buildWhatsAppUrl } from '../../utils/whatsappMessageHelper';
 
 // Architectural SVG thumbnails for zone types
 function ZoneBuildingThumbnail({ name = '', index = 0 }) {
@@ -152,6 +153,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
   const [extraSearchTerm, setExtraSearchTerm] = useState('');
   const [isExtraSearchOpen, setIsExtraSearchOpen] = useState(false);
   const [extraCategoryFilter, setExtraCategoryFilter] = useState('ALL');
+  const [extraDeliveryOnly, setExtraDeliveryOnly] = useState(true);
   const [extraError, setExtraError] = useState('');
   const [submittingExtra, setSubmittingExtra] = useState(false);
 
@@ -981,7 +983,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       payment_method: existingPay?.payment_method || 'CASH',
       reference_number: existingPay?.reference_number || '',
       notes: existingPay?.notes || '',
-      mark_delivered: cust.status !== 'DELIVERED'
+      mark_delivered: cust.status !== 'DELIVERED',
+      send_whatsapp: Boolean(cust.customer_phone || cust.phone)
     });
     setPaymentModalError('');
     setIsDailyPaymentModalOpen(true);
@@ -1014,6 +1017,31 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
       const res = await api.post('/deliveries/record-payment', payload);
       setIsDailyPaymentModalOpen(false);
       showToast(res?.message || `Payment of ₹${numAmt.toFixed(2)} recorded in payment recorder!`);
+
+      const phone = paymentModalCustomer.customer_phone || paymentModalCustomer.phone;
+      if (paymentModalData.send_whatsapp && phone) {
+        const msg = buildWhatsAppBillingMessage({
+          billingScheme: 'DAILY',
+          customer: {
+            id: paymentModalCustomer.customer_id,
+            name: paymentModalCustomer.customer_name,
+            flat_no: paymentModalCustomer.flat_no,
+            address: paymentModalCustomer.customer_address,
+            phone: phone
+          },
+          payment: {
+            receipt_number: res.payment?.receipt_number || res.payment?.receiptNumber || `REC-${selectedDate.replace(/-/g, '')}-${paymentModalCustomer.customer_id}`,
+            amount: numAmt,
+            delivery_amount: numAmt,
+            payment_date: selectedDate,
+            payment_method: payload.payment_method,
+            status: 'Paid ✓'
+          }
+        });
+        const url = buildWhatsAppUrl(phone, msg);
+        window.open(url, '_blank');
+      }
+
       await refreshDeliveriesOnly();
     } catch (err) {
       setPaymentModalError(err.message || 'Failed to record daily payment.');
@@ -1432,6 +1460,7 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
     setExtraSearchTerm('');
     setIsExtraSearchOpen(false);
     setExtraCategoryFilter('ALL');
+    setExtraDeliveryOnly(true);
     setExtraQuantities({});
 
     if (target) {
@@ -1475,6 +1504,38 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
         return next;
       }
       return { ...prev, [productId]: current - 1 };
+    });
+  };
+
+  const handleSetExtraQuantity = (productId, rawVal) => {
+    if (rawVal === '' || rawVal === null || rawVal === undefined) {
+      setExtraQuantities((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+      return;
+    }
+    const cleanStr = String(rawVal).replace(/[^0-9]/g, '');
+    if (!cleanStr) {
+      setExtraQuantities((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+      return;
+    }
+    const parsed = parseInt(cleanStr, 10);
+    setExtraQuantities((prev) => {
+      if (isNaN(parsed) || parsed <= 0) {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      }
+      return {
+        ...prev,
+        [productId]: Math.min(999, parsed)
+      };
     });
   };
 
@@ -4874,6 +4935,49 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             flexShrink: 0,
             scrollbarWidth: 'none'
           }}>
+            {userRole === 'ADMIN' ? (
+              <button
+                type="button"
+                onClick={() => setExtraDeliveryOnly(!extraDeliveryOnly)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '999px',
+                  border: extraDeliveryOnly ? '1.5px solid #16a34a' : '1px solid var(--border-color)',
+                  background: extraDeliveryOnly ? '#f0fdf4' : 'var(--bg-surface)',
+                  color: extraDeliveryOnly ? '#166534' : 'var(--text-secondary)',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+                title="Toggle between items configured for delivery vs all products in the shop"
+              >
+                {extraDeliveryOnly ? '🚚 Delivery Items' : '🏪 All Items'}
+              </button>
+            ) : (
+              <div
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '999px',
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  color: '#166534',
+                  fontWeight: 800,
+                  fontSize: '0.76rem',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                🚚 Delivery Items
+              </div>
+            )}
+
             {[
               { key: 'ALL', label: 'All Products' },
               { key: 'CURD', label: '🥣 Curd' },
@@ -4924,6 +5028,14 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
           <div className="select-products-scroll-area">
             {(() => {
               const filteredExtraProducts = products.filter((p) => {
+                // Strictly enforce delivery visibility for delivery boys
+                const isDeliveryItem = p.is_delivery_available !== 0 && p.is_delivery_available !== false && p.is_delivery_available !== '0';
+                if (userRole === 'DELIVERY_BOY') {
+                  if (!isDeliveryItem) return false;
+                } else if (extraDeliveryOnly && !isDeliveryItem) {
+                  return false;
+                }
+
                 const matchesSearch = !extraSearchTerm.trim() || 
                   p.name.toLowerCase().includes(extraSearchTerm.toLowerCase()) ||
                   (p.variant_label && p.variant_label.toLowerCase().includes(extraSearchTerm.toLowerCase())) ||
@@ -5033,15 +5145,33 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                             <Minus size={16} strokeWidth={3} />
                           </button>
 
-                          <span style={{
-                            minWidth: '22px',
-                            textAlign: 'center',
-                            fontWeight: 900,
-                            fontSize: '1.05rem',
-                            color: qty > 0 ? '#0284c7' : '#0f172a'
-                          }}>
-                            {qty}
-                          </span>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            min="0"
+                            max="999"
+                            className="extra-product-qty-input"
+                            value={qty === 0 ? '' : qty}
+                            placeholder="0"
+                            onChange={(e) => handleSetExtraQuantity(p.id, e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              width: '38px',
+                              height: '32px',
+                              textAlign: 'center',
+                              fontWeight: 900,
+                              fontSize: '1.05rem',
+                              color: qty > 0 ? '#0284c7' : 'var(--text-primary)',
+                              background: 'transparent',
+                              border: 'none',
+                              outline: 'none',
+                              padding: 0,
+                              margin: 0
+                            }}
+                            aria-label={`Quantity for ${p.name}`}
+                          />
 
                           <button
                             type="button"
@@ -5073,15 +5203,8 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
             })()}
           </div>
 
-          {/* Sticky Floating Bottom Bar (Matches Image 2 exactly) */}
-          <div style={{
-            position: 'absolute',
-            bottom: '14px',
-            left: '14px',
-            right: '14px',
-            zIndex: 20,
-            pointerEvents: 'none'
-          }}>
+          {/* Bottom Action Bar (Docked in flex layout with Safe Area padding) */}
+          <div className="select-products-footer-bar">
             {(() => {
               const selectedEntries = Object.entries(extraQuantities).filter(([_, q]) => q > 0);
               const totalCount = selectedEntries.reduce((sum, [_, q]) => sum + q, 0);
@@ -5097,7 +5220,6 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                   onClick={handleSaveExtra}
                   style={{
                     width: '100%',
-                    pointerEvents: 'auto',
                     background: totalCount > 0
                       ? 'linear-gradient(135deg, #0284c7, #0ea5e9)'
                       : '#94a3b8',
@@ -5110,11 +5232,12 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
                     justifyContent: 'space-between',
                     cursor: totalCount > 0 ? 'pointer' : 'not-allowed',
                     boxShadow: totalCount > 0
-                      ? '0 8px 24px rgba(2, 132, 199, 0.45)'
+                      ? '0 6px 20px rgba(2, 132, 199, 0.4)'
                       : 'none',
-                    opacity: totalCount > 0 ? 1 : 0.6,
+                    opacity: totalCount > 0 ? 1 : 0.65,
                     transition: 'all 0.2s ease',
-                    minHeight: '52px'
+                    minHeight: '52px',
+                    touchAction: 'manipulation'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -5961,6 +6084,17 @@ export default function ZoneBasedDailyDeliveries({ userRole = 'ADMIN', currentUs
               style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
             />
             <span>Mark delivery items as DELIVERED now</span>
+          </label>
+
+          {/* Checkbox: Send WhatsApp Receipt */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 700, color: '#15803d' }}>
+            <input
+              type="checkbox"
+              checked={paymentModalData.send_whatsapp}
+              onChange={(e) => setPaymentModalData({ ...paymentModalData, send_whatsapp: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
+            />
+            <span>📲 Send WhatsApp payment receipt to customer</span>
           </label>
 
           {/* Action Buttons */}

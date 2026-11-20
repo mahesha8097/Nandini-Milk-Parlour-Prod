@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../api/client';
 import html2canvas from 'html2canvas';
+import { buildWhatsAppBillingMessage } from '../../utils/whatsappMessageHelper';
 import {
   RotateCcw,
   Printer,
@@ -1567,39 +1568,30 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
       : 'https://nandini-milk-parlour-prod.vercel.app';
     const statementUrl = `${hostOrigin}/#orders?c=${selectedCustomer.id}&m=${selectedMonth}`;
 
-    const itemsSummary = calculatedItems.map(it =>
-      `• ${it.productName} (${it.variantLabel}) × ${it.quantity}/day for ${it.itemDays} days (${it.totalQty} total @ ₹${it.effectiveUnitPrice.toFixed(2)}) = ₹${it.lineTotal.toFixed(2)}`
-    ).join('\n');
-
-    let baseMsg = `*NANDINI MILK PARLOUR — ADVANCE MONTHLY BILL*\n`;
-    baseMsg += `*Invoice No:* ${invoiceNumber}\n`;
-    baseMsg += `*Month:* ${selectedMonth}\n`;
-    baseMsg += `*Customer:* ${selectedCustomer.name}\n`;
-    baseMsg += `*Schedule:* ${scheduledMilkDaysCount} Milk Days Scheduled`;
-    if (noMilkDaysCount > 0) {
-      baseMsg += ` (${noMilkDaysCount} Days: No Milk Required)`;
-    }
-    baseMsg += `\n\n*Products & Schedule:* \n${itemsSummary}\n\n`;
-    if (advanceAdjusted > 0) {
-      baseMsg += `*Total Bill:* ₹${grossTotalBill.toFixed(2)}\n`;
-      baseMsg += `*Deducted from Advance:* ₹${advanceAdjusted.toFixed(2)}\n`;
-      baseMsg += `*NET AMOUNT TO PAY:* ₹${netPayable.toFixed(2)}${netPayable === 0 ? ' (Paid from Advance Deposit ✓)' : ''}\n`;
-      if (remainingAdvance > 0) {
-        baseMsg += `*Remaining Advance Balance:* ₹${remainingAdvance.toFixed(2)}\n`;
-      }
-      baseMsg += `\n`;
-    } else {
-      baseMsg += `*TOTAL AMOUNT TO PAY:* ₹${grossTotalBill.toFixed(2)}\n\n`;
-    }
-    baseMsg += `*Payment Details:*\n`;
-    baseMsg += `*Gpay / PhonePe / Paytm:* ${businessProfile.upi_phone || '7022754524'}\n`;
-    if (businessProfile.upi_id) {
-      baseMsg += `*UPI ID:* ${businessProfile.upi_id}\n`;
-    }
-    baseMsg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
+    const baseMsg = buildWhatsAppBillingMessage({
+      billingScheme: selectedCustomer.billing_type || 'PREPAID',
+      customer: {
+        id: selectedCustomer.id,
+        name: selectedCustomer.name,
+        flat_no: selectedCustomer.flat_no,
+        address: selectedCustomer.address,
+        advance_balance: selectedCustomer.advance_balance !== undefined ? selectedCustomer.advance_balance : (remainingAdvance + advanceAdjusted),
+        coupon_balance: selectedCustomer.coupon_balance || 0
+      },
+      bill: {
+        bill_number: invoiceNumber,
+        billing_month: selectedMonth,
+        gross_amount: grossTotalBill,
+        advance_adjusted: advanceAdjusted,
+        paid_amount: advanceAdjusted,
+        net_payable: netPayable
+      },
+      profile: businessProfile,
+      statementUrl
+    });
 
     if (!invoiceElement) {
-      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg + '\nThank you for choosing Nandini Milk Parlour! 🙏')}`;
+      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg)}`;
       if (whatsappTab && !whatsappTab.closed) {
         whatsappTab.location.href = fallbackUrl;
       } else {
@@ -1679,11 +1671,28 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         }
       }
 
-      let fullMsg = baseMsg;
-      if (cloudImageUrl) {
-        fullMsg += `\n📸 *View / Download Invoice Picture:* \n${cloudImageUrl}\n`;
-      }
-      fullMsg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
+      const fullMsg = buildWhatsAppBillingMessage({
+        billingScheme: selectedCustomer.billing_type || 'PREPAID',
+        customer: {
+          id: selectedCustomer.id,
+          name: selectedCustomer.name,
+          flat_no: selectedCustomer.flat_no,
+          address: selectedCustomer.address,
+          advance_balance: selectedCustomer.advance_balance !== undefined ? selectedCustomer.advance_balance : (remainingAdvance + advanceAdjusted),
+          coupon_balance: selectedCustomer.coupon_balance || 0
+        },
+        bill: {
+          bill_number: invoiceNumber,
+          billing_month: selectedMonth,
+          gross_amount: grossTotalBill,
+          advance_adjusted: advanceAdjusted,
+          paid_amount: advanceAdjusted,
+          net_payable: netPayable
+        },
+        profile: businessProfile,
+        statementUrl,
+        cloudImageUrl
+      });
 
       const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(fullMsg)}`;
       setWhatsappDirectUrl(whatsappUrl);
@@ -1694,7 +1703,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
           try {
             await navigator.share({
               title: `Invoice ${invoiceNumber}`,
-              text: `Nandini Milk Parlour — Invoice ${invoiceNumber}\nCustomer: ${selectedCustomer.name}\nNet Payable: ₹${netPayable.toFixed(2)}${cloudImageUrl ? '\n\n📸 Invoice Picture: ' + cloudImageUrl : ''}`,
+              text: fullMsg,
               files: [file]
             });
             return;
@@ -1765,7 +1774,7 @@ export default function MonthlyBillGeneratePage({ initialCustomerId, onClose, on
         invoiceElement.style.maxWidth = prevMaxWidth;
       }
       console.error('Invoice capture error:', err);
-      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg + '\nThank you for choosing Nandini Milk Parlour! 🙏')}`;
+      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg)}`;
       if (whatsappTab && !whatsappTab.closed) {
         whatsappTab.location.href = fallbackUrl;
       } else {

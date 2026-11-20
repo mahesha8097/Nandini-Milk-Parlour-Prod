@@ -77,7 +77,7 @@ router.post('/upload-image', requireAdmin, handleUpload(upload.single('image')),
 // Get all products (Admin can see all, Delivery Boy / general can see active products)
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const { includeInactive, coupon_eligible } = req.query;
+    const { includeInactive, coupon_eligible, delivery_only } = req.query;
     const agentId = req.agentId || 1;
     let query = 'SELECT * FROM products WHERE agent_id = ?';
     if (includeInactive !== 'true') {
@@ -85,6 +85,9 @@ router.get('/', verifyToken, async (req, res) => {
     }
     if (coupon_eligible === 'true' || coupon_eligible === '1') {
       query += ' AND is_coupon_eligible = 1';
+    }
+    if (delivery_only === 'true' || delivery_only === '1') {
+      query += ' AND is_delivery_available = 1';
     }
     query += ' ORDER BY category ASC, name ASC, variant_label ASC';
     let products = await db.prepare(query).all(agentId);
@@ -139,6 +142,7 @@ router.post('/', requireAdmin, async (req, res) => {
       image_url,
       is_active,
       is_coupon_eligible,
+      is_delivery_available,
       apply_to_today
     } = req.body;
 
@@ -161,14 +165,17 @@ router.post('/', requireAdmin, async (req, res) => {
     const couponEligible = is_coupon_eligible !== undefined
       ? (is_coupon_eligible ? 1 : 0)
       : (category === 'Milk' || category === 'MILK' ? 1 : 0);
+    const deliveryAvailable = is_delivery_available !== undefined
+      ? (is_delivery_available ? 1 : 0)
+      : 1;
     const agentId = req.agentId || 1;
 
     const stmt = db.prepare(`
       INSERT INTO products (
         name, category, variant_label, unit_volume_litres, selling_price,
-        delivery_charge_type, fixed_delivery_charge, is_coupon_eligible, is_active, image_url,
+        delivery_charge_type, fixed_delivery_charge, is_coupon_eligible, is_delivery_available, is_active, image_url,
         agent_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
     `);
 
     const result = await stmt.run(
@@ -180,6 +187,7 @@ router.post('/', requireAdmin, async (req, res) => {
       chargeType,
       fixedCharge,
       couponEligible,
+      deliveryAvailable,
       active,
       image_url || null,
       agentId
@@ -225,6 +233,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       image_url,
       is_active,
       is_coupon_eligible,
+      is_delivery_available,
       apply_to_today
     } = req.body;
 
@@ -260,13 +269,16 @@ router.put('/:id', requireAdmin, async (req, res) => {
     const couponEligible = is_coupon_eligible !== undefined
       ? (is_coupon_eligible ? 1 : 0)
       : (existing.is_coupon_eligible !== undefined ? existing.is_coupon_eligible : (trimmedCategory.toLowerCase() === 'milk' ? 1 : 0));
+    const deliveryAvailable = is_delivery_available !== undefined
+      ? (is_delivery_available ? 1 : 0)
+      : (existing.is_delivery_available !== undefined ? existing.is_delivery_available : 1);
     const imageUrl = image_url !== undefined ? (image_url ? image_url.trim() : null) : existing.image_url;
 
     await db.prepare(`
       UPDATE products
       SET name = ?, category = ?, variant_label = ?, unit_volume_litres = ?,
           selling_price = ?, delivery_charge_type = ?, fixed_delivery_charge = ?,
-          is_coupon_eligible = ?, image_url = ?, is_active = ?, updated_at = datetime('now', 'localtime')
+          is_coupon_eligible = ?, is_delivery_available = ?, image_url = ?, is_active = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
       trimmedName,
@@ -277,6 +289,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       chargeType,
       fixedCharge,
       couponEligible,
+      deliveryAvailable,
       imageUrl,
       active,
       productId
@@ -427,6 +440,24 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('Delete product error:', err);
     res.status(500).json({ error: err.message || 'Failed to delete product' });
+  }
+});
+
+// Quick toggle delivery availability for delivery boys (Admin only)
+router.patch('/:id/toggle-delivery', requireAdmin, async (req, res) => {
+  try {
+    const product = await db.prepare('SELECT id, name, is_delivery_available FROM products WHERE id = ?').get(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    const nextVal = product.is_delivery_available ? 0 : 1;
+    await db.prepare("UPDATE products SET is_delivery_available = ?, updated_at = datetime('now', 'localtime') WHERE id = ?").run(nextVal, product.id);
+    res.json({
+      success: true,
+      id: product.id,
+      is_delivery_available: nextVal,
+      message: `${product.name} is now ${nextVal ? 'enabled for' : 'hidden from'} delivery boys.`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to toggle delivery availability' });
   }
 });
 

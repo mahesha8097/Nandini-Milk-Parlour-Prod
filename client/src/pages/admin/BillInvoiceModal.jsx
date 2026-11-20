@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import html2canvas from 'html2canvas';
 import Modal from '../../components/common/Modal';
+import { buildWhatsAppBillingMessage } from '../../utils/whatsappMessageHelper';
 import {
   Printer,
   RotateCcw,
@@ -260,50 +261,26 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
     const monthParam = (bill.end_date || bill.start_date || bill.billing_month || '').slice(0, 7);
     const statementUrl = `${hostOrigin}/#orders?c=${bill.customer_id}&b=${bill.id}&m=${encodeURIComponent(monthParam)}`;
 
-    let baseMsg = `*${profile.invoice_business_name || profile.business_name || 'NANDINI MILK PARLOUR'} — INVOICE*\n`;
-    baseMsg += `*Invoice No:* ${bill.bill_number}\n`;
-    baseMsg += `*Month:* ${bill.billing_month}\n`;
-    baseMsg += `*Customer:* ${bill.customer_name}\n`;
-    if (bill.total_deliveries_count) {
-      baseMsg += `*Schedule:* ${bill.total_deliveries_count} Scheduled Days${items[0]?.custom_days ? ` (${items[0].custom_days})` : (bill.billing_type === 'PREPAID' ? ' (Full Month Advance)' : '')}\n`;
-    }
-    baseMsg += `\n`;
-    
-    if (items && items.length > 0) {
-      const itemsList = items.map(it => {
-        const pName = it.product_name || it.product_name_snapshot;
-        const vLabel = it.variant_label || it.variant_snapshot || 'Pkt';
-        const totalQty = Number(it.total_quantity || it.quantity) || 1;
-        const perDay = it.quantity_per_day || (it.days_active_in_month ? Math.round(totalQty / it.days_active_in_month) : null);
-        const days = it.days_active_in_month || it.delivered_days_count || bill.total_deliveries_count;
-        const subSchedule = perDay && days ? ` (${perDay}/day × ${days} days)` : '';
-        const lineAmt = Number(it.total_line_amount || it.total_amount) || 0;
-        return `• ${pName} (${vLabel}) × ${totalQty}${subSchedule} = ₹${lineAmt.toFixed(2)}`;
-      }).join('\n');
-      baseMsg += `*Item & Schedule Details:* \n${itemsList}\n\n`;
-    }
-
-    baseMsg += `*Gross Bill:* ₹${grossAmount.toFixed(2)}\n`;
-    if (advanceAdjusted > 0) {
-      baseMsg += `*Advance Settled:* -₹${advanceAdjusted.toFixed(2)}\n`;
-    }
-    if (totalReceived > 0) {
-      baseMsg += `*Amount Received:* ₹${totalReceived.toFixed(2)}\n`;
-    }
-    baseMsg += `*Net Payable:* ₹${netPayable.toFixed(2)}\n`;
-    if (previousDue > 0) {
-      baseMsg += `*Previous Due:* ₹${previousDue.toFixed(2)}\n`;
-      baseMsg += `*Total Amount Due:* ₹${(netPayable + previousDue).toFixed(2)}\n`;
-    }
-    if (remainingAdvance > 0) {
-      baseMsg += `*Remaining Advance Balance:* ₹${remainingAdvance.toFixed(2)}\n`;
-    }
-    baseMsg += `\n*Payment Details:*\n`;
-    baseMsg += `*Gpay / PhonePe / Paytm:* ${profile.upi_phone || '7022754524'}\n`;
-    if (profile.upi_id) {
-      baseMsg += `*UPI ID:* ${profile.upi_id}\n`;
-    }
-    baseMsg += `\n📱 *View Daily Deliveries & Online Invoice:* \n${statementUrl}\n`;
+    const baseMsg = buildWhatsAppBillingMessage({
+      billingScheme: bill.billing_type || customer?.billing_type,
+      customer: {
+        id: bill.customer_id,
+        name: bill.customer_name,
+        flat_no: bill.customer_flat_no || customer?.flat_no,
+        address: bill.customer_address || customer?.address,
+        advance_balance: customer?.advance_balance !== undefined ? customer.advance_balance : (remainingAdvance + advanceAdjusted),
+        coupon_balance: customer?.coupon_balance || 0
+      },
+      bill: {
+        ...bill,
+        gross_amount: grossAmount,
+        advance_adjusted: advanceAdjusted,
+        paid_amount: totalReceived,
+        net_payable: netPayable
+      },
+      profile,
+      statementUrl
+    });
 
     const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
 
@@ -334,7 +311,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
 
     const invoiceElement = document.getElementById('printable-invoice-content');
     if (!invoiceElement) {
-      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg + '\nThank you for choosing Nandini Milk Parlour! 🙏')}`;
+      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg)}`;
       if (whatsappTab && !whatsappTab.closed) {
         whatsappTab.location.href = fallbackUrl;
       } else {
@@ -400,11 +377,27 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
         }
       }
 
-      let fullMsg = baseMsg;
-      if (cloudImageUrl) {
-        fullMsg += `\n📸 *View / Download Invoice Picture:* \n${cloudImageUrl}\n`;
-      }
-      fullMsg += `\nThank you for choosing Nandini Milk Parlour! 🙏`;
+      const fullMsg = buildWhatsAppBillingMessage({
+        billingScheme: bill.billing_type || customer?.billing_type,
+        customer: {
+          id: bill.customer_id,
+          name: bill.customer_name,
+          flat_no: bill.customer_flat_no || customer?.flat_no,
+          address: bill.customer_address || customer?.address,
+          advance_balance: customer?.advance_balance !== undefined ? customer.advance_balance : (remainingAdvance + advanceAdjusted),
+          coupon_balance: customer?.coupon_balance || 0
+        },
+        bill: {
+          ...bill,
+          gross_amount: grossAmount,
+          advance_adjusted: advanceAdjusted,
+          paid_amount: totalReceived,
+          net_payable: netPayable
+        },
+        profile,
+        statementUrl,
+        cloudImageUrl
+      });
 
       const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(fullMsg)}`;
       setWhatsappDirectUrl(whatsappUrl);
@@ -415,7 +408,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
           try {
             await navigator.share({
               title: `Invoice ${bill.bill_number}`,
-              text: `Nandini Milk Parlour — Invoice ${bill.bill_number}\nCustomer: ${bill.customer_name}\nNet Payable: ₹${netPayable.toFixed(2)}${cloudImageUrl ? '\n\n📸 Invoice Picture: ' + cloudImageUrl : ''}`,
+              text: fullMsg,
               files: [file]
             });
             return;
@@ -481,7 +474,7 @@ export default function BillInvoiceModal({ billId, isOpen, onClose, onRecalculat
       setTimeout(() => setToastMsg(''), 10000);
     } catch (err) {
       console.error('Invoice capture error:', err);
-      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg + '\nThank you for choosing Nandini Milk Parlour! 🙏')}`;
+      const fallbackUrl = `https://api.whatsapp.com/send?phone=${phoneFormatted}&text=${encodeURIComponent(baseMsg)}`;
       if (whatsappTab && !whatsappTab.closed) {
         whatsappTab.location.href = fallbackUrl;
       } else {

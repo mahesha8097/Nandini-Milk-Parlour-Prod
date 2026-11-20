@@ -29,6 +29,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { getLocalDateString } from '../../utils/dateUtils';
+import { buildWhatsAppBillingMessage, buildWhatsAppUrl } from '../../utils/whatsappMessageHelper';
 
 export default function PaymentsPage({ initialOpenAdd = false }) {
   // Primary Tab state: 'pending' (Pending Customers with Dues) vs 'history' (Payment History Receipts)
@@ -223,6 +224,47 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
     });
     setIsModalOpen(true);
     await handleCustomerChange(cust.id, dueAmount > 0 ? dueAmount : null);
+  };
+
+  const handleSharePaymentWhatsApp = (payment) => {
+    const cust = customers.find(c => c.id === payment.customer_id) || {};
+    const phone = payment.customer_phone || cust.phone;
+    if (!phone) {
+      alert('No phone number recorded for this customer.');
+      return;
+    }
+
+    const isDaily = payment.payment_type === 'DAILY_PAYMENT' || payment.customer_billing_type === 'DAILY' || cust.billing_type === 'DAILY';
+    const msg = buildWhatsAppBillingMessage({
+      billingScheme: isDaily ? 'DAILY' : (payment.customer_billing_type || cust.billing_type || 'POSTPAID'),
+      customer: {
+        id: payment.customer_id,
+        name: payment.customer_name || cust.name,
+        flat_no: payment.customer_flat_no || cust.flat_no,
+        address: cust.address,
+        phone: phone,
+        advance_balance: cust.advance_balance || 0
+      },
+      payment: {
+        receipt_number: payment.receipt_number,
+        amount: payment.amount,
+        delivery_amount: payment.amount,
+        payment_date: payment.payment_date,
+        payment_method: payment.payment_method,
+        reference_number: payment.reference_number,
+        status: 'Paid ✓'
+      },
+      bill: {
+        bill_number: payment.receipt_number,
+        bill_date: payment.payment_date,
+        gross_amount: payment.amount,
+        paid_amount: payment.amount,
+        net_payable: 0
+      }
+    });
+
+    const url = buildWhatsAppUrl(phone, msg);
+    window.open(url, '_blank');
   };
 
   const handleOpenEdit = (payment) => {
@@ -1297,6 +1339,14 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                         <td>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button
+                              onClick={() => handleSharePaymentWhatsApp(p)}
+                              className="btn btn-outline btn-sm"
+                              style={{ padding: '6px 10px', color: '#16a34a', borderColor: '#86efac' }}
+                              title="Share Payment Receipt via WhatsApp"
+                            >
+                              <MessageCircle size={15} />
+                            </button>
+                            <button
                               onClick={() => handleOpenEdit(p)}
                               className="btn btn-outline btn-sm"
                               style={{ padding: '6px 10px' }}
@@ -1368,6 +1418,14 @@ export default function PaymentsPage({ initialOpenAdd = false }) {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={() => handleSharePaymentWhatsApp(p)}
+                          className="btn btn-outline btn-sm"
+                          style={{ padding: '6px 10px', color: '#16a34a', borderColor: '#86efac' }}
+                          title="Share Receipt on WhatsApp"
+                        >
+                          <MessageCircle size={15} />
+                        </button>
                         <button
                           onClick={() => handleOpenEdit(p)}
                           className="btn btn-outline btn-sm"

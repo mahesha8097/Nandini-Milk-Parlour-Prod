@@ -17,6 +17,7 @@ router.get('/', requireAdmin, async (req, res) => {
 
     let query = `
       SELECT p.*, c.name as customer_name, c.phone as customer_phone,
+             c.flat_no as customer_flat_no, c.billing_type as customer_billing_type,
              c.customer_category, u.name as recorded_by_name
       FROM payments p
       JOIN customers c ON p.customer_id = c.id

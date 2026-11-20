@@ -23,9 +23,11 @@ import {
   Trash2,
   Milk,
   Check,
-  Filter
+  Filter,
+  MessageCircle
 } from 'lucide-react';
 import CustomerSearchSelect from '../../components/common/CustomerSearchSelect';
+import { buildWhatsAppBillingMessage, buildWhatsAppUrl, formatShortDate, formatMonthName } from '../../utils/whatsappMessageHelper';
 
 export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
   const [activeTab, setActiveTab] = useState('CUSTOMERS'); // 'CUSTOMERS' or 'BOOKS'
@@ -291,6 +293,42 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
     });
   };
 
+  const handleShareCouponBookWhatsApp = (b) => {
+    const cust = customers.find(c => (c.id || c.customerId) === b.customer_id) || {};
+    const phone = b.customer_phone || cust.phone;
+    if (!phone) {
+      alert('No phone number recorded for this customer.');
+      return;
+    }
+
+    const msg = buildWhatsAppBillingMessage({
+      billingScheme: 'COUPON',
+      customer: {
+        id: b.customer_id,
+        name: b.customer_name || cust.customerName || cust.name,
+        flat_no: b.customer_flat_no || cust.flatNo || cust.flat_no,
+        address: b.customer_address || cust.address,
+        phone: phone,
+        coupon_balance: b.remaining_coupons !== undefined ? b.remaining_coupons : (cust.couponBalance || 0)
+      },
+      coupon: {
+        book_number: b.book_number,
+        total_coupons: b.total_coupons,
+        used_coupons: b.used_coupons,
+        remaining_coupons: b.remaining_coupons,
+        period: b.start_date && b.end_date ? `${formatShortDate(b.start_date)} – ${formatShortDate(b.end_date)}` : (b.month_year ? formatMonthName(b.month_year) : 'Current Period')
+      },
+      bill: {
+        bill_number: b.book_number,
+        gross_amount: b.total_amount || b.price_paid,
+        net_payable: b.status === 'PAID' ? 0 : (b.total_amount || b.price_paid || 0)
+      }
+    });
+
+    const url = buildWhatsAppUrl(phone, msg);
+    window.open(url, '_blank');
+  };
+
   const handleOpenEditModal = (book) => {
     setEditBookForm({
       id: book.id,
@@ -492,7 +530,7 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
   });
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto', minHeight: '100vh', background: '#f8fafc', backgroundColor: '#f8fafc' }}>
+    <div className="page-wrapper" style={{ minHeight: '100vh', background: '#f8fafc', backgroundColor: '#f8fafc' }}>
       {/* Alert message */}
       {message.text && (
         <div
@@ -1549,6 +1587,24 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
                         <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
                             <button
+                              onClick={() => handleShareCouponBookWhatsApp(b)}
+                              className="btn btn-outline"
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                color: '#16a34a',
+                                borderColor: '#86efac'
+                              }}
+                              title="Share Coupon Statement / Book via WhatsApp"
+                            >
+                              <MessageCircle size={13} />
+                              Share
+                            </button>
+
+                            <button
                               onClick={() => handleOpenEditModal(b)}
                               className="btn btn-outline"
                               style={{
@@ -1770,6 +1826,25 @@ export default function CouponsPage({ onNavigate, initialCustomerId = null }) {
 
                   {/* Mobile Actions */}
                   <div className="mobile-card-actions" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+                    <button
+                      onClick={() => handleShareCouponBookWhatsApp(b)}
+                      className="btn btn-outline"
+                      style={{
+                        flex: 1,
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        color: '#16a34a',
+                        borderColor: '#86efac'
+                      }}
+                      title="Share Coupon Statement on WhatsApp"
+                    >
+                      <MessageCircle size={13} />
+                      WhatsApp
+                    </button>
                     <button
                       onClick={() => handleOpenEditModal(b)}
                       className="btn btn-outline"

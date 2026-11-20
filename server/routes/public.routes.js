@@ -729,6 +729,8 @@ router.get('/statement', async (req, res) => {
           netPayable: bill.net_payable,
           paidAmount: bill.paid_amount,
           status: bill.status,
+          createdAt: bill.created_at,
+          totalDeliveriesCount: bill.total_deliveries_count,
           items: bill.items_json ? (typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json) : []
         } : null,
         summary: {
@@ -848,6 +850,8 @@ router.get('/statement', async (req, res) => {
           netPayable: Number(bill.net_payable || 0),
           paidAmount: Number(bill.paid_amount || 0),
           status: bill.status,
+          createdAt: bill.created_at,
+          totalDeliveriesCount: bill.total_deliveries_count,
           items: bill.items_json ? (typeof bill.items_json === 'string' ? JSON.parse(bill.items_json) : bill.items_json) : []
         } : null,
         summary: {
