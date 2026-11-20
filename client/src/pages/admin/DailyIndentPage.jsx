@@ -3,48 +3,24 @@ import { api } from '../../api/client';
 import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 import {
   TrendingUp,
-  ShoppingBag,
   Calendar,
   ChevronLeft,
   ChevronRight,
   Plus,
   Trash2,
   Save,
-  ArrowRight,
-  AlertCircle,
   CheckCircle2,
   Package,
-  RotateCcw,
-  FileText,
-  DollarSign,
-  Truck,
-  Info,
   RefreshCw,
   Search,
-  Filter,
-  Layers,
-  Clock,
-  Coins,
-  ArrowUpRight,
-  Check,
-  X,
-  Edit2,
-  Download,
-  Printer,
-  ChevronDown,
+  SlidersHorizontal,
   Sparkles,
-  AlertTriangle,
-  MinusCircle,
   ShoppingCart,
   Boxes,
-  Bell,
-  Phone,
-  SlidersHorizontal,
-  Home,
-  Tag,
-  User,
-  CreditCard,
-  ChevronRight as ChevronRightIcon
+  DollarSign,
+  Download,
+  Printer,
+  ArrowRight
 } from 'lucide-react';
 
 // Currency formatter
@@ -60,36 +36,18 @@ const formatUnits = (val) => {
 
 export default function DailyIndentPage() {
   const [currentDate, setCurrentDate] = useState(getLocalDateString());
-  
-  // Active Navigation View:
-  // 'KMF_HOME'           : The KMF Daily Orders dashboard (Images 1 & 2)
-  // 'KMF_CHANGE_SUBSCRI' : The KMF Indent Entry screen (Image 4)
-  // 'PROFIT_ANALYSIS'    : Comprehensive Shop Profit & Margins analysis
-  // 'CLOSING_STOCK'      : Day close & stock carry forward
-  const [activeView, setActiveView] = useState('KMF_HOME');
-  
-  // Subscriptions Modal Sheet State (Image 3)
-  const [showSubscriptionsModal, setShowSubscriptionsModal] = useState(false);
-  const [payModalOpen, setPayModalOpen] = useState(false);
+  // Tabs: 'ENTRY' (Indent Entry) | 'PROFIT' (Shop Profit & Margins) | 'CLOSING' (Stock Reconciliation)
+  const [activeTab, setActiveTab] = useState('ENTRY');
 
   // Indent metadata
   const [invoiceNo, setInvoiceNo] = useState('');
-  const [supplierName, setSupplierName] = useState('KMF / Nandini Dairy');
-  const [parlourName, setParlourName] = useState('SUBRAMANI');
-  const [routeCode, setRouteCode] = useState('151(16240)');
-  const [customerId, setCustomerId] = useState('S575');
-  const [supplierPhone, setSupplierPhone] = useState('7022754524');
-  const [securityDeposit, setSecurityDeposit] = useState(100000.0);
-  const [totalBalanceDues, setTotalBalanceDues] = useState(35829.79);
-  const [crateDeposit, setCrateDeposit] = useState('0');
-  const [otherCharges, setOtherCharges] = useState('0');
   const [status, setStatus] = useState('OPEN');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([]);
   const [indentExists, setIndentExists] = useState(false);
   const [lastUpdatedTime, setLastUpdatedTime] = useState('09:30 AM');
 
-  // Search & Filter in Change Subscription
+  // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
 
@@ -113,7 +71,7 @@ export default function DailyIndentPage() {
     setCurrentDate(d.toISOString().split('T')[0]);
   };
 
-  // Load catalog products for dropdown
+  // Load catalog products for reference
   useEffect(() => {
     const loadCatalog = async () => {
       try {
@@ -145,9 +103,6 @@ export default function DailyIndentPage() {
         setIndentExists(indentRes.exists || false);
         const ind = indentRes.indent || {};
         setInvoiceNo(ind.invoice_no || '');
-        setSupplierName(ind.supplier_name || 'KMF / Nandini Dairy');
-        setCrateDeposit(String(ind.crate_deposit_amount || 0));
-        setOtherCharges(String(ind.other_charges || 0));
         setStatus(ind.status || 'OPEN');
         setNotes(ind.notes || '');
 
@@ -180,7 +135,6 @@ export default function DailyIndentPage() {
             }))
           );
         } else {
-          // If no items exist yet for today, load the standard KMF template
           handleLoadTemplate(false);
         }
       } else {
@@ -260,9 +214,9 @@ export default function DailyIndentPage() {
       await api.post('/indents', {
         indent_date: currentDate,
         invoice_no: invoiceNo,
-        supplier_name: supplierName,
-        crate_deposit_amount: parseFloat(crateDeposit) || 0,
-        other_charges: parseFloat(otherCharges) || 0,
+        supplier_name: 'KMF / Nandini Mother Dairy',
+        crate_deposit_amount: 0,
+        other_charges: 0,
         status: finalStatus,
         notes,
         items
@@ -300,15 +254,15 @@ export default function DailyIndentPage() {
       await api.post('/indents', {
         indent_date: currentDate,
         invoice_no: invoiceNo,
-        supplier_name: supplierName,
-        crate_deposit_amount: parseFloat(crateDeposit) || 0,
-        other_charges: parseFloat(otherCharges) || 0,
+        supplier_name: 'KMF / Nandini Mother Dairy',
+        crate_deposit_amount: 0,
+        other_charges: 0,
         status: 'CLOSED',
         notes,
         items
       });
       await api.post('/indents/push-leftover', { date: currentDate });
-      showToast(`Day successfully closed! Stock carried forward to ${formatDisplayDate(nextDate)}`);
+      showToast(`Day closed! Stock carried forward to ${formatDisplayDate(nextDate)}`);
       setStatus('CLOSED');
       fetchData(currentDate);
     } catch (err) {
@@ -318,7 +272,7 @@ export default function DailyIndentPage() {
     }
   };
 
-  // Calculated Real-Time Totals
+  // Calculated Real-Time Totals & Profit
   const totals = useMemo(() => {
     return items.reduce(
       (acc, it) => {
@@ -334,14 +288,15 @@ export default function DailyIndentPage() {
         const sold = Math.max(0, totalAvail - (closing + damage + missing));
 
         const inwardCost = inward * pPrice;
-        const salesRev = sold * sPrice;
         const potentialFullSales = inward * sPrice;
-        const cogs = sold * pPrice;
-        const grossMargin = salesRev - cogs;
         const potentialProfit = potentialFullSales - inwardCost;
+
+        const actualSalesRev = sold * sPrice;
+        const cogs = sold * pPrice;
+        const grossMargin = actualSalesRev - cogs;
         const damageVal = damage * pPrice;
         const missingVal = missing * pPrice;
-        const netProfit = grossMargin - damageVal - missingVal;
+        const actualProfit = grossMargin - damageVal - missingVal;
 
         if (inward > 0) {
           acc.orderedProductsCount += 1;
@@ -356,14 +311,10 @@ export default function DailyIndentPage() {
         acc.totalClosingQty += closing;
 
         acc.totalInwardCost += inwardCost;
-        acc.totalSalesRev += salesRev;
         acc.totalPotentialSales += potentialFullSales;
-        acc.totalCOGS += cogs;
-        acc.totalGrossMargin += grossMargin;
         acc.totalPotentialProfit += potentialProfit;
-        acc.totalDamageLoss += damageVal;
-        acc.totalMissingLoss += missingVal;
-        acc.totalNetProfit += netProfit;
+        acc.totalActualSalesRev += actualSalesRev;
+        acc.totalActualProfit += actualProfit;
 
         return acc;
       },
@@ -377,19 +328,15 @@ export default function DailyIndentPage() {
         totalMissingQty: 0,
         totalClosingQty: 0,
         totalInwardCost: 0,
-        totalSalesRev: 0,
         totalPotentialSales: 0,
-        totalCOGS: 0,
-        totalGrossMargin: 0,
         totalPotentialProfit: 0,
-        totalDamageLoss: 0,
-        totalMissingLoss: 0,
-        totalNetProfit: -(parseFloat(otherCharges) || 0)
+        totalActualSalesRev: 0,
+        totalActualProfit: 0
       }
     );
-  }, [items, otherCharges]);
+  }, [items]);
 
-  // Filtered Items for Change Subscri...
+  // Filtered Items for Indent Entry
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
       if (searchQuery.trim()) {
@@ -409,18 +356,8 @@ export default function DailyIndentPage() {
     });
   }, [items, searchQuery, categoryFilter]);
 
-  // Format month label for Subscriptions modal (e.g. NOV 2026)
-  const monthYearLabel = useMemo(() => {
-    try {
-      const dt = new Date(currentDate + 'T12:00:00Z');
-      return dt.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }).toUpperCase();
-    } catch {
-      return 'NOV 2026';
-    }
-  }, [currentDate]);
-
   return (
-    <div style={{ maxWidth: '780px', margin: '0 auto', paddingBottom: '90px' }}>
+    <div className="page-wrapper" style={{ maxWidth: '820px', margin: '0 auto', paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 20px))' }}>
       {/* Toast Notification */}
       {toastMsg && (
         <div
@@ -446,748 +383,286 @@ export default function DailyIndentPage() {
         </div>
       )}
 
-      {/* Top Application Mode Selector Pill Bar */}
+      {/* Clean Top Date & Action Header */}
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '10px 14px',
         background: '#ffffff',
-        borderRadius: '14px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-        marginBottom: '12px',
-        gap: '8px',
-        overflowX: 'auto',
-        scrollbarWidth: 'none'
+        borderRadius: '16px',
+        padding: '14px 18px',
+        boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+        marginBottom: '14px',
+        border: '1px solid #f1f5f9'
       }}>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={() => setActiveView('KMF_HOME')}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '999px',
-              fontSize: '0.82rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              border: 'none',
-              background: activeView === 'KMF_HOME' ? '#ea580c' : '#f1f5f9',
-              color: activeView === 'KMF_HOME' ? '#ffffff' : '#475569',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <Home size={15} />
-            <span>KMF Daily Orders</span>
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <h1 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ShoppingCart size={24} color="#ea580c" />
+              <span>Daily Indent & Shop Profit</span>
+            </h1>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '2px 0 0' }}>
+              Enter daily KMF procurement indent and calculate exact shop profit
+            </p>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => setActiveView('KMF_CHANGE_SUBSCRI')}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '999px',
-              fontSize: '0.82rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              border: 'none',
-              background: activeView === 'KMF_CHANGE_SUBSCRI' ? '#ea580c' : '#f1f5f9',
-              color: activeView === 'KMF_CHANGE_SUBSCRI' ? '#ffffff' : '#475569',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <ShoppingCart size={15} />
-            <span>Indent Entry</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveView('PROFIT_ANALYSIS')}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '999px',
-              fontSize: '0.82rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              border: 'none',
-              background: activeView === 'PROFIT_ANALYSIS' ? '#16a34a' : '#f1f5f9',
-              color: activeView === 'PROFIT_ANALYSIS' ? '#ffffff' : '#475569',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <TrendingUp size={15} />
-            <span>💰 Shop Profit ({formatINR(totals.totalPotentialProfit)})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveView('CLOSING_STOCK')}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '999px',
-              fontSize: '0.82rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              border: 'none',
-              background: activeView === 'CLOSING_STOCK' ? '#0284c7' : '#f1f5f9',
-              color: activeView === 'CLOSING_STOCK' ? '#ffffff' : '#475569',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <Boxes size={15} />
-            <span>Day Close</span>
-          </button>
+          {/* Date Selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => changeDateBy(-1)}
+              style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 8px', cursor: 'pointer' }}
+              title="Previous Day"
+            >
+              <ChevronLeft size={16} color="#475569" />
+            </button>
+            <input
+              type="date"
+              value={currentDate}
+              onChange={(e) => setCurrentDate(e.target.value)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '8px',
+                border: '1.5px solid #cbd5e1',
+                fontSize: '0.84rem',
+                fontWeight: 800,
+                color: '#1e293b'
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => changeDateBy(1)}
+              style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 8px', cursor: 'pointer' }}
+              title="Next Day"
+            >
+              <ChevronRight size={16} color="#475569" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentDate(getLocalDateString())}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '8px',
+                border: '1px solid #fed7aa',
+                background: '#fff7ed',
+                color: '#ea580c',
+                fontSize: '0.78rem',
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+            >
+              Today
+            </button>
+          </div>
         </div>
 
-        {/* Date Selector in Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+        {/* 2 Primary Navigation Tabs */}
+        <div style={{ display: 'flex', gap: '8px', marginTop: '14px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
           <button
             type="button"
-            onClick={() => changeDateBy(-1)}
-            style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer' }}
-          >
-            <ChevronLeft size={16} color="#64748b" />
-          </button>
-          <input
-            type="date"
-            value={currentDate}
-            onChange={(e) => setCurrentDate(e.target.value)}
+            onClick={() => setActiveTab('ENTRY')}
             style={{
-              padding: '4px 8px',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              color: '#334155'
+              flex: 1,
+              padding: '10px 14px',
+              borderRadius: '10px',
+              fontSize: '0.9rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              border: 'none',
+              background: activeTab === 'ENTRY' ? '#ea580c' : '#f8fafc',
+              color: activeTab === 'ENTRY' ? '#ffffff' : '#64748b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              boxShadow: activeTab === 'ENTRY' ? '0 4px 12px rgba(234, 88, 12, 0.25)' : 'none',
+              transition: 'all 0.15s ease'
             }}
-          />
+          >
+            <ShoppingCart size={17} />
+            <span>Indent Entry ({formatUnits(totals.totalInwardQty)} Pkts)</span>
+          </button>
+
           <button
             type="button"
-            onClick={() => changeDateBy(1)}
-            style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer' }}
+            onClick={() => setActiveTab('PROFIT')}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              borderRadius: '10px',
+              fontSize: '0.9rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              border: 'none',
+              background: activeTab === 'PROFIT' ? '#16a34a' : '#f8fafc',
+              color: activeTab === 'PROFIT' ? '#ffffff' : '#64748b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              boxShadow: activeTab === 'PROFIT' ? '0 4px 12px rgba(22, 163, 74, 0.25)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
           >
-            <ChevronRight size={16} color="#64748b" />
+            <TrendingUp size={17} />
+            <span>Shop Profit (+{formatINR(totals.totalPotentialProfit)})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('CLOSING')}
+            style={{
+              padding: '10px 14px',
+              borderRadius: '10px',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              border: 'none',
+              background: activeTab === 'CLOSING' ? '#0284c7' : '#f8fafc',
+              color: activeTab === 'CLOSING' ? '#ffffff' : '#64748b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.15s ease'
+            }}
+            title="End of day stock closing & leftover carry forward"
+          >
+            <Boxes size={17} />
+            <span>Day Close</span>
           </button>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* VIEW 1: KMF DAILY ORDERS DASHBOARD (Images 1 & 2)                          */}
+      {/* TAB 1: INDENT ENTRY (Clean matching Image 4)                               */}
       {/* ========================================================================= */}
-      {activeView === 'KMF_HOME' && (
-        <div style={{ background: '#f8fafc', borderRadius: '20px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
-          {/* Authentic KMF Orange Header Bar */}
+      {activeTab === 'ENTRY' && (
+        <div style={{ background: '#ffffff', borderRadius: '18px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+          {/* Top Live Summary Bar */}
           <div style={{
-            background: '#ea580c',
-            color: 'white',
-            padding: '16px 20px',
+            background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+            borderBottom: '1.5px solid #fed7aa',
+            padding: '14px 18px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            boxShadow: '0 2px 10px rgba(234, 88, 12, 0.3)'
+            flexWrap: 'wrap',
+            gap: '10px'
           }}>
-            <h1 style={{ fontSize: '1.45rem', fontWeight: 800, margin: 0, letterSpacing: '-0.01em', color: '#ffffff' }}>
-              Daily Orders
-            </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
-              <div style={{ position: 'relative', cursor: 'pointer' }}>
-                <Bell size={22} color="#ffffff" />
-                <span style={{
-                  position: 'absolute',
-                  top: '-3px',
-                  right: '-3px',
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: '#ef4444',
-                  border: '1.5px solid white'
-                }} />
+            <div>
+              <div style={{ fontSize: '0.74rem', color: '#c2410c', fontWeight: 800, textTransform: 'uppercase' }}>
+                Indent for {formatDisplayDate(currentDate)}
               </div>
-              <button
-                type="button"
-                onClick={() => fetchData(currentDate)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ffffff', display: 'flex', alignItems: 'center' }}
-                title="Refresh"
-              >
-                <RefreshCw size={22} className={loading ? 'spin' : ''} />
-              </button>
+              <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#ea580c', marginTop: '2px' }}>
+                Total Indent Cost: {formatINR(totals.totalInwardCost)}
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.74rem', color: '#166534', fontWeight: 800, textTransform: 'uppercase' }}>
+                Expected Shop Profit
+              </div>
+              <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#16a34a', marginTop: '2px' }}>
+                +{formatINR(totals.totalPotentialProfit)}
+              </div>
             </div>
           </div>
 
-          <div style={{ padding: '16px' }}>
-            {/* Kolar Chikkaballapura Milk Union Welcome Banner */}
-            <div style={{
-              background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
-              borderRadius: '16px',
-              padding: '18px 20px',
-              color: 'white',
-              position: 'relative',
-              overflow: 'hidden',
-              marginBottom: '16px',
-              boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)'
-            }}>
-              {/* Nandini Brand Badge */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-                <div>
-                  <div style={{
-                    background: '#ffffff',
-                    padding: '3px 10px',
-                    borderRadius: '999px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    marginBottom: '10px'
-                  }}>
-                    <span style={{ fontWeight: 900, color: '#0369a1', fontSize: '0.85rem' }}>Nandini</span>
-                    <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>A MILK BRAND</span>
-                  </div>
-                  <div style={{ fontSize: '0.78rem', opacity: 0.9, fontWeight: 600 }}>Welcome to</div>
-                  <div style={{ fontSize: '0.92rem', fontWeight: 900, lineHeight: 1.3, maxWidth: '340px' }}>
-                    KOLAR CHIKKABALLAPURA DISTRICT CO-OPERATIVE MILK PRODUCERS SOCIETIES UNION LTD.
-                  </div>
-                  <div style={{ marginTop: '12px', fontSize: '0.72rem', opacity: 0.85, lineHeight: 1.4, borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '8px' }}>
-                    <strong>Address:</strong> Kolar Dairy Premises, NH-75, Huthur Post, KOLAR-563102
-                  </div>
-                </div>
-
-                {/* Decorative Packets Montage */}
-                <div style={{
-                  width: '95px',
-                  height: '95px',
-                  borderRadius: '12px',
-                  background: 'rgba(255,255,255,0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}>
-                  <Package size={52} color="#ffffff" style={{ opacity: 0.9 }} />
-                </div>
-              </div>
-            </div>
-
-            {/* Profile Card */}
-            <div style={{
-              background: '#ffffff',
-              borderRadius: '16px',
-              padding: '16px 18px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-              marginBottom: '14px',
-              border: '1px solid #f1f5f9'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <div style={{
-                  width: '64px',
-                  height: '64px',
-                  borderRadius: '50%',
-                  background: '#f1f5f9',
-                  border: '2px solid #e2e8f0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#ea580c',
-                  flexShrink: 0
-                }}>
-                  <User size={32} />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', margin: '0 0 2px 0' }}>
-                    {parlourName}
-                  </h2>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
-                    Customer ID: <strong style={{ color: '#334155' }}>{customerId}</strong>
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
-                    Route: <strong style={{ color: '#334155' }}>{routeCode}</strong>
-                  </div>
-                </div>
-              </div>
-
-              <a
-                href={`tel:${supplierPhone}`}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '4px',
-                  color: '#ea580c',
-                  textDecoration: 'none',
-                  padding: '8px 12px',
-                  borderRadius: '10px',
-                  background: '#fff7ed',
-                  border: '1px solid #ffedd5'
-                }}
-              >
-                <Phone size={22} />
-                <span style={{ fontSize: '0.72rem', fontWeight: 800 }}>Call Supplier</span>
-              </a>
-            </div>
-
-            {/* Security Deposit Card */}
-            <div style={{
-              background: '#ffffff',
-              borderRadius: '14px',
-              padding: '16px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
-              marginBottom: '12px',
-              border: '1px solid #f1f5f9'
-            }}>
-              <div style={{ fontSize: '0.96rem', fontWeight: 700, color: '#475569' }}>
-                Security Deposit:
-              </div>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#1e293b' }}>
-                {formatINR(securityDeposit)}
-              </div>
-            </div>
-
-            {/* Total Balance (Dues) Card */}
-            <div style={{
-              background: '#ffffff',
-              borderRadius: '14px',
-              padding: '16px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
-              marginBottom: '20px',
-              border: '1px solid #f1f5f9'
-            }}>
-              <div>
-                <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#475569' }}>
-                  Total balance(Dues)
-                </div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#1e293b', marginTop: '2px' }}>
-                  {formatINR(totalBalanceDues)}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPayModalOpen(true)}
-                style={{
-                  background: '#ea580c',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '10px',
-                  padding: '10px 24px',
-                  fontSize: '0.92rem',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(234, 88, 12, 0.35)',
-                  letterSpacing: '0.04em'
-                }}
-              >
-                PAY
-              </button>
-            </div>
-
-            {/* Active Indents Section Header */}
-            <div style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#475569', margin: 0 }}>
-                Active Indents
-              </h3>
-              <span style={{ fontSize: '0.78rem', color: '#ea580c', fontWeight: 700 }}>
-                Tap card to view subscriptions
-              </span>
-            </div>
-
-            {/* Active Indents Card (Opens Subscriptions Modal on Click) */}
-            <div
-              onClick={() => setShowSubscriptionsModal(true)}
-              style={{
-                background: '#ffffff',
-                borderRadius: '16px',
-                padding: '18px 20px',
-                boxShadow: '0 2px 10px rgba(0,0,0,0.06)',
-                border: '1.5px solid #fed7aa',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#334155' }}>
-                    Delivery Point: <strong style={{ color: '#0f172a' }}>{parlourName}</strong>
-                  </div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#334155', marginTop: '4px' }}>
-                    Route: <strong style={{ color: '#0f172a' }}>151</strong>
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', marginTop: '8px', fontSize: '0.82rem', color: '#64748b' }}>
-                    <span>Type: <strong style={{ color: '#334155' }}>AM(TRIP1_DEFAULT)</strong></span>
-                    <span>Date: <strong style={{ color: '#334155' }}>{formatDisplayDate(currentDate)}</strong></span>
-                  </div>
-
-                  {/* Summary of items in active indent */}
-                  <div style={{
-                    marginTop: '12px',
-                    padding: '8px 12px',
-                    background: '#fff7ed',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: '0.85rem'
-                  }}>
-                    <span style={{ fontWeight: 700, color: '#c2410c' }}>
-                      {totals.orderedProductsCount} Products • {formatUnits(totals.totalInwardQty)} Pkts
-                    </span>
-                    <span style={{ fontWeight: 900, color: '#ea580c', fontSize: '0.95rem' }}>
-                      {formatINR(totals.totalInwardCost)}
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ color: '#ea580c', paddingLeft: '14px' }}>
-                  <ChevronRightIcon size={28} />
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Action Button: Edit Subscription / Indent */}
-            <div style={{ marginTop: '18px', display: 'flex', gap: '12px' }}>
-              <button
-                type="button"
-                onClick={() => setActiveView('KMF_CHANGE_SUBSCRI')}
-                style={{
-                  flex: 1,
-                  background: '#ea580c',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '12px',
-                  padding: '14px',
-                  fontSize: '0.95rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.3)'
-                }}
-              >
-                <Edit2 size={18} />
-                <span>Change Subscription / Enter Indent</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveView('PROFIT_ANALYSIS')}
-                style={{
-                  flex: 1,
-                  background: '#16a34a',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '12px',
-                  padding: '14px',
-                  fontSize: '0.95rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  boxShadow: '0 4px 14px rgba(22, 163, 74, 0.3)'
-                }}
-              >
-                <TrendingUp size={18} />
-                <span>View Shop Profit</span>
-              </button>
-            </div>
-          </div>
-
-          {/* KMF Bottom Navigation Bar */}
+          {/* Quick Filter Bar */}
           <div style={{
-            background: '#ffffff',
-            borderTop: '1px solid #e2e8f0',
-            padding: '10px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-around',
-            marginTop: '16px'
-          }}>
-            <button
-              type="button"
-              onClick={() => setActiveView('KMF_HOME')}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: activeView === 'KMF_HOME' ? '#ea580c' : '#64748b'
-              }}
-            >
-              <Home size={22} />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800 }}>Home</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('KMF_CHANGE_SUBSCRI')}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: activeView === 'KMF_CHANGE_SUBSCRI' ? '#ea580c' : '#64748b'
-              }}
-            >
-              <ShoppingCart size={22} />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800 }}>Indent</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('PROFIT_ANALYSIS')}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: activeView === 'PROFIT_ANALYSIS' ? '#16a34a' : '#64748b'
-              }}
-            >
-              <TrendingUp size={22} />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800 }}>Profit</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('CLOSING_STOCK')}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: activeView === 'CLOSING_STOCK' ? '#0284c7' : '#64748b'
-              }}
-            >
-              <Boxes size={22} />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800 }}>Closing</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => showToast(`Agency: ${parlourName} • ID: ${customerId} • Route: ${routeCode}`)}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#64748b'
-              }}
-            >
-              <User size={22} />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800 }}>My Account</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* VIEW 2: KMF "Change Subscri..." INDENT ENTRY SCREEN (Image 4)              */}
-      {/* ========================================================================= */}
-      {activeView === 'KMF_CHANGE_SUBSCRI' && (
-        <div style={{ background: '#ffffff', borderRadius: '20px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
-          {/* Authentic KMF Orange Header Bar */}
-          <div style={{
-            background: '#ea580c',
-            color: 'white',
-            padding: '16px 18px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            boxShadow: '0 2px 10px rgba(234, 88, 12, 0.3)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <button
-                type="button"
-                onClick={() => setActiveView('KMF_HOME')}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ffffff', padding: 0, display: 'flex', alignItems: 'center' }}
-              >
-                <ChevronLeft size={26} />
-              </button>
-              <h1 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
-                Change Subscri...
-              </h1>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  const q = prompt('Search product name:', searchQuery);
-                  if (q !== null) setSearchQuery(q);
-                }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ffffff' }}
-                title="Search Product"
-              >
-                <Search size={22} />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextCat = categoryFilter === 'ALL' ? 'MILK' : categoryFilter === 'MILK' ? 'CURD' : 'ALL';
-                  setCategoryFilter(nextCat);
-                }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ffffff' }}
-                title="Filter Category"
-              >
-                <SlidersHorizontal size={22} />
-              </button>
-            </div>
-          </div>
-
-          {/* Sub-Header Banner */}
-          <div style={{ padding: '16px 18px', borderBottom: '1px solid #f1f5f9' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{
-                background: '#ffffff',
-                border: '1.5px solid #ea580c',
-                borderRadius: '999px',
-                padding: '2px 8px',
-                fontSize: '0.68rem',
-                fontWeight: 900,
-                color: '#ea580c'
-              }}>
-                Nandini
-              </div>
-              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#c2410c' }}>
-                {formatDisplayDate(currentDate)} {parlourName}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#334155' }}>
-                Route Name : <strong>151</strong>
-              </div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#334155' }}>
-                Shift : <strong>AM</strong>
-              </div>
-            </div>
-
-            {/* Live Total Amount Highlight */}
-            <div style={{
-              marginTop: '10px',
-              fontSize: '1.25rem',
-              fontWeight: 900,
-              color: '#ea580c',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}>
-              <span>Total Amount : {formatINR(totals.totalInwardCost)}</span>
-              <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 700 }}>
-                {formatUnits(totals.totalInwardQty)} Pkts
-              </span>
-            </div>
-          </div>
-
-          {/* Category Filter Pills */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 18px',
+            padding: '10px 18px',
             background: '#f8fafc',
             borderBottom: '1px solid #e2e8f0',
-            overflowX: 'auto',
-            scrollbarWidth: 'none'
+            gap: '8px',
+            flexWrap: 'wrap'
           }}>
-            {[
-              { key: 'ALL', label: 'All Items' },
-              { key: 'MILK', label: '🥛 Milk' },
-              { key: 'CURD', label: '🥣 Curd' },
-              { key: 'BUTTERMILK', label: '🧈 Buttermilk' }
-            ].map((cat) => (
-              <button
-                key={cat.key}
-                type="button"
-                onClick={() => setCategoryFilter(cat.key)}
-                style={{
-                  padding: '4px 12px',
-                  borderRadius: '999px',
-                  fontSize: '0.78rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  border: categoryFilter === cat.key ? '1px solid #ea580c' : '1px solid #cbd5e1',
-                  background: categoryFilter === cat.key ? '#fff7ed' : '#ffffff',
-                  color: categoryFilter === cat.key ? '#ea580c' : '#64748b'
-                }}
-              >
-                {cat.label}
-              </button>
-            ))}
+            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+              {[
+                { key: 'ALL', label: 'All Items' },
+                { key: 'MILK', label: '🥛 Milk' },
+                { key: 'CURD', label: '🥣 Curd' },
+                { key: 'BUTTERMILK', label: '🧈 Buttermilk' }
+              ].map((cat) => (
+                <button
+                  key={cat.key}
+                  type="button"
+                  onClick={() => setCategoryFilter(cat.key)}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: '999px',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    border: categoryFilter === cat.key ? '1px solid #ea580c' : '1px solid #cbd5e1',
+                    background: categoryFilter === cat.key ? '#fff7ed' : '#ffffff',
+                    color: categoryFilter === cat.key ? '#ea580c' : '#64748b'
+                  }}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleLoadTemplate(true)}
+              style={{
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                color: '#0284c7',
+                background: '#f0f9ff',
+                border: '1px solid #bae6fd',
+                borderRadius: '8px',
+                padding: '4px 10px',
+                cursor: 'pointer'
+              }}
+            >
+              Reset to Standard KMF Items
+            </button>
           </div>
 
-          {/* Table Header Row (Matching Image 4) */}
+          {/* Table Header Row */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1.1fr 2.4fr 1.6fr',
+            gridTemplateColumns: '1fr 2.4fr 1.6fr',
             padding: '10px 18px',
-            background: '#e2e8f0',
+            background: '#f1f5f9',
             fontWeight: 800,
-            fontSize: '0.82rem',
+            fontSize: '0.8rem',
             color: '#475569',
             textTransform: 'uppercase',
-            letterSpacing: '0.04em'
+            letterSpacing: '0.04em',
+            borderBottom: '1px solid #e2e8f0'
           }}>
             <div>Category</div>
             <div>Product</div>
-            <div style={{ textAlign: 'right' }}>Quantity UOM</div>
+            <div style={{ textAlign: 'right' }}>Quantity (Pkts)</div>
           </div>
 
-          {/* Product Items List (Matching Image 4) */}
-          <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          {/* Product Items List (Image 4 Clean Style) */}
+          <div style={{ maxHeight: '62vh', overflowY: 'auto' }}>
             {filteredItems.map((it, idx) => {
               const inwardQty = Number(it.inward_qty) || 0;
-              const unitPrice = Number(it.purchase_price) || 0;
-              const lineTotal = inwardQty * unitPrice;
+              const unitCost = Number(it.purchase_price) || 0;
+              const unitMRP = Number(it.selling_price) || 0;
+              const lineTotal = inwardQty * unitCost;
+              const unitMargin = unitMRP - unitCost;
 
               return (
                 <div
                   key={it.item_code || it.product_name || idx}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.1fr 2.4fr 1.6fr',
-                    padding: '14px 18px',
+                    gridTemplateColumns: '1fr 2.4fr 1.6fr',
+                    padding: '12px 18px',
                     borderBottom: '1px solid #f1f5f9',
                     alignItems: 'center',
                     background: inwardQty > 0 ? '#fffaf5' : '#ffffff'
                   }}
                 >
                   {/* Category Column */}
-                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#64748b' }}>
+                  <div style={{ fontSize: '0.76rem', fontWeight: 800, color: '#64748b' }}>
                     {(it.category || 'MILK').toUpperCase()}
                   </div>
 
@@ -1196,8 +671,11 @@ export default function DailyIndentPage() {
                     <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.25 }}>
                       {it.product_name} {it.item_code}
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px', fontWeight: 600 }}>
-                      Unit Price(GST Incl.): <strong style={{ color: '#334155' }}>₹{unitPrice.toFixed(2)}</strong>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '3px', fontWeight: 600 }}>
+                      Cost: <strong>₹{unitCost.toFixed(2)}</strong> • MRP: <strong>₹{unitMRP.toFixed(2)}</strong>
+                      <span style={{ color: '#16a34a', marginLeft: '6px', fontWeight: 800 }}>
+                        (+₹{unitMargin.toFixed(2)} profit/pkt)
+                      </span>
                     </div>
                   </div>
 
@@ -1208,8 +686,8 @@ export default function DailyIndentPage() {
                         type="button"
                         onClick={() => handleAdjustItemQty(idx, -1)}
                         style={{
-                          width: '26px',
-                          height: '26px',
+                          width: '28px',
+                          height: '28px',
                           borderRadius: '6px',
                           border: '1px solid #cbd5e1',
                           background: '#f8fafc',
@@ -1219,7 +697,7 @@ export default function DailyIndentPage() {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          fontSize: '0.85rem'
+                          fontSize: '0.9rem'
                         }}
                       >
                         -
@@ -1236,7 +714,7 @@ export default function DailyIndentPage() {
                           width: '56px',
                           textAlign: 'center',
                           fontWeight: 900,
-                          fontSize: '1rem',
+                          fontSize: '1.05rem',
                           color: '#ea580c',
                           border: 'none',
                           borderBottom: '2px solid #ea580c',
@@ -1254,8 +732,8 @@ export default function DailyIndentPage() {
                         type="button"
                         onClick={() => handleAdjustItemQty(idx, 1)}
                         style={{
-                          width: '26px',
-                          height: '26px',
+                          width: '28px',
+                          height: '28px',
                           borderRadius: '6px',
                           border: '1px solid #cbd5e1',
                           background: '#f8fafc',
@@ -1265,16 +743,16 @@ export default function DailyIndentPage() {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          fontSize: '0.85rem'
+                          fontSize: '0.9rem'
                         }}
                       >
                         +
                       </button>
                     </div>
 
-                    {/* Calculated Line Amount */}
-                    <div style={{ fontSize: '0.74rem', color: '#ea580c', fontWeight: 800, marginTop: '4px' }}>
-                      Amount: {formatINR(lineTotal)}
+                    {/* Calculated Line Cost */}
+                    <div style={{ fontSize: '0.74rem', color: '#ea580c', fontWeight: 800, marginTop: '3px' }}>
+                      Cost: {formatINR(lineTotal)}
                     </div>
                   </div>
                 </div>
@@ -1282,7 +760,7 @@ export default function DailyIndentPage() {
             })}
           </div>
 
-          {/* Docked Solid Orange Submit Button (Matching Image 4) */}
+          {/* Bottom Submit Bar */}
           <div style={{ padding: '16px 18px', background: '#ffffff', borderTop: '1px solid #e2e8f0' }}>
             <button
               type="button"
@@ -1298,70 +776,58 @@ export default function DailyIndentPage() {
                 fontSize: '1.05rem',
                 fontWeight: 900,
                 cursor: 'pointer',
-                boxShadow: '0 4px 16px rgba(234, 88, 12, 0.4)',
-                letterSpacing: '0.04em'
+                boxShadow: '0 4px 16px rgba(234, 88, 12, 0.35)',
+                letterSpacing: '0.04em',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
               }}
             >
-              {saving ? 'Submitting Indent...' : 'Submit'}
+              <Save size={20} />
+              <span>{saving ? 'Submitting Indent...' : `Submit & Save Indent (${formatINR(totals.totalInwardCost)})`}</span>
             </button>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* VIEW 3: SHOP PROFIT & MARGINS ANALYSIS (Owner's primary goal)             */}
+      {/* TAB 2: SHOP PROFIT & MARGINS (Owner's Primary Financial Goal)            */}
       {/* ========================================================================= */}
-      {activeView === 'PROFIT_ANALYSIS' && (
-        <div style={{ background: '#ffffff', borderRadius: '20px', padding: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-            <div>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
-                Shop Profit & Margins Analysis
-              </h2>
-              <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '4px 0 0' }}>
-                Comparing KMF Inward Procurement Cost vs. Shop Retail Selling Price (MRP)
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveView('KMF_HOME')}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                border: '1px solid #cbd5e1',
-                background: '#f8fafc',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              Back to Orders
-            </button>
+      {activeTab === 'PROFIT' && (
+        <div style={{ background: '#ffffff', borderRadius: '18px', padding: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h2 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+              Shop Profit from Indent
+            </h2>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '3px 0 0' }}>
+              Calculated by subtracting KMF Inward Indent Procurement Cost from Shop Retail Selling Price (MRP)
+            </p>
           </div>
 
-          {/* Today's 3 Key Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+          {/* 3 Core Profit Metrics Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '20px' }}>
             <div style={{ background: '#fff7ed', borderRadius: '14px', padding: '16px', border: '1px solid #fed7aa' }}>
               <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#c2410c', textTransform: 'uppercase' }}>
                 1. KMF Inward Indent Cost
               </div>
-              <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#ea580c', marginTop: '4px' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#ea580c', marginTop: '4px' }}>
                 {formatINR(totals.totalInwardCost)}
               </div>
               <div style={{ fontSize: '0.75rem', color: '#9a3412', marginTop: '4px' }}>
-                {formatUnits(totals.totalInwardQty)} packets ordered from KMF
+                {formatUnits(totals.totalInwardQty)} packets purchased from dairy
               </div>
             </div>
 
             <div style={{ background: '#f0fdf4', borderRadius: '14px', padding: '16px', border: '1px solid #bbf7d0' }}>
               <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#166534', textTransform: 'uppercase' }}>
-                2. Shop Retail Sales Value (MRP)
+                2. Shop Retail Value (MRP)
               </div>
-              <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#16a34a', marginTop: '4px' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#16a34a', marginTop: '4px' }}>
                 {formatINR(totals.totalPotentialSales)}
               </div>
               <div style={{ fontSize: '0.75rem', color: '#15803d', marginTop: '4px' }}>
-                Full value when sold in shop / deliveries
+                Full retail selling price of indent
               </div>
             </div>
 
@@ -1369,16 +835,16 @@ export default function DailyIndentPage() {
               <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#1e40af', textTransform: 'uppercase' }}>
                 3. Net Shop Profit Expected
               </div>
-              <div style={{ fontSize: '1.55rem', fontWeight: 900, color: '#2563eb', marginTop: '4px' }}>
+              <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#2563eb', marginTop: '4px' }}>
                 +{formatINR(totals.totalPotentialProfit)}
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#1d4ed8', marginTop: '4px', fontWeight: 700 }}>
-                Gross Margin: {totals.totalPotentialSales > 0 ? ((totals.totalPotentialProfit / totals.totalPotentialSales) * 100).toFixed(1) : 0}%
+              <div style={{ fontSize: '0.75rem', color: '#1d4ed8', marginTop: '4px', fontWeight: 800 }}>
+                Margin: {totals.totalPotentialSales > 0 ? ((totals.totalPotentialProfit / totals.totalPotentialSales) * 100).toFixed(1) : 0}%
               </div>
             </div>
           </div>
 
-          {/* Weekly & Monthly Performance (From Backend API) */}
+          {/* Past 7 Days & Monthly Profit Breakdown */}
           {summary && (
             <div style={{
               background: '#f8fafc',
@@ -1387,37 +853,37 @@ export default function DailyIndentPage() {
               marginBottom: '20px',
               border: '1px solid #e2e8f0'
             }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#334155', margin: '0 0 12px 0' }}>
-                Performance Summary (Past 7 Days & Month to Date)
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#334155', margin: '0 0 10px 0' }}>
+                Historical Parlour Profit Summary
               </h3>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div style={{ background: '#ffffff', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>LAST 7 DAYS PROFIT</div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#16a34a', marginTop: '2px' }}>
+                <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 800 }}>LAST 7 DAYS NET PROFIT</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#16a34a', marginTop: '2px' }}>
                     {formatINR(summary.weekly?.net_weekly_profit || 0)}
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>
                     {summary.weekly?.total_days_recorded || 0} days recorded
                   </div>
                 </div>
 
-                <div style={{ background: '#ffffff', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>THIS MONTH'S TOTAL PROFIT</div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0284c7', marginTop: '2px' }}>
+                <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 800 }}>THIS MONTH'S TOTAL PROFIT</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0284c7', marginTop: '2px' }}>
                     {formatINR(summary.monthly?.net_monthly_profit || 0)}
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                    {summary.monthly?.total_days_recorded || 0} days recorded in {summary.month}
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '2px' }}>
+                    Recorded in {summary.month}
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Item-by-Item Margin Breakdown Table */}
-          <div style={{ marginTop: '16px' }}>
+          {/* Product Margin Table */}
+          <div>
             <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#334155', marginBottom: '10px' }}>
-              Product Margin Breakdown (Ordered Items)
+              Item-by-Item Profit Breakdown
             </h3>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
@@ -1426,8 +892,8 @@ export default function DailyIndentPage() {
                     <th style={{ padding: '8px 10px' }}>Product</th>
                     <th style={{ padding: '8px 10px' }}>Inward Cost</th>
                     <th style={{ padding: '8px 10px' }}>Shop MRP</th>
-                    <th style={{ padding: '8px 10px' }}>Margin / Pkt</th>
-                    <th style={{ padding: '8px 10px' }}>Qty (Pkts)</th>
+                    <th style={{ padding: '8px 10px' }}>Profit / Pkt</th>
+                    <th style={{ padding: '8px 10px' }}>Ordered Qty</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total Profit</th>
                   </tr>
                 </thead>
@@ -1458,6 +924,14 @@ export default function DailyIndentPage() {
                       </tr>
                     );
                   })}
+
+                  {totals.orderedProductsCount === 0 && (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>
+                        No items entered in today's indent yet. Enter quantities in the Indent Entry tab to see profit!
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1466,34 +940,17 @@ export default function DailyIndentPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* VIEW 4: DAY CLOSE & STOCK RECONCILIATION                                   */}
+      {/* TAB 3: DAY CLOSE & STOCK RECONCILIATION                                   */}
       {/* ========================================================================= */}
-      {activeView === 'CLOSING_STOCK' && (
-        <div style={{ background: '#ffffff', borderRadius: '20px', padding: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-            <div>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
-                Day Close & Stock Reconciliation
-              </h2>
-              <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '4px 0 0' }}>
-                Count closing stock & push remaining packets as tomorrow's opening stock
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveView('KMF_HOME')}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '8px',
-                border: '1px solid #cbd5e1',
-                background: '#f8fafc',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              Back to Orders
-            </button>
+      {activeTab === 'CLOSING' && (
+        <div style={{ background: '#ffffff', borderRadius: '18px', padding: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.06)', border: '1px solid #f1f5f9' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h2 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+              Day Close & Stock Reconciliation
+            </h2>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '3px 0 0' }}>
+              Count closing stock & carry forward unsold packets as tomorrow's opening stock
+            </p>
           </div>
 
           <div style={{ overflowX: 'auto', marginBottom: '20px' }}>
@@ -1504,7 +961,7 @@ export default function DailyIndentPage() {
                   <th style={{ padding: '8px 10px' }}>Opening</th>
                   <th style={{ padding: '8px 10px' }}>Inward</th>
                   <th style={{ padding: '8px 10px' }}>Closing Leftover</th>
-                  <th style={{ padding: '8px 10px' }}>Damaged / Leak</th>
+                  <th style={{ padding: '8px 10px' }}>Damage/Leak</th>
                   <th style={{ padding: '8px 10px', textAlign: 'right' }}>Actual Sold</th>
                 </tr>
               </thead>
@@ -1606,293 +1063,6 @@ export default function DailyIndentPage() {
             >
               {pushing ? 'Closing Day...' : 'Close Day & Carry Forward to Tomorrow'}
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* POPUP MODAL: KMF SUBSCRIPTIONS SUMMARY SHEET (Image 3)                     */}
-      {/* ========================================================================= */}
-      {showSubscriptionsModal && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px'
-        }}>
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '20px',
-            width: '100%',
-            maxWidth: '460px',
-            maxHeight: '90vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-            animation: 'modalFadeIn 0.2s ease-out'
-          }}>
-            {/* Modal Month Header */}
-            <div style={{
-              background: '#f8fafc',
-              padding: '14px 20px',
-              borderBottom: '1px solid #e2e8f0',
-              textAlign: 'center'
-            }}>
-              <div style={{ fontSize: '0.85rem', color: '#c2410c', fontWeight: 800 }}>
-                Subscriptions
-              </div>
-              <div style={{
-                fontSize: '1.15rem',
-                fontWeight: 900,
-                color: '#1e293b',
-                marginTop: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '12px'
-              }}>
-                <button
-                  type="button"
-                  onClick={() => changeDateBy(-30)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <span>{monthYearLabel}</span>
-                <button
-                  type="button"
-                  onClick={() => changeDateBy(30)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* Subscriptions Content Area */}
-            <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569' }}>Route Name : <strong>151</strong></span>
-                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569' }}><strong>AM</strong></span>
-              </div>
-
-              {/* Table Column Headers */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '2.5fr 1.3fr 1.4fr',
-                padding: '8px 0',
-                borderBottom: '1px solid #e2e8f0',
-                fontSize: '0.8rem',
-                fontWeight: 800,
-                color: '#64748b'
-              }}>
-                <div>Product</div>
-                <div style={{ textAlign: 'center' }}>Qty UOM</div>
-                <div style={{ textAlign: 'right' }}>Total</div>
-              </div>
-
-              {/* Total Amount Subheader */}
-              <div style={{
-                padding: '10px 0',
-                fontSize: '1.05rem',
-                fontWeight: 900,
-                color: '#ea580c',
-                borderBottom: '1px solid #f1f5f9'
-              }}>
-                Total Amount : {formatINR(totals.totalInwardCost)}
-              </div>
-
-              {/* Ordered Products Rows (Image 3) */}
-              <div style={{ maxHeight: '42vh', overflowY: 'auto' }}>
-                {items
-                  .filter(it => (Number(it.inward_qty) || 0) > 0)
-                  .map((it, idx) => {
-                    const qty = Number(it.inward_qty) || 0;
-                    const price = Number(it.purchase_price) || 0;
-                    const total = qty * price;
-
-                    return (
-                      <div
-                        key={idx}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '2.5fr 1.3fr 1.4fr',
-                          padding: '10px 0',
-                          borderBottom: '1px solid #f1f5f9',
-                          alignItems: 'center',
-                          fontSize: '0.85rem'
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, color: '#334155', lineHeight: 1.25 }}>
-                          {it.product_name} {it.item_code}
-                        </div>
-                        <div style={{ textAlign: 'center', color: '#ea580c', fontWeight: 800 }}>
-                          {qty} Pkts
-                        </div>
-                        <div style={{ textAlign: 'right', fontWeight: 700, color: '#334155' }}>
-                          ₹{total.toFixed(2)}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                {totals.orderedProductsCount === 0 && (
-                  <div style={{ padding: '30px 10px', textAlign: 'center', color: '#94a3b8' }}>
-                    No products ordered for {formatDisplayDate(currentDate)}.
-                    <div style={{ marginTop: '8px' }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowSubscriptionsModal(false);
-                          setActiveView('KMF_CHANGE_SUBSCRI');
-                        }}
-                        style={{
-                          background: '#ea580c',
-                          color: 'white',
-                          border: 'none',
-                          padding: '6px 14px',
-                          borderRadius: '8px',
-                          fontSize: '0.8rem',
-                          fontWeight: 700,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Enter Indent
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Bottom Buttons (Close & Edit - Matching Image 3) */}
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              padding: '16px 20px',
-              background: '#f8fafc',
-              borderTop: '1px solid #e2e8f0'
-            }}>
-              <button
-                type="button"
-                onClick={() => setShowSubscriptionsModal(false)}
-                style={{
-                  flex: 1,
-                  background: '#ffffff',
-                  border: '1.5px solid #ea580c',
-                  color: '#ea580c',
-                  borderRadius: '10px',
-                  padding: '12px',
-                  fontSize: '0.92rem',
-                  fontWeight: 800,
-                  cursor: 'pointer'
-                }}
-              >
-                Close
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSubscriptionsModal(false);
-                  setActiveView('KMF_CHANGE_SUBSCRI');
-                }}
-                style={{
-                  flex: 1,
-                  background: '#ea580c',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '10px',
-                  padding: '12px',
-                  fontSize: '0.92rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(234, 88, 12, 0.3)'
-                }}
-              >
-                Edit
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* QUICK PAY MODAL */}
-      {payModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px'
-        }}>
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '20px',
-            width: '100%',
-            maxWidth: '420px',
-            padding: '24px',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-            textAlign: 'center'
-          }}>
-            <CreditCard size={42} color="#ea580c" style={{ marginBottom: '10px' }} />
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: '0 0 6px 0' }}>
-              Pay Supplier Dues
-            </h3>
-            <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#ea580c', margin: '10px 0' }}>
-              {formatINR(totalBalanceDues)}
-            </div>
-            <p style={{ fontSize: '0.82rem', color: '#64748b', lineHeight: 1.4, margin: '0 0 20px 0' }}>
-              Transfer directly to KMF Kolar Chikkaballapura District Co-operative Milk Producers Union.
-              UPI / Bank transfer details will be generated.
-            </p>
-
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={() => setPayModalOpen(false)}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  borderRadius: '10px',
-                  border: '1px solid #cbd5e1',
-                  background: '#f8fafc',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPayModalOpen(false);
-                  showToast('Payment initiated via UPI/Bank!');
-                }}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  background: '#ea580c',
-                  color: 'white',
-                  fontWeight: 900,
-                  cursor: 'pointer'
-                }}
-              >
-                Proceed to Pay
-              </button>
-            </div>
           </div>
         </div>
       )}
